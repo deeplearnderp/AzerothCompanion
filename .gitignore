@@ -1,0 +1,23 @@
+﻿# JetBrains Rider
+.idea/
+
+# Build output
+bin/
+obj/
+
+# Logs
+*.log
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# macOS
+.DS_Store
+
+# Lua
+*.luac
+
+# WoW backup/temp files
+*.bak
+*.tmp

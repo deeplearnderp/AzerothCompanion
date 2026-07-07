@@ -1,0 +1,73 @@
+## Interface: 120007
+## Title: Azeroth Companion
+## Notes: Framework
+## Author: Cory
+## Version: 0.0.1
+
+## SavedVariables: AzerothCompanionDB
+
+AzerothCompanion.lua
+
+Libs/LibStub/LibStub.lua
+Libs/CallbackHandler-1.0/CallbackHandler-1.0.lua
+Libs/LibDataBroker-1.1/LibDataBroker-1.1.lua
+Libs/LibDBIcon-1.0/LibDBIcon-1.0.lua
+
+Localization/enUS.lua
+Localization/deDE.lua
+Localization/esES.lua
+Localization/esMX.lua
+Localization/frFR.lua
+Localization/itIT.lua
+Localization/koKR.lua
+Localization/ptBR.lua
+Localization/ruRU.lua
+Localization/zhCN.lua
+Localization/zhTW.lua
+
+Core/Core.lua
+
+Core/Managers/ServiceManager.lua
+Core/Managers/ModuleManager.lua
+
+Core/Services/DatabaseService.lua
+Core/Logging/Logger.lua
+Core/Events/EventManager.lua
+Core/Managers/WidgetManager.lua
+Core/Config/ConfigurationManager.lua
+Core/Intelligence/InsightEngine.lua
+Core/Intelligence/RecommendationEngine.lua
+
+Core/UI/Settings/SettingsSection.lua
+Core/UI/Settings/SettingsPage.lua
+Core/Managers/SettingsManager.lua
+
+Core/Services/LocalizationService.lua
+
+Core/Commands/SlashCommandManager.lua
+
+Core/UI/WindowManager.lua
+Core/UI/BaseWindow.lua
+
+Core/UI/Widgets/BaseWidget.lua
+Core/UI/Widgets/Label.lua
+Core/UI/Widgets/Button.lua
+Core/UI/Widgets/Checkbox.lua
+Core/UI/Widgets/Slider.lua
+Core/UI/Widgets/EditBox.lua
+Core/UI/Widgets/Dropdown.lua
+Core/UI/Widgets/ColorPicker.lua
+Core/UI/Widgets/DashboardCard.lua
+
+Core/UI/Settings/NavigationPanel.lua
+Core/UI/Settings/ContentPanel.lua
+Core/UI/SettingsWindow.lua
+Core/UI/Dashboard.lua
+Core/UI/MinimapIcon.lua
+
+Modules/Player/PlayerModule.lua
+Modules/Character/CharacterModule.lua
+Modules/Inventory/InventoryModule.lua
+Modules/Achievements/AchievementsModule.lua
+
+Core/Bootstrap.lua

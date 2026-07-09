@@ -3,6 +3,13 @@
 -- Content Panel
 --
 -- Scrollable settings content with automatic layout and widget reuse.
+--
+-- Widgets never write directly into ConfigurationManager. A widget change
+-- reports into PendingValues and marks the panel Dirty; ConfigurationManager
+-- is only written to by Save(), which commits only the values that
+-- actually changed and fires SETTINGS_CHANGED for those. Cancel() discards
+-- PendingValues and reloads every widget from ConfigurationManager using
+-- the existing RefreshAllPages() path.
 -------------------------------------------------------------------------------
 
 local AC = _G.AzerothCompanion
@@ -30,6 +37,40 @@ ContentPanel.Layout =
 }
 
 -------------------------------------------------------------------------------
+-- Value Comparison
+--
+-- Used by Save() to decide which pending values actually differ from what
+-- is already persisted. Handles both plain values and flat tables (e.g.
+-- ColorPicker's {r, g, b, a}).
+-------------------------------------------------------------------------------
+
+local function ValuesEqual(a, b)
+
+    if type(a) ~= type(b) then
+        return false
+    end
+
+    if type(a) ~= "table" then
+        return a == b
+    end
+
+    for k, v in pairs(a) do
+        if b[k] ~= v then
+            return false
+        end
+    end
+
+    for k, v in pairs(b) do
+        if a[k] ~= v then
+            return false
+        end
+    end
+
+    return true
+
+end
+
+-------------------------------------------------------------------------------
 -- Create
 -------------------------------------------------------------------------------
 
@@ -41,6 +82,9 @@ function ContentPanel:Create(parent)
         PageFrames = {},
         ActivePageId = nil,
         SettingsManager = nil,
+        PendingValues = {},
+        Dirty = false,
+        OnDirtyChanged = nil,
     }
 
     setmetatable(panel, { __index = self })
@@ -74,6 +118,144 @@ end
 function ContentPanel:SetSettingsManager(manager)
 
     self.SettingsManager = manager
+
+end
+
+-------------------------------------------------------------------------------
+-- Dirty State
+-------------------------------------------------------------------------------
+
+function ContentPanel:SetOnDirtyChanged(callback)
+
+    self.OnDirtyChanged = callback
+
+end
+
+function ContentPanel:IsDirty()
+
+    return self.Dirty == true
+
+end
+
+function ContentPanel:MarkDirty()
+
+    if self.Dirty then
+        return
+    end
+
+    self.Dirty = true
+
+    if self.OnDirtyChanged then
+        self.OnDirtyChanged(true)
+    end
+
+end
+
+function ContentPanel:ClearDirty()
+
+    if not self.Dirty then
+        return
+    end
+
+    self.Dirty = false
+
+    if self.OnDirtyChanged then
+        self.OnDirtyChanged(false)
+    end
+
+end
+
+-------------------------------------------------------------------------------
+-- Pending Values
+--
+-- The only place a widget change lands before Save. Nothing here touches
+-- ConfigurationManager -- that only happens in Save().
+-------------------------------------------------------------------------------
+
+function ContentPanel:SetPendingValue(moduleName, key, value)
+
+    if not moduleName or not key then
+        return
+    end
+
+    self.PendingValues[moduleName] = self.PendingValues[moduleName] or {}
+    self.PendingValues[moduleName][key] = value
+
+    self:MarkDirty()
+
+end
+
+function ContentPanel:GetPendingValue(moduleName, key)
+
+    local moduleValues = self.PendingValues[moduleName]
+
+    if not moduleValues then
+        return nil, false
+    end
+
+    local value = moduleValues[key]
+
+    if value == nil then
+        return nil, false
+    end
+
+    return value, true
+
+end
+
+-------------------------------------------------------------------------------
+-- Save
+--
+-- Compares PendingValues against ConfigurationManager, writes only the
+-- values that actually changed, fires SETTINGS_CHANGED only for those,
+-- then clears pending/dirty state.
+-------------------------------------------------------------------------------
+
+function ContentPanel:Save()
+
+    local configuration = AC.ConfigurationManager
+    local manager = self.SettingsManager
+
+    for moduleName, moduleValues in pairs(self.PendingValues) do
+
+        for key, value in pairs(moduleValues) do
+
+            local current = configuration:GetValue(moduleName, key)
+
+            if not ValuesEqual(current, value) then
+
+                configuration:SetValue(moduleName, key, value)
+
+                if manager then
+                    manager:NotifyChanged(moduleName, key, value)
+                end
+
+            end
+
+        end
+
+    end
+
+    self.PendingValues = {}
+
+    self:ClearDirty()
+
+end
+
+-------------------------------------------------------------------------------
+-- Cancel
+--
+-- Discards PendingValues and reloads every widget from ConfigurationManager
+-- via the existing RefreshAllPages() path -- no new reload logic needed.
+-------------------------------------------------------------------------------
+
+function ContentPanel:Cancel()
+
+    self.PendingValues = {}
+
+    self:RefreshAllPages()
+
+    self:ClearDirty()
 
 end
 
@@ -209,7 +391,8 @@ function ContentPanel:BuildPage(page)
 
     pageFrame:SetHeight(math.abs(yOffset) + layout.Margin)
 
-    return {
+    return
+    {
         Frame = pageFrame,
         Bindings = bindings,
         Page = page,
@@ -414,6 +597,11 @@ end
 
 -------------------------------------------------------------------------------
 -- Bind Control
+--
+-- Widget changes report into PendingValues (via SetPendingValue) instead
+-- of writing to ConfigurationManager directly. The Button+key action path
+-- is unchanged: it reads the currently PERSISTED value for a custom
+-- onClick handler and isn't a settings input participating in Save/Cancel.
 -------------------------------------------------------------------------------
 
 function ContentPanel:BindControl(page, controlDef, widget)
@@ -448,8 +636,7 @@ function ContentPanel:BindControl(page, controlDef, widget)
 
             local checked = value == true
 
-            configuration:SetValue(moduleName, key, checked)
-            manager:NotifyChanged(moduleName, key, checked)
+            self:SetPendingValue(moduleName, key, checked)
 
             if controlDef.onChanged then
                 controlDef.onChanged(widget, checked)
@@ -467,8 +654,7 @@ function ContentPanel:BindControl(page, controlDef, widget)
                 return
             end
 
-            configuration:SetValue(moduleName, key, numberValue)
-            manager:NotifyChanged(moduleName, key, numberValue)
+            self:SetPendingValue(moduleName, key, numberValue)
 
             if controlDef.onChanged then
                 controlDef.onChanged(widget, numberValue)
@@ -480,8 +666,7 @@ function ContentPanel:BindControl(page, controlDef, widget)
 
         widget:SetOnChanged(function(_, value, index)
 
-            configuration:SetValue(moduleName, key, value)
-            manager:NotifyChanged(moduleName, key, value)
+            self:SetPendingValue(moduleName, key, value)
 
             if controlDef.onChanged then
                 controlDef.onChanged(widget, value, index)
@@ -495,8 +680,7 @@ function ContentPanel:BindControl(page, controlDef, widget)
 
             local textValue = tostring(value or "")
 
-            configuration:SetValue(moduleName, key, textValue)
-            manager:NotifyChanged(moduleName, key, textValue)
+            self:SetPendingValue(moduleName, key, textValue)
 
             if controlDef.onChanged then
                 controlDef.onChanged(widget, textValue)
@@ -524,8 +708,7 @@ function ContentPanel:BindControl(page, controlDef, widget)
                 a = value.a or 1,
             }
 
-            configuration:SetValue(moduleName, key, color)
-            manager:NotifyChanged(moduleName, key, color)
+            self:SetPendingValue(moduleName, key, color)
 
             if controlDef.onChanged then
                 controlDef.onChanged(widget, color)
@@ -551,6 +734,10 @@ end
 
 -------------------------------------------------------------------------------
 -- Refresh
+--
+-- Displays a control's PendingValue if one exists (so switching tabs
+-- never loses an unsaved edit); otherwise falls back to the persisted
+-- ConfigurationManager value, exactly as before.
 -------------------------------------------------------------------------------
 
 function ContentPanel:ApplyWidgetValue(controlDef, widget, value)
@@ -605,7 +792,14 @@ function ContentPanel:RefreshPageValues(cached)
 
             if moduleName and key then
 
-                local value = configuration:GetValue(moduleName, key)
+                local pendingValue, hasPending = self:GetPendingValue(moduleName, key)
+                local value
+
+                if hasPending then
+                    value = pendingValue
+                else
+                    value = configuration:GetValue(moduleName, key)
+                end
 
                 self:ApplyWidgetValue(controlDef, widget, value)
 
@@ -686,6 +880,9 @@ function ContentPanel:Destroy()
 
     self.PageFrames = {}
     self.ActivePageId = nil
+    self.PendingValues = {}
+
+    self:ClearDirty()
 
 end
 

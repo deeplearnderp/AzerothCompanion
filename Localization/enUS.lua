@@ -65,6 +65,21 @@ AC.Locales.enUS =
     ["Dashboard.CategoryBreakdown"] = "Category Breakdown",
     ["Dashboard.RecentHistory"] = "Recent History",
 
+    ["Dashboard.MythicPlus"] = "Mythic+",
+    ["Dashboard.TooltipMythicPlus"] = "View Mythic+ details",
+    ["Dashboard.MythicPlusNoKeystone"] = "No Keystone",
+    ["Dashboard.MythicPlusKeystoneFormat"] = "Keystone: Dungeon #%d, Level %d",
+    ["Dashboard.MythicPlusActiveRunFormat"] = "Run In Progress: Level %d",
+    ["Dashboard.MythicPlusRatingFormat"] = "Rating: %s",
+    ["Dashboard.MythicPlusBestFormat"] = "Best: +%d",
+    ["Dashboard.MythicPlusUnavailable"] = "Mythic+ unavailable",
+    ["Dashboard.StatusActive"] = "Active",
+
+    ["Dashboard.TooltipRecommendations"] = "View all recommendations",
+    ["Dashboard.TooltipProfile"] = "View full character details",
+    ["Dashboard.TooltipInventory"] = "View full inventory details",
+    ["Dashboard.TooltipAchievements"] = "View full achievement details",
+
     -----------------------------------------------------------------------
     -- Profile Page
     -----------------------------------------------------------------------
@@ -134,10 +149,29 @@ AC.Locales.enUS =
     ["Achievements.PointsThisSession"] = "Points Earned This Session",
 
     -----------------------------------------------------------------------
+    -- MythicPlus Page
+    -----------------------------------------------------------------------
+
+    ["MythicPlus.SectionKeystone"] = "Keystone",
+    ["MythicPlus.SectionRating"] = "Rating",
+    ["MythicPlus.SectionCurrentRun"] = "Current Run",
+
+    ["MythicPlus.HasKeystone"] = "Has Keystone",
+    ["MythicPlus.CurrentDungeonID"] = "Current Dungeon ID",
+    ["MythicPlus.KeystoneLevel"] = "Keystone Level",
+    ["MythicPlus.Rating"] = "Overall Rating",
+    ["MythicPlus.BestLevel"] = "Best Level (Season)",
+    ["MythicPlus.ActiveStatus"] = "Active Status",
+    ["MythicPlus.ActiveLevel"] = "Run Level",
+    ["MythicPlus.Deaths"] = "Deaths",
+
+    -----------------------------------------------------------------------
     -- Common
     -----------------------------------------------------------------------
 
     ["Common.Unknown"] = "Unknown",
+    ["Common.Yes"] = "Yes",
+    ["Common.No"] = "No",
 
     -----------------------------------------------------------------------
     -- Recommendations
@@ -166,4 +200,19 @@ AC.Locales.enUS =
 
     ["Recommendation.ReachNextMilestone.Title"] = "Reach Next Milestone",
     ["Recommendation.ReachNextMilestone.Description"] = "You gained significant achievement points. Complete one more to reach your next milestone.",
+
+    ["Recommendation.ExploreEndgameContent.Title"] = "Explore Endgame Content",
+    ["Recommendation.ExploreEndgameContent.Description"] = "You've reached the maximum level. Explore dungeons, raids, and other endgame content.",
+
+    ["Recommendation.RepairYourGear.Title"] = "Repair Your Gear",
+    ["Recommendation.RepairYourGear.Description"] = "Your equipment needs repair. Take care of it while you're at a vendor.",
+
+    ["Recommendation.RetrieveKeystone.Title"] = "Retrieve Your Keystone",
+    ["Recommendation.RetrieveKeystone.Description"] = "You don't have a keystone slotted. Pick one up before your next Mythic+ run.",
+
+    ["Recommendation.PushFurther.Title"] = "Push Further",
+    ["Recommendation.PushFurther.Description"] = "You set a new personal best. Consider pushing an even higher key.",
+
+    ["Recommendation.KeepClimbing.Title"] = "Keep Climbing",
+    ["Recommendation.KeepClimbing.Description"] = "Your Mythic+ rating is climbing. Keep running keys to push it further.",
 }

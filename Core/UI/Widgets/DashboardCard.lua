@@ -149,12 +149,20 @@ function DashboardCard:Create(parent, title, options)
             if self.Indicator then
                 self.Indicator:SetTextColor(1, 0.82, 0)
             end
+            if options.tooltip then
+                GameTooltip:SetOwner(self, "ANCHOR_TOP")
+                GameTooltip:SetText(options.tooltip, 1, 1, 1, 1, true)
+                GameTooltip:Show()
+            end
         end)
 
         card:SetScript("OnLeave", function(self)
             self.Background:SetColorTexture(baseR, baseG, baseB, baseA)
             if self.Indicator then
                 self.Indicator:SetTextColor(0.6, 0.6, 0.6)
+            end
+            if options.tooltip then
+                GameTooltip:Hide()
             end
         end)
 

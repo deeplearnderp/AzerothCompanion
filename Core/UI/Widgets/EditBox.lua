@@ -38,6 +38,10 @@ function EditBox:Initialize(manager, id, parent, options)
             return
         end
 
+        if self.Suppress then
+            return
+        end
+
         if self.OnChanged then
             self.OnChanged(self, control:GetText())
         end
@@ -98,7 +102,9 @@ end
 function EditBox:SetValue(text)
 
     if self.EditBox then
+        self.Suppress = true
         self.EditBox:SetText(tostring(text or ""))
+        self.Suppress = false
     end
 
 end

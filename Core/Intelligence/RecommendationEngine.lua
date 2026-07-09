@@ -235,6 +235,81 @@ function RecommendationEngine:EvaluateInsight(insight)
         }
     end
 
+    -- Max Level Reached
+    if title == "Max Level Reached" then
+        return
+        {
+            title = AC.L:Get("Recommendation.ExploreEndgameContent.Title"),
+            description = AC.L:Get("Recommendation.ExploreEndgameContent.Description"),
+            priority = priority - 5,
+            category = "Profile",
+            timestamp = time(),
+            expiresAt = 0,
+            dismissible = false,
+            data = insight.data or {},
+        }
+    end
+
+    -- Repairs Needed
+    if title == "Repairs Needed" then
+        return
+        {
+            title = AC.L:Get("Recommendation.RepairYourGear.Title"),
+            description = AC.L:Get("Recommendation.RepairYourGear.Description"),
+            priority = priority + 5,
+            category = "Inventory",
+            timestamp = time(),
+            expiresAt = 0,
+            dismissible = false,
+            data = insight.data or {},
+        }
+    end
+
+    -- No Keystone
+    if title == "No Keystone" then
+        return
+        {
+            title = AC.L:Get("Recommendation.RetrieveKeystone.Title"),
+            description = AC.L:Get("Recommendation.RetrieveKeystone.Description"),
+            priority = priority,
+            category = "MythicPlus",
+            timestamp = time(),
+            expiresAt = 0,
+            dismissible = false,
+            data = insight.data or {},
+        }
+    end
+
+    -- Personal Best
+    if title == "Personal Best" then
+        return
+        {
+            title = AC.L:Get("Recommendation.PushFurther.Title"),
+            description = AC.L:Get("Recommendation.PushFurther.Description"),
+            priority = priority - 10,
+            category = "MythicPlus",
+            timestamp = time(),
+            expiresAt = 0,
+            dismissible = false,
+            data = insight.data or {},
+        }
+    end
+
+    -- Rating Increased
+    if title == "Rating Increased" then
+        return
+        {
+            title = AC.L:Get("Recommendation.KeepClimbing.Title"),
+            description = AC.L:Get("Recommendation.KeepClimbing.Description"),
+            priority = priority - 15,
+            category = "MythicPlus",
+            timestamp = time(),
+            expiresAt = 0,
+            dismissible = false,
+            data = insight.data or {},
+        }
+    end
+
     return nil
 
 end

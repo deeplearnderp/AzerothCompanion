@@ -23,7 +23,7 @@ local Dashboard = {}
 -------------------------------------------------------------------------------
 
 local WINDOW_WIDTH = 420
-local WINDOW_HEIGHT = 600
+local WINDOW_HEIGHT = 720
 
 local CARD_WIDTH = 360
 local RECOMMENDATION_HEIGHT = 130
@@ -52,6 +52,7 @@ local VALID_PAGES =
     Profile = true,
     Inventory = true,
     Achievements = true,
+    MythicPlus = true,
 }
 
 -------------------------------------------------------------------------------
@@ -174,6 +175,38 @@ local ACHIEVEMENTS_SECTIONS =
         {
             { key = "achievementsEarnedThisSession", label = "Achievements.EarnedThisSession" },
             { key = "pointsEarnedThisSession", label = "Achievements.PointsThisSession" },
+        },
+    },
+}
+
+-- No "Future Features" list for MythicPlus -- only fields the backend
+-- already collects today are shown on this page.
+local MYTHICPLUS_SECTIONS =
+{
+    {
+        title = "MythicPlus.SectionKeystone",
+        fields =
+        {
+            { key = "hasKeystone", label = "MythicPlus.HasKeystone" },
+            { key = "currentDungeonID", label = "MythicPlus.CurrentDungeonID" },
+            { key = "currentLevel", label = "MythicPlus.KeystoneLevel" },
+        },
+    },
+    {
+        title = "MythicPlus.SectionRating",
+        fields =
+        {
+            { key = "rating", label = "MythicPlus.Rating" },
+            { key = "bestOverallLevel", label = "MythicPlus.BestLevel" },
+        },
+    },
+    {
+        title = "MythicPlus.SectionCurrentRun",
+        fields =
+        {
+            { key = "activeStatus", label = "MythicPlus.ActiveStatus" },
+            { key = "activeLevel", label = "MythicPlus.ActiveLevel" },
+            { key = "deathCount", label = "MythicPlus.Deaths" },
         },
     },
 }
@@ -772,6 +805,80 @@ function Dashboard:UpdateAchievementsPage(frame)
 end
 
 -------------------------------------------------------------------------------
+-- MythicPlus Page Data
+--
+-- The only place the Dashboard reads Mythic+ data. Everything here comes
+-- from MythicPlusModule's public API (GetProfile/GetBestOverallLevel).
+-- "Current Dungeon" is shown as a raw numeric map ID -- MythicPlusModule
+-- does not currently expose a dungeon-name resolver, and the Dashboard
+-- must not call a Blizzard API directly to work around that.
+-------------------------------------------------------------------------------
+
+function Dashboard:GetMythicPlusFieldValues()
+
+    local values = {}
+
+    local mythicPlusModule = AC.Core and AC.Core:GetModule("MythicPlus")
+
+    if not mythicPlusModule then
+        return values
+    end
+
+    local profile = mythicPlusModule:GetProfile()
+
+    if not profile then
+        return values
+    end
+
+    values.hasKeystone = profile.hasKeystone and AC.L:Get("Common.Yes") or AC.L:Get("Common.No")
+
+    if profile.hasKeystone then
+        values.currentDungeonID = tostring(profile.currentDungeonID or 0)
+        values.currentLevel = tostring(profile.currentLevel or 0)
+    end
+
+    values.rating = string.format("%.0f", profile.rating or 0)
+
+    if mythicPlusModule.GetBestOverallLevel then
+
+        local bestLevel = mythicPlusModule:GetBestOverallLevel()
+
+        if bestLevel and bestLevel > 0 then
+            values.bestOverallLevel = tostring(bestLevel)
+        end
+
+    end
+
+    if profile.activeRun then
+        values.activeStatus = AC.L:Get("Common.Yes")
+        values.activeLevel = tostring(profile.activeRun.keystoneLevel or 0)
+        values.deathCount = tostring(profile.activeRun.deathCount or 0)
+    else
+        values.activeStatus = AC.L:Get("Common.No")
+    end
+
+    return values
+
+end
+
+function Dashboard:UpdateMythicPlusPage(frame)
+
+    local page = frame.Pages and frame.Pages.MythicPlus
+
+    if not page or not page.Fields then
+        return
+    end
+
+    local values = self:GetMythicPlusFieldValues()
+    local unknown = AC.L:Get("Common.Unknown")
+
+    for key, fontString in pairs(page.Fields) do
+        fontString:SetText(values[key] or unknown)
+    end
+
+end
+
+-------------------------------------------------------------------------------
 -- Recommendations Page Data
 --
 -- The only place the Dashboard reads recommendation data. Titles and
@@ -962,6 +1069,7 @@ function Dashboard:Create()
         titleFont = "GameFontNormalLarge",
         primaryFont = "GameFontHighlightLarge",
         emphasized = true,
+        tooltip = AC.L:Get("Dashboard.TooltipRecommendations"),
         onClick = function()
             Dashboard:Navigate("Recommendations")
         end,
@@ -979,6 +1087,7 @@ function Dashboard:Create()
     {
         width = CARD_WIDTH,
         height = CARD_HEIGHT,
+        tooltip = AC.L:Get("Dashboard.TooltipProfile"),
         onClick = function()
             Dashboard:Navigate("Profile")
         end,
@@ -997,6 +1106,7 @@ function Dashboard:Create()
         width = CARD_WIDTH,
         height = CARD_HEIGHT,
         showBar = true,
+        tooltip = AC.L:Get("Dashboard.TooltipInventory"),
         onClick = function()
             Dashboard:Navigate("Inventory")
         end,
@@ -1015,6 +1125,7 @@ function Dashboard:Create()
     {
         width = CARD_WIDTH,
         height = CARD_HEIGHT,
+        tooltip = AC.L:Get("Dashboard.TooltipAchievements"),
         onClick = function()
             Dashboard:Navigate("Achievements")
         end,
@@ -1026,12 +1137,31 @@ function Dashboard:Create()
 
     frame.AchievementsCard = achievementsCard
 
+    -- Mythic+ Card ---------------------------------------------------------
+
+    local mythicPlusCard = AC.DashboardCard:Create(homePage, AC.L:Get("Dashboard.MythicPlus"),
+    {
+        width = CARD_WIDTH,
+        height = CARD_HEIGHT,
+        tooltip = AC.L:Get("Dashboard.TooltipMythicPlus"),
+        onClick = function()
+            Dashboard:Navigate("MythicPlus")
+        end,
+    })
+
+    mythicPlusCard:SetPoint("TOP", achievementsCard, "BOTTOM", 0, -SECTION_GAP)
+    mythicPlusCard:SetPrimaryValue(AC.L:Get("Dashboard.Loading"))
+    mythicPlusCard:SetSecondaryText("")
+    mythicPlusCard:SetStatus("Normal", "")
+
+    frame.MythicPlusCard = mythicPlusCard
+
     -- Footer ---------------------------------------------------------------
     --
     -- Player-facing only: version number. No implementation details.
 
     local footer = homePage:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    footer:SetPoint("TOP", achievementsCard, "BOTTOM", 0, -20)
+    footer:SetPoint("TOP", mythicPlusCard, "BOTTOM", 0, -20)
     footer:SetText(AC.L:Format("Dashboard.Version", AC.Version or "0.0.1"))
     footer:SetWidth(CARD_WIDTH)
     footer:SetJustifyH("CENTER")
@@ -1077,6 +1207,21 @@ function Dashboard:Create()
     achievementsPage.Fields = achievementsFields
 
     frame.Pages.Achievements = achievementsPage
+
+    -----------------------------------------------------------------------
+    -- MythicPlus Page
+    --
+    -- No AppendFutureFeatures call here -- only fields the backend
+    -- already collects today are shown.
+    -----------------------------------------------------------------------
+
+    local mythicPlusPage = self:CreateDataPage(contentArea, AC.L:Get("Dashboard.MythicPlus"))
+    local mythicPlusFields, mythicPlusYOffset = self:BuildFieldRows(mythicPlusPage.ScrollChild, MYTHICPLUS_SECTIONS)
+
+    mythicPlusPage.ScrollChild:SetHeight((-mythicPlusYOffset) + 10)
+    mythicPlusPage.Fields = mythicPlusFields
+
+    frame.Pages.MythicPlus = mythicPlusPage
 
     -----------------------------------------------------------------------
     -- Recommendations Page
@@ -1226,6 +1371,45 @@ function Dashboard:UpdateContent(frame)
         frame.AchievementsCard:SetSecondaryText("")
     end
 
+    -----------------------------------------------------------------------
+    -- Mythic+ Card
+    -----------------------------------------------------------------------
+
+    local mythicPlusModule = AC.Core and AC.Core:GetModule("MythicPlus")
+    local mpProfile = mythicPlusModule and mythicPlusModule:GetProfile()
+
+    if mpProfile then
+
+        local bestLevel = (mythicPlusModule.GetBestOverallLevel and mythicPlusModule:GetBestOverallLevel()) or 0
+        local status = "Normal"
+        local statusText = ""
+
+        if bestLevel > 0 then
+            statusText = AC.L:Format("Dashboard.MythicPlusBestFormat", bestLevel)
+        end
+
+        local primaryText
+
+        if mpProfile.activeRun then
+            primaryText = AC.L:Format("Dashboard.MythicPlusActiveRunFormat", mpProfile.activeRun.keystoneLevel or 0)
+            status = "Important"
+            statusText = AC.L:Get("Dashboard.StatusActive")
+        elseif mpProfile.hasKeystone then
+            primaryText = AC.L:Format("Dashboard.MythicPlusKeystoneFormat", mpProfile.currentDungeonID or 0, mpProfile.currentLevel or 0)
+        else
+            primaryText = AC.L:Get("Dashboard.MythicPlusNoKeystone")
+        end
+
+        frame.MythicPlusCard:SetPrimaryValue(primaryText)
+        frame.MythicPlusCard:SetSecondaryText(AC.L:Format("Dashboard.MythicPlusRatingFormat", string.format("%.0f", mpProfile.rating or 0)))
+        frame.MythicPlusCard:SetStatus(status, statusText)
+
+    else
+        frame.MythicPlusCard:SetPrimaryValue(AC.L:Get("Dashboard.MythicPlusUnavailable"))
+        frame.MythicPlusCard:SetSecondaryText("")
+        frame.MythicPlusCard:SetStatus("Normal", "")
+    end
+
 end
 
 -------------------------------------------------------------------------------
@@ -1266,6 +1450,8 @@ function Dashboard:ShowPage(pageName)
         self:UpdateInventoryPage(frame)
     elseif pageName == "Achievements" then
         self:UpdateAchievementsPage(frame)
+    elseif pageName == "MythicPlus" then
+        self:UpdateMythicPlusPage(frame)
     elseif pageName == "Recommendations" then
         self:UpdateRecommendationsPage(frame)
     end

@@ -100,9 +100,9 @@ function Dropdown:UpdateLabel()
     local option = self.OptionsList[self.SelectedIndex]
 
     if option and self.Dropdown then
-        self.Dropdown:SetText(self:GetOptionText(option))
+        self.Dropdown:SetDefaultText(self:GetOptionText(option))
     elseif self.Dropdown then
-        self.Dropdown:SetText("")
+        self.Dropdown:SetDefaultText("")
     end
 
 end
@@ -120,7 +120,7 @@ function Dropdown:SetList(list)
 
 end
 
-function Dropdown:SetSelectedIndex(index)
+function Dropdown:SetSelectedIndex(index, silent)
 
     index = tonumber(index) or 1
 
@@ -131,7 +131,7 @@ function Dropdown:SetSelectedIndex(index)
     self.SelectedIndex = index
     self:UpdateLabel()
 
-    if self.OnChanged then
+    if not silent and self.OnChanged then
         local option = self.OptionsList[index]
         self.OnChanged(self, self:GetOptionValue(option, index), index)
     end
@@ -173,7 +173,7 @@ function Dropdown:SetValue(value)
         local option = self.OptionsList[i]
 
         if self:GetOptionValue(option, i) == value then
-            self:SetSelectedIndex(i)
+            self:SetSelectedIndex(i, true) -- silent: syncing display, not a user action
             return
         end
 

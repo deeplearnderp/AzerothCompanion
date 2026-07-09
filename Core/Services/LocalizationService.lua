@@ -155,7 +155,13 @@ function LocalizationService:OnSettingsChanged(moduleName, key, value)
         return
     end
 
+    local previousLocale = self.ActiveLocale
+
     self:RefreshActiveLocale()
+
+    if self.ActiveLocale ~= previousLocale and AC.Logger then
+        AC.Logger:Info("Language changed. Type /reload for the change to fully take effect.")
+    end
 
 end
 

@@ -570,6 +570,25 @@ function InventoryModule:GetInsights()
         })
     end
 
+    -- Equipment needs repair (only detectable while at a merchant, since
+    -- CanMerchantRepair() requires the merchant frame to be open --
+    -- reuses the same computation GetImportantItemsSummary already does)
+    local importantItems = self:GetImportantItemsSummary()
+
+    if importantItems.needsRepair then
+        table.insert(insights,
+        {
+            title = "Repairs Needed",
+            description = "Your equipment needs repair.",
+            priority = 60,
+            category = "Inventory",
+            timestamp = time(),
+            expiresAt = 0,
+            dismissible = false,
+            data = {},
+        })
+    end
+
     return insights
 
 end

@@ -61,6 +61,10 @@ function Slider:Initialize(manager, id, parent, options)
             control.Text:SetText(tostring(value))
         end
 
+        if self.Suppress then
+            return
+        end
+
         if self.OnChanged then
             self.OnChanged(self, value)
         end
@@ -117,7 +121,10 @@ function Slider:SetValue(value)
     self.Value = value
 
     if self.Slider then
+
+        self.Suppress = true
         self.Slider:SetValue(value)
+        self.Suppress = false
 
         if self.Slider.Text then
             self.Slider.Text:SetText(tostring(value))

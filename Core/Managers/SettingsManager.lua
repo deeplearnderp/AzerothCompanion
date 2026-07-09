@@ -302,6 +302,36 @@ function SettingsManager:OnProfileChanged()
 end
 
 -------------------------------------------------------------------------------
+-- Save / Cancel
+-------------------------------------------------------------------------------
+
+function SettingsManager:Save()
+
+    if self.ContentPanel then
+        self.ContentPanel:Save()
+    end
+
+end
+
+function SettingsManager:Cancel()
+
+    if self.ContentPanel then
+        self.ContentPanel:Cancel()
+    end
+
+end
+
+function SettingsManager:IsDirty()
+
+    if self.ContentPanel then
+        return self.ContentPanel:IsDirty()
+    end
+
+    return false
+
+end
+
+-------------------------------------------------------------------------------
 -- Lifecycle
 -------------------------------------------------------------------------------
 

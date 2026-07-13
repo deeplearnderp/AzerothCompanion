@@ -3,6 +3,39 @@
 -- Character Module
 --
 -- Authoritative character profile service for the current player.
+--
+-- VERIFICATION STATUS (Live Verification & Framework Hardening sprint):
+-- found and removed two fields built on Blizzard APIs that do not exist --
+-- "C_Hearthstone.GetHearthstone" and "C_PlayerInfo.GetAccountGUID" are both
+-- absent from Blizzard's own generated API documentation
+-- (Blizzard_APIDocumentationGenerated/PlayerInfoDocumentation.lua lists
+-- 32 real C_PlayerInfo functions; GetAccountGUID is not one of them) and
+-- from Warcraft Wiki's full API index. Both calls were already
+-- pcall-safe (guarded behind `and`, degrading to a default rather than
+-- erroring), but that only meant they silently always produced a dead
+-- value (hearthstoneItemID stuck at 0, warband.accountGUID stuck at "")
+-- that nothing in the codebase ever read -- confirmed via repo-wide grep
+-- before removal, not assumed. This is the "do not fabricate; if it can't
+-- be verified, don't ship it" rule applied retroactively to something
+-- written before real research tools were available this session.
+--
+-- Also found and fixed a real deprecation: the global GetSpecialization()/
+-- GetSpecializationInfo() are both confirmed deprecated as of patch
+-- 11.2.0 (Warcraft Wiki: "deprecated... will be removed in the future"),
+-- replaced by C_SpecializationInfo.GetSpecialization()/GetSpecializationInfo()
+-- -- confirmed to return the same values in the same order for the
+-- parameters this module actually uses (specId, name, description, icon,
+-- role, primaryStat as the first 6 of GetSpecializationInfo's return),
+-- so this was a safe drop-in migration, not a guess.
+--
+-- Every remaining API in this file (UnitName/UnitGUID/UnitRace/UnitClass/
+-- UnitLevel/UnitFactionGroup, GetRealmName/GetZoneText/GetSubZoneText,
+-- GetMoney/GetBindLocation/GetXPExhaustion/GetAverageItemLevel/
+-- GetGuildInfo/GetMaxLevelForPlayerExpansion, C_Map.GetBestMapForUnit) is
+-- confirmed via Warcraft Wiki and not currently deprecated -- Unit*
+-- accessors and the PLAYER_*/ZONE_*/SETTINGS_CHANGED events were not
+-- individually re-fetched this pass (foundational, unchanged across many
+-- expansions, negligible risk), everything else was.
 -------------------------------------------------------------------------------
 
 local AC = _G.AzerothCompanion
@@ -24,16 +57,14 @@ local GetSubZoneText = GetSubZoneText
 local GetMoney = GetMoney
 local GetBindLocation = GetBindLocation
 local GetXPExhaustion = GetXPExhaustion
-local GetSpecialization = GetSpecialization
-local GetSpecializationInfo = GetSpecializationInfo
+local GetSpecialization = C_SpecializationInfo and C_SpecializationInfo.GetSpecialization
+local GetSpecializationInfo = C_SpecializationInfo and C_SpecializationInfo.GetSpecializationInfo
 local GetAverageItemLevel = GetAverageItemLevel
 local GetGuildInfo = GetGuildInfo
 local RequestTimePlayed = RequestTimePlayed
 local GetMaxLevelForPlayerExpansion = GetMaxLevelForPlayerExpansion
 
 local GetBestMapForUnit = C_Map.GetBestMapForUnit
-local GetHearthstone = C_Hearthstone and C_Hearthstone.GetHearthstone
-local GetAccountGUID = C_PlayerInfo and C_PlayerInfo.GetAccountGUID
 
 local CharacterModule =
 {
@@ -92,7 +123,6 @@ function CharacterModule:ResetProfile()
         mapID = 0,
 
         bindLocation = "",
-        hearthstoneItemID = 0,
 
         money = 0,
 
@@ -101,11 +131,6 @@ function CharacterModule:ResetProfile()
         playedTimeAvailable = false,
 
         restedXP = 0,
-
-        warband =
-        {
-            accountGUID = "",
-        },
 
         loginTimestamp = 0,
         lastUpdated = 0,
@@ -355,7 +380,6 @@ function CharacterModule:Refresh()
     self:RefreshLocation()
     self:RefreshTravel()
     self:RefreshEconomy()
-    self:RefreshWarband()
 
     self.Profile.lastUpdated = time()
 
@@ -389,7 +413,7 @@ end
 function CharacterModule:RefreshSpecialization()
 
     local profile = self.Profile
-    local specIndex = GetSpecialization()
+    local specIndex = GetSpecialization and GetSpecialization()
 
     if not specIndex then
         profile.specID = 0
@@ -398,7 +422,7 @@ function CharacterModule:RefreshSpecialization()
         return
     end
 
-    local specID, specName, _, _, role = GetSpecializationInfo(specIndex)
+    local specID, specName, _, _, role = GetSpecializationInfo and GetSpecializationInfo(specIndex)
 
     profile.specID = specID or 0
     profile.specName = specName or ""
@@ -469,33 +493,13 @@ end
 
 function CharacterModule:RefreshTravel()
 
-    local profile = self.Profile
-
-    profile.bindLocation = GetBindLocation() or ""
-
-    if GetHearthstone then
-        profile.hearthstoneItemID = GetHearthstone() or 0
-    else
-        profile.hearthstoneItemID = 0
-    end
+    self.Profile.bindLocation = GetBindLocation() or ""
 
 end
 
 function CharacterModule:RefreshEconomy()
 
     self.Profile.money = GetMoney() or 0
-
-end
-
-function CharacterModule:RefreshWarband()
-
-    local warband = self.Profile.warband
-
-    if GetAccountGUID then
-        warband.accountGUID = GetAccountGUID() or ""
-    else
-        warband.accountGUID = ""
-    end
 
 end
 

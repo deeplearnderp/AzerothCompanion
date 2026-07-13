@@ -9,6 +9,159 @@ local SlashCommandManager = {}
 AC.SlashCommandManager = SlashCommandManager
 
 -------------------------------------------------------------------------------
+-- Trace Category Aliases
+--
+-- Short slash-command words map to Logger's canonical category names.
+-------------------------------------------------------------------------------
+
+local TRACE_CATEGORY_ALIASES =
+{
+    mythic = "Mythic+",
+    inventory = "Inventory",
+    events = "Events",
+}
+
+-------------------------------------------------------------------------------
+-- Debug
+-------------------------------------------------------------------------------
+
+function SlashCommandManager:HandleDebug(argument)
+
+    if argument == "on" then
+
+        AC.Logger:SetDebugEnabled(true)
+        AC.Logger:Info("Debug mode enabled.")
+
+    elseif argument == "off" then
+
+        AC.Logger:SetDebugEnabled(false)
+        AC.Logger:Info("Debug mode disabled.")
+
+    else
+
+        AC.Logger:Warn("Usage: /ac debug on|off")
+
+    end
+
+end
+
+-------------------------------------------------------------------------------
+-- Log Window
+-------------------------------------------------------------------------------
+
+function SlashCommandManager:HandleLog()
+
+    if AC.DiagnosticsWindow then
+        AC.DiagnosticsWindow:Toggle()
+    else
+        AC.Logger:Warn("Diagnostics window not available.")
+    end
+
+end
+
+function SlashCommandManager:HandleClearLog()
+
+    AC.Logger:ClearBuffer()
+    AC.Logger:Info("Diagnostic log cleared.")
+
+    if AC.DiagnosticsWindow and AC.DiagnosticsWindow.Refresh then
+        AC.DiagnosticsWindow:Refresh()
+    end
+
+end
+
+-------------------------------------------------------------------------------
+-- Trace
+--
+-- Selecting a category is exclusive ("Only Mythic+", "Only Inventory", ...)
+-- -- it replaces whatever was previously traced rather than adding to it.
+-- Selecting any category (or "all") also turns on the debug master switch,
+-- since a trace selection with debug still off would silently produce
+-- nothing.
+-------------------------------------------------------------------------------
+
+function SlashCommandManager:HandleTrace(argument)
+
+    if argument == "off" then
+
+        AC.Logger:DisableAllTrace()
+        AC.Logger:Info("Tracing disabled.")
+
+        return
+
+    end
+
+    if argument == "all" then
+
+        AC.Logger:SetDebugEnabled(true)
+        AC.Logger:EnableAllTrace()
+        AC.Logger:Info("Tracing all categories.")
+
+        return
+
+    end
+
+    local category = TRACE_CATEGORY_ALIASES[argument]
+
+    if not category then
+
+        AC.Logger:Warn("Usage: /ac trace mythic|inventory|events|all|off")
+
+        return
+
+    end
+
+    AC.Logger:SetDebugEnabled(true)
+    AC.Logger:DisableAllTrace()
+    AC.Logger:SetTraceCategory(category, true)
+    AC.Logger:Info("Tracing category: " .. category)
+
+end
+
+-------------------------------------------------------------------------------
+-- Developer Mode
+-------------------------------------------------------------------------------
+
+function SlashCommandManager:HandleDev(argument)
+
+    if not AC.DeveloperModeService then
+
+        AC.Logger:Warn("Developer Mode is not available.")
+        return
+
+    end
+
+    if argument == "on" then
+
+        AC.DeveloperModeService:SetEnabled(true)
+
+    elseif argument == "off" then
+
+        AC.DeveloperModeService:SetEnabled(false)
+
+        if AC.DeveloperPanel then
+            AC.DeveloperPanel:Hide()
+        end
+
+    elseif argument == "" then
+
+        if AC.DeveloperModeService:IsEnabled() then
+
+            if AC.DeveloperPanel then
+                AC.DeveloperPanel:Toggle()
+            end
+
+        else
+            AC.Logger:Warn("Developer Mode is off. Usage: /ac dev on|off")
+        end
+
+    else
+        AC.Logger:Warn("Usage: /ac dev on|off")
+    end
+
+end
+
+-------------------------------------------------------------------------------
 -- Enable
 -------------------------------------------------------------------------------
 
@@ -21,15 +174,8 @@ function SlashCommandManager:Enable()
 
         message = string.lower(message or "")
 
-        if message == "help" then
-
-            AC.Logger:Info("Commands: /ac, /ac settings, /ac dashboard, /ac help")
-            return
-
-        end
-
-        if message == "dashboard"
-        or message == "" then
+        if message == ""
+        or message == "dashboard" then
 
             if AC.Dashboard then
                 AC.Dashboard:Toggle()
@@ -41,8 +187,19 @@ function SlashCommandManager:Enable()
 
         end
 
-        if message == "config"
-        or message == "settings" then
+        local command, argument = message:match("^(%S+)%s*(.-)$")
+        command = command or ""
+        argument = argument or ""
+
+        if command == "help" then
+
+            AC.Logger:Info("Commands: /ac, /ac dashboard, /ac settings, /ac debug on|off, /ac log, /ac clearlog, /ac trace mythic|inventory|events|all|off, /ac dev on|off, /ac help")
+            return
+
+        end
+
+        if command == "config"
+        or command == "settings" then
 
             local window = AC.Core:GetModule("SettingsWindow")
 
@@ -50,6 +207,31 @@ function SlashCommandManager:Enable()
                 window:Toggle()
             end
 
+            return
+        end
+
+        if command == "debug" then
+            SlashCommandManager:HandleDebug(argument)
+            return
+        end
+
+        if command == "log" then
+            SlashCommandManager:HandleLog()
+            return
+        end
+
+        if command == "clearlog" then
+            SlashCommandManager:HandleClearLog()
+            return
+        end
+
+        if command == "dev" then
+            SlashCommandManager:HandleDev(argument)
+            return
+        end
+
+        if command == "trace" then
+            SlashCommandManager:HandleTrace(argument)
             return
         end
 

@@ -2,11 +2,17 @@
 -- Azeroth Companion
 -- Activity History Service
 --
--- The permanent historical memory of Azeroth Companion. Gameplay modules
+-- The long-term historical memory of Azeroth Companion. Gameplay modules
 -- publish completed activity records here; this service owns storage,
--- persistence, indexing, and retrieval only -- it never generates
--- statistics, gameplay logic, Insights, or Recommendations, and it never
--- inspects or validates the module-owned "Data" payload of a record.
+-- persistence, indexing, retrieval, and pruning only -- it never
+-- generates statistics, gameplay logic, Insights, or Recommendations,
+-- and it never inspects or validates the module-owned "Data" payload of
+-- a record.
+--
+-- Bounded, not literally permanent: each module's records are capped at
+-- MAX_RECORDS_PER_MODULE, with the oldest trimmed once a module exceeds
+-- it, so history stays useful across months/years of play without
+-- growing SavedVariables forever.
 --
 -- Persistence: DatabaseService:GetCharacter().ActivityHistory. This is
 -- deliberately NOT a ConfigurationManager profile -- profiles can be
@@ -20,6 +26,7 @@ local AC = _G.AzerothCompanion
 local time = time
 local date = date
 local tinsert = table.insert
+local tremove = table.remove
 
 local ActivityHistoryService =
 {
@@ -33,6 +40,16 @@ AC.ActivityHistoryService = ActivityHistoryService
 -------------------------------------------------------------------------------
 
 local ENVELOPE_VERSION = 1
+
+-- Pruning -- oldest records for a module are trimmed once that module
+-- exceeds this many records, so history stays bounded across months and
+-- years of play instead of growing forever. Per-module rather than a
+-- single global cap, so one high-volume module (many M+ runs) can never
+-- crowd out a lower-volume one's history. 500 is a deliberately generous
+-- number for MythicPlus specifically -- even a very active pusher (5-10
+-- keys/week) takes roughly a year or more to reach it -- while still
+-- being a real, enforced bound rather than "unlimited."
+local MAX_RECORDS_PER_MODULE = 500
 
 -- Every field an ActivityRecord envelope must have before Append() will
 -- accept it. ID/Timestamp/Version are filled in by Append() itself if
@@ -185,9 +202,11 @@ end
 -- Append
 --
 -- The only write path. Assigns ID/Timestamp/Version if absent, validates
--- the envelope, appends to history, updates indexes, and returns the
--- stored record. History is append-only -- existing records are never
--- modified.
+-- the envelope, appends to history, updates indexes, prunes that
+-- module's oldest records if it's now over MAX_RECORDS_PER_MODULE, and
+-- returns the stored record. Existing records are never modified in
+-- place -- pruning only ever removes the oldest whole records for the
+-- module that just grew, never edits one.
 -------------------------------------------------------------------------------
 
 function ActivityHistoryService:Append(record)
@@ -230,8 +249,58 @@ function ActivityHistoryService:Append(record)
 
     tinsert(self.Records, record)
     self:IndexRecord(record)
+    self:PruneModule(record.Module)
 
     return record
+
+end
+
+-------------------------------------------------------------------------------
+-- Prune Module
+--
+-- Trims the oldest records for one module once it exceeds
+-- MAX_RECORDS_PER_MODULE. A linear scan/removal, but only ever runs once
+-- every MAX_RECORDS_PER_MODULE appends for a given module (i.e. rarely),
+-- so the cost is negligible against how infrequently it triggers.
+-------------------------------------------------------------------------------
+
+function ActivityHistoryService:PruneModule(moduleName)
+
+    if not self.Records or type(moduleName) ~= "string" or moduleName == "" then
+        return
+    end
+
+    local count = 0
+
+    for i = 1, #self.Records do
+
+        if self.Records[i].Module == moduleName then
+            count = count + 1
+        end
+
+    end
+
+    local excess = count - MAX_RECORDS_PER_MODULE
+
+    if excess <= 0 then
+        return
+    end
+
+    local removed = 0
+    local i = 1
+
+    while removed < excess and i <= #self.Records do
+
+        if self.Records[i].Module == moduleName then
+            tremove(self.Records, i)
+            removed = removed + 1
+        else
+            i = i + 1
+        end
+
+    end
+
+    self:RebuildIndexes()
 
 end
 
@@ -410,6 +479,31 @@ function ActivityHistoryService:Count(filter)
     end
 
     return total
+
+end
+
+-------------------------------------------------------------------------------
+-- Clear All (Developer Panel -- History Inspector)
+--
+-- Wipes every stored record for the current character, in place (removes
+-- from the same array `character.ActivityHistory` already points to,
+-- rather than replacing self.Records with a new table) so persistence
+-- stays correctly linked to DatabaseService's own storage. A real,
+-- deliberate, player/developer-triggered action -- never called by any
+-- gameplay module.
+-------------------------------------------------------------------------------
+
+function ActivityHistoryService:ClearAll()
+
+    if not self.Records then
+        return
+    end
+
+    for i = #self.Records, 1, -1 do
+        tremove(self.Records, i)
+    end
+
+    self:RebuildIndexes()
 
 end
 

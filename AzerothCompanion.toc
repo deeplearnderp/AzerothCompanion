@@ -1,6 +1,7 @@
 ## Interface: 120007
 ## Title: Azeroth Companion
-## Notes: Framework
+## Notes: Your daily briefing for Mythic+, the Great Vault, Inventory, and Achievements -- what to do next, at a glance.
+## IconTexture: Interface\Icons\INV_Misc_Book_09
 ## Author: Cory
 ## Version: 0.0.1
 
@@ -27,6 +28,8 @@ Localization/zhTW.lua
 
 Core/Core.lua
 
+Core/Presentation/Presentation.lua
+
 Core/Managers/ServiceManager.lua
 Core/Managers/ModuleManager.lua
 
@@ -34,10 +37,19 @@ Core/Services/DatabaseService.lua
 Core/Logging/Logger.lua
 Core/Services/ActivityHistoryService.lua
 Core/Events/EventManager.lua
+Core/Services/NotificationService.lua
+Core/Diagnostics/DiagnosticsService.lua
+Core/Services/DeveloperModeService.lua
+Core/Services/VerificationService.lua
 Core/Managers/WidgetManager.lua
 Core/Config/ConfigurationManager.lua
 Core/Intelligence/InsightEngine.lua
 Core/Intelligence/RecommendationEngine.lua
+Core/Services/RecommendationHistoryService.lua
+Core/Services/BriefingService.lua
+Core/Services/MilestoneService.lua
+Core/Services/ProgressSummaryService.lua
+Core/Services/SessionNotesService.lua
 
 Core/UI/Settings/SettingsSection.lua
 Core/UI/Settings/SettingsPage.lua
@@ -63,13 +75,57 @@ Core/UI/Widgets/DashboardCard.lua
 Core/UI/Settings/NavigationPanel.lua
 Core/UI/Settings/ContentPanel.lua
 Core/UI/SettingsWindow.lua
-Core/UI/Dashboard.lua
+Core/UI/DiagnosticsWindow.lua
+
+Core/UI/Dashboard/Layout.lua
+Core/UI/Dashboard/Format.lua
+Core/UI/Dashboard/Schemas.lua
+Core/UI/Dashboard/Dashboard.lua
+Core/UI/Dashboard/Sections.lua
+Core/UI/Dashboard/Rows.lua
+Core/UI/Dashboard/Pages/Profile.lua
+Core/UI/Dashboard/Pages/Inventory.lua
+Core/UI/Dashboard/Pages/Accomplishments.lua
+Core/UI/Dashboard/Pages/MythicPlus.lua
+Core/UI/Dashboard/Pages/Storage.lua
+Core/UI/Dashboard/Pages/Weekly.lua
+Core/UI/Dashboard/Pages/Recommendations.lua
+Core/UI/Dashboard/Pages/Progress.lua
+Core/UI/Dashboard/Pages/Statistics.lua
+Core/UI/Dashboard/Pages/Journey.lua
+Core/UI/Dashboard/Home.lua
+Core/UI/Dashboard/Navigation.lua
+
+Core/UI/Dashboard/Notifications.lua
+
+Core/UI/RecommendationInspector.lua
+Core/UI/DeveloperPanel.lua
+
+Core/UI/PlayerJournal/PlayerJournalWindow.lua
+Core/UI/PlayerJournal/Tabs/Overview.lua
+Core/UI/PlayerJournal/Tabs/History.lua
+Core/UI/PlayerJournal/Tabs/Statistics.lua
+Core/UI/PlayerJournal/Tabs/PersonalNotes.lua
+Core/UI/PlayerJournal/Tabs/CommunityNotes.lua
+Core/UI/PlayerJournal/Tabs/Timeline.lua
+Core/UI/PlayerJournal/Tabs/Search.lua
+Core/UI/PlayerJournalContextMenu.lua
+Core/UI/PlayerJournalTooltip.lua
+
 Core/UI/MinimapIcon.lua
 
-Modules/Player/PlayerModule.lua
 Modules/Character/CharacterModule.lua
 Modules/Inventory/InventoryModule.lua
-Modules/Achievements/AchievementsModule.lua
+Modules/Accomplishments/AccomplishmentsPatterns.lua
+Modules/Accomplishments/AccomplishmentsExpansionNames.lua
+Modules/Accomplishments/AccomplishmentsModule.lua
+Modules/Weekly/WeeklyModule.lua
+Modules/MythicPlus/MythicPlusSpellData.lua
 Modules/MythicPlus/MythicPlusModule.lua
+Modules/Storage/StorageProfiles.lua
+Modules/Storage/StorageModule.lua
+Modules/PlayerJournal/PlayerJournalTags.lua
+Modules/PlayerJournal/PlayerJournalModule.lua
+Modules/Community/CommunityModule.lua
 
 Core/Bootstrap.lua

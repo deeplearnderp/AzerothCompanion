@@ -33,6 +33,39 @@ DatabaseService.Defaults =
         {
             hide = false,
         },
+
+        -- Blizzard API verification records (VerificationService) and
+        -- guided-checklist scenario completions (DeveloperPanel's
+        -- Checklist tab) -- account-wide, not character-scoped, since
+        -- whether a Blizzard API behaves as expected is a fact about the
+        -- game client/account, not about any one character.
+        VerificationLog = {},
+        ChecklistLog = {},
+
+        -- Player Journal: who you've grouped with, account-wide rather
+        -- than per-character -- recognizing a past companion is a fact
+        -- about the account/person playing, not about which alt you
+        -- happened to be on (same reasoning as VerificationLog above).
+        -- A fully separate top-level key from PlayerJournal itself, not
+        -- nested under it -- CommunityModule never gets write access to
+        -- PlayerJournal's own table at all, which is what makes
+        -- "PlayerJournalModule works with CommunityModule disabled" a
+        -- structural fact rather than just a currently-true one. See
+        -- docs/GameplayModuleArchitecture.md section 1.11.
+        PlayerJournal =
+        {
+            SchemaVersion = 1,
+            Players = {},
+            TotalPruned = 0,
+        },
+
+        PlayerJournalCommunity =
+        {
+            SchemaVersion = 1,
+            Notes = {},
+            CodeOfConductAccepted = false,
+            TrustedSources = {},
+        },
     },
 
     Profiles =
@@ -40,6 +73,7 @@ DatabaseService.Defaults =
         Default =
         {
             Debug = false,
+            DeveloperMode = false,
         },
     },
 
@@ -305,7 +339,36 @@ function DatabaseService:ResetDatabase()
 end
 
 -------------------------------------------------------------------------------
--- Migration Stub
+-- Migrations
+--
+-- Each entry is keyed by the schema version it upgrades TO, and receives
+-- the raw SavedVariables root table (AzerothCompanionDB, i.e. self.DB) to
+-- transform in place. Empty today -- no stored shape has ever needed to
+-- change -- but this is the real mechanism SchemaVersion was always meant
+-- to drive, run one version at a time from whatever is currently stored,
+-- not a placeholder that only stamps a number.
+--
+-- Example, for when one is actually needed:
+--   Migrations[2] = function(db)
+--       for _, character in pairs(db.Characters) do
+--           character.SomeRenamedField = character.OldFieldName
+--           character.OldFieldName = nil
+--       end
+--   end
+-------------------------------------------------------------------------------
+
+DatabaseService.Migrations = {}
+
+-------------------------------------------------------------------------------
+-- Migrate
+--
+-- Walks forward one version at a time from whatever is currently stored.
+-- Each step is pcall-wrapped: a migration that throws stops the walk at
+-- the version before it, so SchemaVersion never advances past a step that
+-- didn't actually run -- a broken migration is retried on the next login
+-- instead of being silently skipped or corrupting data. A stored version
+-- newer than this addon understands (the addon was downgraded) is left
+-- completely untouched rather than having its version stamped backward.
 -------------------------------------------------------------------------------
 
 function DatabaseService:Migrate()
@@ -316,7 +379,51 @@ function DatabaseService:Migrate()
         return
     end
 
-    self.DB.Metadata.SchemaVersion = self.SchemaVersion
+    if version > self.SchemaVersion then
+
+        if AC.Logger then
+            AC.Logger:Warn(string.format(
+                "SavedVariables schema version (%d) is newer than this addon version supports (%d) -- likely a downgrade. Data left untouched.",
+                version, self.SchemaVersion
+            ))
+        end
+
+        return
+
+    end
+
+    while version < self.SchemaVersion do
+
+        local nextVersion = version + 1
+        local migration = self.Migrations[nextVersion]
+
+        if migration then
+
+            local ok, err = pcall(migration, self.DB)
+
+            if not ok then
+
+                if AC.Logger then
+                    AC.Logger:Error(string.format(
+                        "SavedVariables migration to schema version %d failed: %s. Stopping at version %d; will retry next login.",
+                        nextVersion, tostring(err), version
+                    ))
+                end
+
+                return
+
+            end
+
+            if AC.Logger then
+                AC.Logger:Info(string.format("SavedVariables migrated to schema version %d.", nextVersion))
+            end
+
+        end
+
+        version = nextVersion
+        self.DB.Metadata.SchemaVersion = version
+
+    end
 
 end
 

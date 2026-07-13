@@ -9,7 +9,6 @@ local AC = _G.AzerothCompanion
 
 local type = type
 local pairs = pairs
-local tinsert = table.insert
 
 local WidgetManager = {}
 AC.WidgetManager = WidgetManager

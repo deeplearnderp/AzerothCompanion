@@ -48,6 +48,21 @@ function ModuleManager:Get(name)
 end
 
 -------------------------------------------------------------------------------
+-- Get All
+--
+-- The same ordered list InitializeModules()/EnableModules()/etc. already
+-- iterate internally -- exposed publicly so callers that need to walk
+-- every registered module (e.g. DeveloperModeService's instrumentation)
+-- don't need to reach into `self.Order`/`self.Modules` directly.
+-------------------------------------------------------------------------------
+
+function ModuleManager:GetAll()
+
+    return self.Order
+
+end
+
+-------------------------------------------------------------------------------
 -- Initialize
 -------------------------------------------------------------------------------
 

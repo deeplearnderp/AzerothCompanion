@@ -3,6 +3,24 @@
 -- Inventory Module
 --
 -- Maintains internal inventory and equipment caches.
+--
+-- VERIFICATION STATUS (Live Verification & Framework Hardening sprint):
+-- C_Container.GetContainerNumSlots/GetContainerItemInfo/GetContainerItemLink
+-- confirmed via Warcraft Wiki (same ContainerItemInfo struct already
+-- documented for Storage's bank scanning). Enum.BagIndex.ReagentBag
+-- (value 5) confirmed real via Warcraft Wiki's full Enum.BagIndex table --
+-- used correctly here (guarded, only iterated if it resolves to a number
+-- greater than the standard bag count). GetRepairAllCost confirmed via
+-- Warcraft Wiki, including its documented "requires a merchant window
+-- open" constraint -- already correctly gated behind
+-- `MerchantFrame:IsShown()`/`CanMerchantRepair()` at the one call site
+-- (`GetImportantItemsSummary`), not a bug. GetAverageItemLevel confirmed
+-- via Warcraft Wiki (3 return values: avgItemLevel, avgItemLevelEquipped,
+-- avgItemLevelPvp; added 4.0.1). GetInventoryItemID/GetInventoryItemLink,
+-- BAG_UPDATE/PLAYER_EQUIPMENT_CHANGED/PLAYER_ENTERING_WORLD/
+-- SETTINGS_CHANGED are long-standing stable globals/events, materially
+-- higher confidence than any of the above and not independently
+-- re-researched this pass.
 -------------------------------------------------------------------------------
 
 local AC = _G.AzerothCompanion
@@ -28,6 +46,15 @@ local InventoryModule =
 -------------------------------------------------------------------------------
 
 local SLOT_KEY_FORMAT = "%d:%d"
+
+-- Exposed on AC (not just a local here) since StorageProfiles.lua's own
+-- built-in "Keep 1 Hearthstone" rule needs the same item ID -- previously
+-- hardcoded independently in both files (v1.0 Polish Sprint audit); this
+-- is now the one place it's defined. InventoryModule still owns
+-- hearthstone *possession* detection (HasItem, GetImportantItemsSummary,
+-- "Hearthstone Missing" Insight below) -- this is just the shared
+-- identifier, not a second owner.
+AC.HEARTHSTONE_ITEM_ID = 6948
 
 -------------------------------------------------------------------------------
 -- Defaults
@@ -299,6 +326,13 @@ function InventoryModule:ScanBag(bagID)
                 bagID = bagID,
                 slot = slot,
                 link = GetContainerItemLink(bagID, slot),
+
+                -- Additive field for StorageModule's Quality-type rule
+                -- matching (see docs/GameplayModuleArchitecture.md,
+                -- "Storage") -- already returned by GetContainerItemInfo,
+                -- just not previously stored. Does not change any
+                -- existing reader of this record.
+                quality = info.quality,
             }
 
             self.ItemCounts[itemID] = (self.ItemCounts[itemID] or 0) + count
@@ -376,6 +410,49 @@ end
 function InventoryModule:GetEquipment()
 
     return self.Equipment
+
+end
+
+-------------------------------------------------------------------------------
+-- Free Bag Slot
+--
+-- Reads this module's own already-maintained ItemsBySlot cache to find
+-- one empty bag slot -- not a new scan, just a query over data Inventory
+-- already owns. Exists so StorageModule can ask "where would a withdrawn
+-- item go?" through Inventory's public API (Architectural Rule 7)
+-- instead of scanning bags itself. Returns nil, nil if bags are full.
+-------------------------------------------------------------------------------
+
+function InventoryModule:GetFreeBagSlot()
+
+    local freeBagID, freeSlot
+
+    self:IterateBagIDs(function(bagID)
+
+        if freeBagID then
+            return
+        end
+
+        local numSlots = GetContainerNumSlots(bagID)
+
+        if not numSlots or numSlots <= 0 then
+            return
+        end
+
+        for slot = 1, numSlots do
+
+            local slotKey = self:MakeSlotKey(bagID, slot)
+
+            if not self.ItemsBySlot[slotKey] then
+                freeBagID, freeSlot = bagID, slot
+                break
+            end
+
+        end
+
+    end)
+
+    return freeBagID, freeSlot
 
 end
 
@@ -465,7 +542,7 @@ end
 
 function InventoryModule:GetImportantItemsSummary()
 
-    local hasHearthstone = self:HasItem(6948)
+    local hasHearthstone = self:HasItem(AC.HEARTHSTONE_ITEM_ID)
 
     local needsRepair = nil
 
@@ -555,8 +632,8 @@ function InventoryModule:GetInsights()
         })
     end
 
-    -- Hearthstone missing (check for hearthstone item ID 6948 or 6948)
-    if not self:HasItem(6948) then
+    -- Hearthstone missing
+    if not self:HasItem(AC.HEARTHSTONE_ITEM_ID) then
         table.insert(insights,
         {
             title = "Hearthstone Missing",

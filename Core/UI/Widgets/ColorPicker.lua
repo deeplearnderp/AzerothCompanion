@@ -57,6 +57,16 @@ function ColorPicker:Initialize(manager, id, parent, options)
     inner:SetPoint("BOTTOMRIGHT", -1, 1)
     inner:SetColorTexture(self.Color.r, self.Color.g, self.Color.b, self.Color.a)
 
+    -- Hover feedback -- Button's built-in highlight texture, shown/hidden
+    -- automatically on hover independent of OnEnter/OnLeave, so it never
+    -- conflicts with SetTooltip's own OnEnter/OnLeave wiring below. Every
+    -- other clickable swatch/card/link in this addon hover-highlights;
+    -- this was the one that didn't.
+    local highlight = frame:CreateTexture(nil, "HIGHLIGHT")
+    highlight:SetAllPoints()
+    highlight:SetColorTexture(1, 1, 1, 0.25)
+    frame:SetHighlightTexture(highlight)
+
     frame:SetScript("OnClick", function()
         if self.Enabled then
             self:OpenPicker()

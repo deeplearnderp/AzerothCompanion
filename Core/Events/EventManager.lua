@@ -32,6 +32,9 @@ EventManager.FrameworkEvents =
     "MODULE_ENABLED",
     "MODULE_DISABLED",
     "SETTINGS_CHANGED",
+    "NOTIFICATION_CHANGED", -- Companion Intelligence V4: AC.NotificationService fires this whenever its Active notification changes (a new one shown, or dismissed to nil) -- the toast widget (Core/UI/Dashboard/Notifications.lua) is the intended listener, event-driven rather than polling.
+    "DEVELOPER_MODE_CHANGED", -- Developer Mode & Live Verification Suite: AC.DeveloperModeService fires this whenever the Developer Mode flag is toggled -- the Developer Panel is the intended listener, so it can refresh its own visibility/content immediately rather than only on next manual open.
+    "PLAYER_JOURNAL_RUN_RECORDED", -- Player Journal: AC.PlayerJournalModule fires this after finalizing a completed run's roster (only when the "Prompt After Mythic+ Runs" setting is on) -- Core/UI/PlayerJournalWindow.lua is the intended listener, showing the end-of-run StaticPopup. Follows the same "service/module fires, UI listens" split NotificationService's own NOTIFICATION_CHANGED already established -- PlayerJournalModule never calls StaticPopup_Show directly.
 }
 
 local FrameworkEventSet = {}

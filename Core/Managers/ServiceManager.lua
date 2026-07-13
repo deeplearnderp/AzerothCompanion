@@ -48,6 +48,21 @@ function ServiceManager:Get(name)
 end
 
 -------------------------------------------------------------------------------
+-- Get All
+--
+-- The same ordered list Initialize()/Enable()/Disable()/Shutdown() already
+-- iterate internally -- exposed publicly so callers that need to walk
+-- every registered service (e.g. DeveloperModeService's instrumentation)
+-- don't need to reach into `self.Order`/`self.Services` directly.
+-------------------------------------------------------------------------------
+
+function ServiceManager:GetAll()
+
+    return self.Order
+
+end
+
+-------------------------------------------------------------------------------
 -- Initialize
 -------------------------------------------------------------------------------
 

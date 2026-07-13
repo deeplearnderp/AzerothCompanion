@@ -29,18 +29,7 @@ function SettingsWindow:Initialize()
     -- Close Button
     ---------------------------------------------------------------------------
 
-    local close = CreateFrame(
-        "Button",
-        "AzerothCompanionSettingsClose",
-        self.Frame,
-        "UIPanelCloseButton"
-    )
-
-    close:SetPoint("TOPRIGHT", -4, -4)
-
-    close:SetScript("OnClick", function()
-        self:Hide()
-    end)
+    BaseWindow:AddCloseButton(self.Frame, self)
 
     ---------------------------------------------------------------------------
     -- Version
@@ -118,11 +107,20 @@ function SettingsWindow:Initialize()
     navigationHost:SetPoint("BOTTOMLEFT", 10, 36)
     navigationHost:SetWidth(200)
 
+    -- Presentation System v2 -- these exact values are the named
+    -- AC.Presentation.PANEL_BACKDROP preset (an "inner panel", distinct
+    -- from BaseWindow's own top-level AC.Presentation.WINDOW_BACKDROP).
+    local navBackdrop = AC.Presentation.PANEL_BACKDROP
+
     navigationHost:SetBackdrop({
-        bgFile = "Interface\\Buttons\\WHITE8x8",
+        bgFile = navBackdrop.bgFile,
+        edgeFile = navBackdrop.edgeFile,
+        edgeSize = navBackdrop.edgeSize,
+        insets = navBackdrop.insets,
     })
 
-    navigationHost:SetBackdropColor(0.10, 0.10, 0.10, 0.90)
+    navigationHost:SetBackdropColor(unpack(navBackdrop.bgColor))
+    navigationHost:SetBackdropBorderColor(unpack(navBackdrop.borderColor))
 
     ---------------------------------------------------------------------------
     -- Content Host
@@ -138,11 +136,25 @@ function SettingsWindow:Initialize()
     contentHost:SetPoint("TOPLEFT", navigationHost, "TOPRIGHT", 10, 0)
     contentHost:SetPoint("BOTTOMRIGHT", -10, 36)
 
+    -- Presentation System v2 -- was its own independent backdrop, one of
+    -- 5 different border-alpha values found addon-wide for the same
+    -- "bordered panel" concept -- and its base gray (0.15) genuinely
+    -- disagreed with its own sibling panel (navigationHost's 0.10) despite
+    -- both being the same window's two side-by-side panels. Migrated to
+    -- the same AC.Presentation.PANEL_BACKDROP navigationHost already uses
+    -- -- a real, visible darkening that fixes the two panels disagreeing
+    -- with each other.
+    local contentBackdrop = AC.Presentation.PANEL_BACKDROP
+
     contentHost:SetBackdrop({
-        bgFile = "Interface\\Buttons\\WHITE8x8",
+        bgFile = contentBackdrop.bgFile,
+        edgeFile = contentBackdrop.edgeFile,
+        edgeSize = contentBackdrop.edgeSize,
+        insets = contentBackdrop.insets,
     })
 
-    contentHost:SetBackdropColor(0.15, 0.15, 0.15, 0.90)
+    contentHost:SetBackdropColor(unpack(contentBackdrop.bgColor))
+    contentHost:SetBackdropBorderColor(unpack(contentBackdrop.borderColor))
 
     ---------------------------------------------------------------------------
     -- Panels

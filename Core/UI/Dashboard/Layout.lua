@@ -1,0 +1,212 @@
+-------------------------------------------------------------------------------
+-- Azeroth Companion
+-- Dashboard Layout Constants
+--
+-- Every magic number that controls Dashboard spacing/sizing lives here so
+-- the whole Dashboard shares one visual rhythm. Nothing in any Dashboard
+-- file should hand-tune padding/spacing per page/card -- change it here
+-- and every page/card follows. Split out of the former single Dashboard.lua
+-- (Technical Debt & Completion Sprint / Dashboard Refactor) so every other
+-- Dashboard file can share these without duplicating them -- Lua has no
+-- cross-file `local`, so this table is the mechanism that replaces what
+-- used to be plain file-local constants.
+-------------------------------------------------------------------------------
+
+local AC = _G.AzerothCompanion
+
+local DashboardLayout = {}
+AC.DashboardLayout = DashboardLayout
+
+-- Window ------------------------------------------------------------------
+
+DashboardLayout.WINDOW_WIDTH = 420
+DashboardLayout.WINDOW_HEIGHT = 720
+DashboardLayout.CONTENT_TOP_OFFSET = -50
+
+-- Home Cards ----------------------------------------------------------------
+
+DashboardLayout.CARD_WIDTH = 360
+DashboardLayout.CARD_HEIGHT = 112
+DashboardLayout.CARD_HEIGHT_WITH_BAR = 128
+DashboardLayout.RECOMMENDATION_HEIGHT = 130
+DashboardLayout.HOME_SECTION_GAP = 14
+
+-- DashboardCard internal layout (Presentation System v2) -- moved here,
+-- identical values, from Core/UI/Widgets/DashboardCard.lua's own
+-- previously-independent constant block. That file never referenced this
+-- one despite this file's own header rule ("nothing should hand-tune
+-- padding per card") -- the single largest violator of that rule found in
+-- the Phase 1 audit. DashboardCard.lua reads these inline at the point of
+-- use inside Create() rather than caching a file-top `local Layout =
+-- AC.DashboardLayout` upvalue -- Widgets/DashboardCard.lua loads before
+-- this file in the .toc, so a cached upvalue would capture nil.
+
+DashboardLayout.CARD_PADDING_LEFT = 14
+DashboardLayout.CARD_PADDING_RIGHT = 14
+DashboardLayout.CARD_PADDING_TOP = 12
+DashboardLayout.CARD_PADDING_BOTTOM = 12
+DashboardLayout.CARD_INDICATOR_RESERVE = 20
+
+DashboardLayout.CARD_TITLE_TO_PRIMARY_GAP = 10
+DashboardLayout.CARD_PRIMARY_TO_SECONDARY_GAP = 8
+DashboardLayout.CARD_SECONDARY_TO_DETAIL_GAP = 6
+DashboardLayout.CARD_DETAIL_TO_BAR_GAP = 8
+DashboardLayout.CARD_TITLE_TO_STARS_GAP = 6
+
+-- Detail Sections (Home Dashboard Evolution) -- a labeled "caption, then
+-- value" block. CARD_SECTION_GAP separates one section from the next;
+-- CARD_SECTION_LABEL_BODY_GAP separates a section's own caption from its
+-- value.
+DashboardLayout.CARD_SECTION_GAP = 8
+DashboardLayout.CARD_SECTION_LABEL_BODY_GAP = 2
+
+DashboardLayout.CARD_ICON_SIZE = 20
+DashboardLayout.CARD_ICON_TITLE_GAP = 6
+
+DashboardLayout.CARD_BAR_ANIMATION_DURATION = 0.35
+
+-- Data Pages ------------------------------------------------------------------
+--
+-- Two content widths: FULL is used whenever a page's content fits without
+-- scrolling -- the common case -- so nothing reserves scrollbar space it
+-- isn't using. SCROLLABLE is narrower by exactly the scrollbar's footprint,
+-- used only once a page's content is actually measured to exceed the
+-- viewport. Dashboard:BuildDataPageContent (Sections.lua) is what measures
+-- and picks between them; nothing else needs to.
+
+DashboardLayout.PAGE_PADDING = 16
+DashboardLayout.PAGE_HEADER_HEIGHT = 36
+DashboardLayout.PAGE_BOTTOM_INSET = 8
+DashboardLayout.PAGE_BOTTOM_PADDING = 12
+DashboardLayout.SCROLLBAR_RESERVE = 24
+
+DashboardLayout.PAGE_CONTENT_WIDTH_FULL = DashboardLayout.WINDOW_WIDTH - (DashboardLayout.PAGE_PADDING * 2)
+DashboardLayout.PAGE_CONTENT_WIDTH_SCROLLABLE = DashboardLayout.PAGE_CONTENT_WIDTH_FULL - DashboardLayout.SCROLLBAR_RESERVE
+
+-- Field Rows ------------------------------------------------------------------
+
+DashboardLayout.ROW_HEIGHT = 20
+DashboardLayout.ROW_INDENT = 8
+DashboardLayout.SECTION_HEADER_GAP = 22
+DashboardLayout.SECTION_GROUP_GAP = 22
+DashboardLayout.FIELD_LABEL_WIDTH = 180
+DashboardLayout.FIELD_LABEL_VALUE_GAP = 10
+
+-- Dividers --------------------------------------------------------------------
+
+DashboardLayout.DIVIDER_MARGIN_TOP = 4
+DashboardLayout.DIVIDER_HEIGHT = 1
+DashboardLayout.DIVIDER_MARGIN_BOTTOM = 8
+
+-- Hero Section ------------------------------------------------------------
+--
+-- Blizzard has no "hero-sized" font template, so this creates one custom
+-- font object sized larger than any template used elsewhere in the
+-- Dashboard -- inheriting the current locale's actual font file from the
+-- already-verified GameFontNormalLarge rather than hardcoding a font
+-- path, so it stays correct for any locale.
+
+DashboardLayout.HERO_VALUE_FONT = CreateFont("AzerothCompanionHeroValueFont")
+
+do
+    local fontFile, _, fontFlags = GameFontNormalLarge:GetFont()
+    DashboardLayout.HERO_VALUE_FONT:SetFont(fontFile, 30, fontFlags)
+
+    -- Kept as the literal here rather than DashboardFormat.HIGHLIGHT_COLOR
+    -- (the shared constant every other gold-text call site now uses) --
+    -- Layout.lua loads before Format.lua (see the .toc), and this runs at
+    -- file-load time, not inside a function body, so AC.DashboardFormat
+    -- would not exist yet when this line executes.
+    DashboardLayout.HERO_VALUE_FONT:SetTextColor(1, 0.82, 0)
+end
+
+DashboardLayout.HERO_HEADLINE_GAP = 4
+DashboardLayout.HERO_VALUE_GAP = 2
+DashboardLayout.HERO_CAPTION_GAP = 4
+DashboardLayout.HERO_BOTTOM_GAP = 16
+
+-- Statistics Grid -----------------------------------------------------------
+--
+-- Shared by Key Statistics/Season Statistics/Storage's grids and any
+-- future module wanting the same "glanceable numbers" treatment -- two
+-- label/value cells per row, larger typography than a normal field row.
+
+DashboardLayout.STAT_CELL_GAP = 12
+DashboardLayout.STAT_ROW_HEIGHT = 40
+DashboardLayout.STAT_LABEL_GAP = 2
+
+-- History Table ---------------------------------------------------------------
+--
+-- Fixed columns (status/date/level/name/time) for MythicPlus's Recent
+-- Runs table -- generic enough for a future module's own recorded history
+-- to reuse the same table/expand mechanism.
+
+DashboardLayout.HISTORY_STATUS_WIDTH = 16
+DashboardLayout.HISTORY_DATE_WIDTH = 44
+DashboardLayout.HISTORY_LEVEL_WIDTH = 30
+DashboardLayout.HISTORY_TIME_WIDTH = 44
+DashboardLayout.HISTORY_COLUMN_GAP = 6
+DashboardLayout.HISTORY_ROW_HEIGHT = 18
+DashboardLayout.HISTORY_ROW_GAP = 6
+
+-------------------------------------------------------------------------------
+-- Accordion Engine (generic)
+--
+-- Shared spacing for Dashboard:LayoutAccordionRows -- deliberately NOT
+-- named History* (those stay MythicPlus/History-table-scoped, unchanged)
+-- since this engine now has more than one caller (MythicPlus's Recent
+-- Runs via a thin LayoutHistoryRows wrapper, and Accomplishments'
+-- expandable rows). Collapsed single-line row height reuses the existing
+-- generic Layout.ROW_HEIGHT -- no new height constant needed for that.
+-------------------------------------------------------------------------------
+
+DashboardLayout.ACCORDION_ROW_GAP = 6
+DashboardLayout.ACCORDION_DETAIL_GAP = 4
+DashboardLayout.ACCORDION_DETAIL_BOTTOM_PADDING = 8
+
+-- Accordion Polish Pass -- reserved left-column width for the disclosure
+-- icon LayoutAccordionRows now draws on every row (every caller's own
+-- collapsed-row content shifts right by this much), and how far expanded
+-- detail fields indent beyond that so they read as visually nested under
+-- the row's own (now-shifted) title rather than flush with it.
+DashboardLayout.ACCORDION_DISCLOSURE_WIDTH = 14
+DashboardLayout.ACCORDION_DETAIL_INDENT = DashboardLayout.ACCORDION_DISCLOSURE_WIDTH + DashboardLayout.ROW_INDENT + 8
+
+-------------------------------------------------------------------------------
+-- Character Journey
+--
+-- Spacing for Pages/Journey.lua's year separators -- a lighter-weight
+-- divider than a full BeginSection/EndSection (wrong tool for a per-year
+-- runtime string, and visually heavy repeated once per year on a
+-- long-lived character).
+-------------------------------------------------------------------------------
+
+DashboardLayout.JOURNEY_YEAR_SEPARATOR_GAP = 10
+
+-------------------------------------------------------------------------------
+-- Navigation
+--
+-- "Settings" is intentionally not part of this in-window page stack.
+-- It already has a fully working, standalone SettingsWindow, and folding
+-- it into a "page" here would mean either duplicating that functionality
+-- or temporarily replacing it with a placeholder -- neither of which is
+-- an improvement. The Settings button keeps opening the real window, as
+-- it always has.
+-------------------------------------------------------------------------------
+
+DashboardLayout.VALID_PAGES =
+{
+    Home = true,
+    Recommendations = true,
+    Profile = true,
+    Inventory = true,
+    Accomplishments = true,
+    MythicPlus = true,
+    Storage = true,
+    Weekly = true,
+    Progress = true,
+    Statistics = true,
+    Journey = true,
+}
+
+return DashboardLayout

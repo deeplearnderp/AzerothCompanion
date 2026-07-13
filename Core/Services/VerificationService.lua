@@ -1,0 +1,426 @@
+-------------------------------------------------------------------------------
+-- Azeroth Companion
+-- Verification Service
+--
+-- Live Verification & Framework Hardening sprint. Single source of truth
+-- for "what do we actually know about each Blizzard API this addon
+-- depends on, and how do we know it" -- the Developer Panel's Live API
+-- tab, its Checklist tab, and DEVELOPMENT_BACKLOG.md's verification
+-- section are all rendered/generated views over the same data here, not
+-- independently maintained copies that can drift out of sync.
+--
+-- Two independent kinds of record:
+--
+--   Registry (below, REGISTRY) -- static, in-code, one entry per checkable
+--   API/behavior, each already classified against the trust hierarchy
+--   (Blizzard Source / Warcraft Wiki / Live Client / Needs Live /
+--   Incorrect) with a real citation. This is documentation as data.
+--
+--   Log (persisted, DatabaseService:GetGlobal().VerificationLog /
+--   .ChecklistLog) -- one record per registry id or checklist scenario,
+--   written ONLY when a human confirms a real result (DeveloperPanel's
+--   Mark Verified/Mark Failed buttons, or ticking off a guided-checklist
+--   scenario). Never written automatically -- an addon cannot verify its
+--   own correctness against the live game, only a human watching the
+--   real result can. Account-wide (DatabaseService's Global table), not
+--   character-scoped, since API behavior is a fact about the game
+--   client/account, not about any one character.
+-------------------------------------------------------------------------------
+
+local AC = _G.AzerothCompanion
+
+local pairs = pairs
+local ipairs = ipairs
+local time = time
+
+local VerificationService =
+{
+    Name = "VerificationService",
+}
+
+AC.VerificationService = VerificationService
+
+-------------------------------------------------------------------------------
+-- Status Enum
+-------------------------------------------------------------------------------
+
+VerificationService.Status =
+{
+    SOURCE = "source",       -- Verified by Blizzard Source (Interface FrameXML/generated API docs)
+    WIKI = "wiki",           -- Verified by Warcraft Wiki
+    LIVE = "live",           -- Verified in the live game (human-confirmed)
+    NEEDS_LIVE = "needsLive",-- Cannot be settled by source/docs alone
+    INCORRECT = "incorrect", -- Confirmed wrong/nonexistent
+}
+
+VerificationService.StatusGlyph =
+{
+    source = "\226\156\147",    -- checkmark
+    wiki = "\226\156\147",
+    live = "\226\156\147",
+    needsLive = "\226\154\160", -- warning
+    incorrect = "\226\156\151", -- cross
+}
+
+VerificationService.StatusLabelKey =
+{
+    source = "Developer.StatusSource",
+    wiki = "Developer.StatusWiki",
+    live = "Developer.StatusLive",
+    needsLive = "Developer.StatusNeedsLive",
+    incorrect = "Developer.StatusIncorrect",
+}
+
+-------------------------------------------------------------------------------
+-- Registry
+--
+-- One row per checkable Blizzard API/behavior this addon actually calls.
+-- `status` is the current best-known classification from source/docs
+-- research; a human "Mark Verified"/"Mark Failed" action (RecordResult
+-- below) can raise it to `live` or drop it to `incorrect` without editing
+-- this table. `confidence` is a separate axis: even a wiki-confirmed
+-- entry can be Medium if the wiki page itself under-documents a
+-- parameter (see ach.categoryEnumeration).
+-------------------------------------------------------------------------------
+
+local S = VerificationService.Status
+
+local REGISTRY =
+{
+    -- Character -----------------------------------------------------------
+    { id = "char.unitAccessors", module = "Character", api = "UnitName/UnitFullName/UnitGUID/UnitRace/UnitClass/UnitLevel/UnitFactionGroup", status = S.WIKI, confidence = "High",
+      citation = "Warcraft Wiki (foundational Unit* API family)", expected = "Real values for unit \"player\"; never nil for a logged-in character.",
+      notes = "Not individually re-fetched this pass -- unchanged across the game's entire history, negligible risk." },
+    { id = "char.realmZone", module = "Character", api = "GetRealmName/GetZoneText/GetSubZoneText", status = S.WIKI, confidence = "High",
+      citation = "Warcraft Wiki", expected = "Current realm/zone/subzone strings; subZone may be empty string outside a named subzone.",
+      notes = "Not individually re-fetched this pass -- long-standing stable globals." },
+    { id = "char.money", module = "Character", api = "GetMoney", status = S.WIKI, confidence = "High", citation = "Warcraft Wiki", expected = "Copper amount, number, never nil." },
+    { id = "char.bindLocation", module = "Character", api = "GetBindLocation", status = S.WIKI, confidence = "High", citation = "Warcraft Wiki", expected = "Hearthstone-bound subzone name string." },
+    { id = "char.restedXP", module = "Character", api = "GetXPExhaustion", status = S.WIKI, confidence = "High", citation = "Warcraft Wiki",
+      expected = "Number (rested XP pool), or nil if the player is not rested -- module must nil-guard, does." },
+    { id = "char.specialization", module = "Character", api = "C_SpecializationInfo.GetSpecialization / GetSpecializationInfo", status = S.WIKI, confidence = "High",
+      citation = "Warcraft Wiki", expected = "specIndex number (or nil if unlearned); GetSpecializationInfo(specIndex) returns specId/name/description/icon/role/primaryStat as its first 6 values.",
+      notes = "Migrated this pass off the global GetSpecialization()/GetSpecializationInfo(), both confirmed deprecated since patch 11.2.0. The new namespaced calls return the same first 6 values in the same order, confirmed via Warcraft Wiki -- a safe drop-in, not a guess." },
+    { id = "char.itemLevel", module = "Character / Inventory", api = "GetAverageItemLevel", status = S.WIKI, confidence = "High", citation = "Warcraft Wiki (added 4.0.1)",
+      expected = "3 return values in order: avgItemLevel, avgItemLevelEquipped, avgItemLevelPvp." },
+    { id = "char.guildInfo", module = "Character", api = "GetGuildInfo(\"player\")", status = S.WIKI, confidence = "Medium", citation = "Warcraft Wiki",
+      expected = "guildName, guildRankName, guildRankIndex, realm (4 values); can return nil during initial login load.",
+      notes = "Wiki recommends re-reading on GUILD_ROSTER_UPDATE/PLAYER_GUILD_UPDATE for reliability; this module already registers PLAYER_GUILD_UPDATE, not independently confirmed live that a single refresh on that event is always sufficient." },
+    { id = "char.maxLevel", module = "Character", api = "GetMaxLevelForPlayerExpansion", status = S.WIKI, confidence = "Medium", citation = "Warcraft Wiki",
+      expected = "Single deterministic level number for the current expansion.", notes = "Not individually re-fetched this pass." },
+    { id = "char.bestMap", module = "Character / MythicPlus", api = "C_Map.GetBestMapForUnit", status = S.WIKI, confidence = "High", citation = "Warcraft Wiki",
+      expected = "UI map ID number for \"player\"/\"party1\" etc, or nil.", notes = "Confirmed across two separate passes (MythicPlus death-location capture, and this pass)." },
+    { id = "char.removedApis", module = "Character", api = "C_Hearthstone.GetHearthstone / C_PlayerInfo.GetAccountGUID", status = S.INCORRECT, confidence = "High",
+      citation = "Blizzard's own generated API documentation (Blizzard_APIDocumentationGenerated/PlayerInfoDocumentation.lua lists all 32 real C_PlayerInfo functions; GetAccountGUID is not among them) + Warcraft Wiki's full API index (no C_Hearthstone namespace listed anywhere)",
+      expected = "N/A -- both APIs do not exist.", notes = "Removed this pass, not patched in place: both fields (hearthstoneItemID, warband.accountGUID) were confirmed dead (never read anywhere in the codebase) before removal." },
+
+    -- Inventory -------------------------------------------------------------
+    { id = "inv.container", module = "Inventory / Storage", api = "C_Container.GetContainerNumSlots / GetContainerItemInfo / GetContainerItemLink", status = S.WIKI, confidence = "High",
+      citation = "Warcraft Wiki (ContainerItemInfo struct)", expected = "Standard post-10.0 container API; ContainerItemInfo has no isFavorite field (see storage.favoriteField)." },
+    { id = "inv.equippedSlots", module = "Inventory", api = "GetInventoryItemID / GetInventoryItemLink", status = S.WIKI, confidence = "High", citation = "Warcraft Wiki",
+      notes = "Not individually re-fetched this pass -- foundational, unchanged." },
+    { id = "inv.reagentBagEnum", module = "Inventory", api = "Enum.BagIndex.ReagentBag", status = S.WIKI, confidence = "High", citation = "Warcraft Wiki (Enum.BagIndex full table, value 5)",
+      expected = "A number greater than the standard 4 bag slots; used correctly (guarded, only iterated when it resolves to a number)." },
+    { id = "inv.repairCost", module = "Inventory", api = "GetRepairAllCost / CanMerchantRepair", status = S.WIKI, confidence = "High", citation = "Warcraft Wiki",
+      expected = "repairAllCost (copper), canRepair; only meaningful while a repair-capable merchant window is open.",
+      notes = "Already correctly gated behind MerchantFrame:IsShown()/CanMerchantRepair() at the one call site -- matches the documented constraint exactly, not a bug." },
+
+    -- Accomplishments (formerly Achievements -- `ach.*` id prefixes kept
+    -- unchanged for persisted VerificationLog compatibility, same
+    -- reasoning ActivityHistoryService's own stored "Achievements" Module
+    -- tag was kept -- see AccomplishmentsModule.lua's own header) --------
+    { id = "ach.achievementInfo", module = "Accomplishments", api = "GetAchievementInfo(achievementID) / GetAchievementInfo(categoryID, index)", status = S.WIKI, confidence = "High",
+      citation = "Warcraft Wiki", expected = "15 values in order: id,name,points,completed,month,day,year,description,flags,icon,rewardText,isGuild,wasEarnedByMe,earnedBy,isStatistic; identical shape for both call forms." },
+    { id = "ach.categoryEnumeration", module = "Accomplishments", api = "GetCategoryList / GetCategoryNumAchievements / GetAchievementInfo(categoryID, index)", status = S.NEEDS_LIVE, confidence = "Medium",
+      citation = "Warcraft Wiki (documents the pattern; Blizzard's own achievement UI uses this exact category-then-index traversal)",
+      expected = "Every completed, non-statistic achievement the player has earned is discovered exactly once across all categories.",
+      notes = "Fixed a prior pass to replace a stale hardcoded `for achievementID = 1, 20000` loop (confirmed too low -- real achievement IDs already exceed 20000, e.g. Wowhead achievement 42045 is a real current-expansion achievement). GetCategoryNumAchievements's `includeAll` boolean parameter's exact semantics are not documented on Warcraft Wiki; this pass passes `true` on a reasonable but unconfirmed assumption it means \"count hidden/not-currently-visible achievements too\"." },
+    { id = "ach.categoryInfo", module = "Accomplishments", api = "GetCategoryInfo(categoryID)", status = S.WIKI, confidence = "High",
+      citation = "Warcraft Wiki", expected = "3 values: title, parentCategoryID, flags; parentCategoryID == -1 for a top-level category (no parent).",
+      notes = "New this pass -- Accomplishments redesign. Used to walk the full category tree at runtime (no hardcoded category IDs) and identify the top-level \"Feats of Strength\" category by its own Blizzard-provided title. KNOWN GAP: matching that title against the English literal \"Feats of Strength\" is correct on an English client only -- Blizzard returns the title already localized and this module has no other signal to identify that specific category by; not re-verified for non-English locales this pass." },
+    { id = "acc.signaturePatterns", module = "Accomplishments", api = "Modules/Accomplishments/AccomplishmentsPatterns.lua (name-pattern classification)", status = S.NEEDS_LIVE, confidence = "Low",
+      citation = "General addon-development knowledge + one spot-check this pass (Heritage of the Vulpera/Kul Tirans/Lightforged, cross-referenced)",
+      expected = "Achievement names beginning/ending with the documented patterns (Loremaster of/Pathfinder/Ahead of the Curve/Cutting Edge/Keystone Master/Keystone Hero/Glory of the X/Heritage of the X) reliably identify the intended signature-achievement category.",
+      notes = "QUALITATIVELY DIFFERENT from every other row in this registry: this is not a one-time API-shape confirmation, it's an ONGOING content-drift risk -- Blizzard could rename a naming convention with zero addon-facing signal that it happened. Needs a periodic per-expansion spot-check, not a single close-out. Only the Heritage of the X entry was independently spot-checked this pass; the rest are carried from general knowledge and flagged accordingly." },
+    { id = "acc.expansionNames", module = "Accomplishments", api = "Modules/Accomplishments/AccomplishmentsExpansionNames.lua (top-level category title -> expansion name match)", status = S.NEEDS_LIVE, confidence = "Low",
+      citation = "General addon-development knowledge -- Blizzard's achievement UI top-level categories are organized one-per-expansion; not independently spot-checked this pass",
+      expected = "Every top-level achievement category's own Blizzard-provided title exactly matches one entry in AccomplishmentsExpansionNames.lua.",
+      notes = "Same ongoing-content-drift category as acc.signaturePatterns (ships a new expansion, needs a one-line table addition) -- not a one-time API-shape confirmation. A category whose title matches nothing in the table resolves to expansion = nil on the accomplishment record, rendered by the Dashboard as an honest omission, never fabricated as \"Unknown\"." },
+
+    -- Accomplishments -- Campaign / Renown (NOT achievement data, owned
+    -- here temporarily -- see AccomplishmentsModule.lua's own header) ----
+    { id = "acc.campaignInfo", module = "Accomplishments", api = "C_CampaignInfo.GetAvailableCampaigns / GetState / GetChapterIDs / GetCurrentChapterID", status = S.WIKI, confidence = "High",
+      citation = "Warcraft Wiki", expected = "GetState returns Enum.CampaignState (0 Invalid, 1 Complete, 2 InProgress, 3 Stalled).",
+      notes = "New this pass. C_CampaignInfo.GetCampaignInfo's exact return shape was NOT verified this pass -- read defensively (pcall + nil-guarded .name field access) in AccomplishmentsModule.lua rather than assumed." },
+    { id = "acc.renownInfo", module = "Accomplishments", api = "C_MajorFactions.GetMajorFactionIDs / GetMajorFactionData / GetCurrentRenownLevel / HasMaximumRenown / IsWeeklyRenownCapped", status = S.WIKI, confidence = "High",
+      citation = "Warcraft Wiki (reuses this addon's own already-confirmed function set from the Reputation module's planning audit, docs/GameplayModuleArchitecture.md section 2.1)",
+      expected = "Real Major Faction IDs/renown levels for the current expansion's account-wide factions.",
+      notes = "New this pass -- first time this addon has called C_MajorFactions. Deliberately does NOT use GetRenownLevels, which surfaced in a fresh search this pass but was never independently confirmed; the five-function set already verified for the planned Reputation module was reused instead." },
+    { id = "acc.renownChangedEvent", module = "Accomplishments", api = "MAJOR_FACTION_RENOWN_LEVEL_CHANGED", status = S.NEEDS_LIVE, confidence = "Low",
+      citation = "General addon-development knowledge, not independently confirmed this pass", expected = "Fires when a tracked Major Faction's Renown level changes.",
+      notes = "Registered defensively (pcall) in AccomplishmentsModule.lua -- a wrong/renamed event name degrades to Renown only refreshing on the next PLAYER_ENTERING_WORLD, never a hard failure." },
+
+    -- Weekly / Great Vault ----------------------------------------------------
+    { id = "weekly.activities", module = "Weekly", api = "C_WeeklyRewards.GetActivities / HasAvailableRewards / GetItemHyperlink", status = S.SOURCE, confidence = "High",
+      citation = "Blizzard Interface Source (Blizzard_WeeklyRewards/Blizzard_WeeklyRewards.lua)", expected = "WeeklyRewardActivityInfo per slot: type,index,threshold,progress,id,activityTierID,level,claimID,raidString,rewards." },
+    { id = "weekly.itemLevelChain", module = "Weekly", api = "C_Item.GetItemInfo / C_Item.GetDetailedItemLevelInfo", status = S.WIKI, confidence = "High", citation = "Warcraft Wiki",
+      expected = "Real reward item level via activity.rewards -> GetItemInfo -> GetItemHyperlink -> GetDetailedItemLevelInfo, mirroring Blizzard's own WeeklyRewardActivityItemMixin:SetDisplayedItem().",
+      notes = "Both calls are documented MayReturnNothing (item-cache miss); this module degrades to no-reward-shown rather than guessing, but does not replicate Blizzard's own GET_ITEM_INFO_RECEIVED retry." },
+    { id = "weekly.progressUnits", module = "Weekly", api = "activity.threshold / activity.progress unit meaning", status = S.NEEDS_LIVE, confidence = "Medium",
+      citation = "Community addon cross-reference only (mega-tin/Broker_GreatVault) -- not an official source",
+      expected = "threshold/progress are counted in whole Mythic+ dungeons completed this week (e.g. 1/4, not some other unit)." },
+    { id = "weekly.event", module = "Weekly", api = "WEEKLY_REWARDS_UPDATE", status = S.SOURCE, confidence = "High", citation = "Blizzard Interface Source" },
+
+    -- Storage -----------------------------------------------------------------
+    { id = "storage.bankTabs", module = "Storage", api = "C_Bank.FetchPurchasedBankTabIDs / CanUseBank / Enum.BankType", status = S.WIKI, confidence = "High",
+      citation = "Warcraft Wiki (added 11.0.0)", expected = "Enum.BankType = {Character=0, Guild=1, Account=2}; FetchPurchasedBankTabIDs returns an array of owned tab IDs." },
+    { id = "storage.reagentBankLegacy", module = "Storage", api = "Enum.BagIndex.Reagentbank / Bank (legacy fallback path)", status = S.WIKI, confidence = "High", citation = "Warcraft Wiki",
+      expected = "Harmless-but-vestigial: reagent bank folded into the unified bank-tab system in Patch 11.2.0, already covered by storage.bankTabs." },
+    { id = "storage.pickupItem", module = "Storage", api = "C_Container.PickupContainerItem", status = S.WIKI, confidence = "High", citation = "Warcraft Wiki (AllowedWhenUntainted)",
+      notes = "Real pickup-then-place round trip against a live bank/bag still needs a human watching it happen -- see checklist scenario Bank." },
+    { id = "storage.favoriteField", module = "Storage", api = "ContainerItemInfo.isFavorite", status = S.INCORRECT, confidence = "High",
+      citation = "Warcraft Wiki (full ContainerItemInfo field list has no isFavorite field)",
+      expected = "N/A -- field does not exist; always false/nil in practice. Also confirmed unread anywhere else in the codebase.",
+      notes = "Left as a documented, honest gap (inline comment at the read site) rather than a fabricated fix -- real follow-up: find the correct API or remove the dead field." },
+    { id = "storage.bankerInteraction", module = "Storage", api = "Enum.PlayerInteractionType.Banker / PLAYER_INTERACTION_MANAGER_FRAME_SHOW / HIDE payload", status = S.NEEDS_LIVE, confidence = "Low",
+      citation = "Not yet researched", expected = "Payload includes an interaction type identifying a Banker frame; module's bank-open detection reacts to it correctly." },
+
+    -- Mythic+ -------------------------------------------------------------------
+    { id = "mp.challengeMode", module = "MythicPlus", api = "C_ChallengeMode.GetActiveKeystoneInfo / GetSlottedKeystoneInfo / HasSlottedKeystone / GetOverallDungeonScore / GetMapUIInfo / GetDeathCount / GetMapScoreInfo / GetCompletionInfo / IsChallengeModeActive / GetAffixInfo",
+      status = S.WIKI, confidence = "Medium", citation = "Original Phase 2 API audit (namespace + shape confirmed, not independently re-fetched with fresh citations this pass)",
+      expected = "See docs/GameplayModuleArchitecture.md section 1.4's Phase 2 API Audit table for the per-function detail already on record." },
+    { id = "mp.mythicPlusNamespace", module = "MythicPlus", api = "C_MythicPlus.GetOwnedKeystoneChallengeMapID / GetOwnedKeystoneLevel / GetCurrentAffixes / GetCurrentSeason / RequestMapInfo",
+      status = S.WIKI, confidence = "Medium", citation = "Original Phase 2 API audit", expected = "See docs/GameplayModuleArchitecture.md section 1.4." },
+    { id = "mp.eventsSource", module = "MythicPlus", api = "CHALLENGE_MODE_START / RESET / KEYSTONE_SLOTTED / MAPS_UPDATE / MYTHIC_PLUS_CURRENT_AFFIX_UPDATE", status = S.SOURCE, confidence = "High",
+      citation = "Blizzard Interface Source (Blizzard_ChallengesUI)" },
+    { id = "mp.eventsWiki", module = "MythicPlus", api = "CHALLENGE_MODE_COMPLETED_REWARDS / CHALLENGE_MODE_DEATH_COUNT_UPDATED", status = S.WIKI, confidence = "High", citation = "Warcraft Wiki",
+      notes = "CHALLENGE_MODE_COMPLETED_REWARDS added Patch 11.2.0; payload mapID,medal,timeMS,money,rewards." },
+    { id = "mp.eventOrdering", module = "MythicPlus", api = "Relative firing order of the events above during a real run", status = S.NEEDS_LIVE, confidence = "Low",
+      citation = "N/A -- confirming an event exists is not the same as confirming when it fires relative to the others.",
+      expected = "No documented guarantee found; needs a human watching the Event Monitor tab during a real run." },
+    { id = "mp.combatLog", module = "MythicPlus", api = "COMBAT_LOG_EVENT_UNFILTERED (SPELL_INTERRUPT sub-event only)", status = S.WIKI, confidence = "High",
+      citation = "Warcraft Wiki (long-standing stable event)", notes = "Filtered to exactly one sub-event, sourced from the player only -- not a general combat log parser." },
+    { id = "mp.itemInfoInstant", module = "MythicPlus", api = "C_Item.GetItemInfoInstant (classID/subClassID return-position offset)", status = S.NEEDS_LIVE, confidence = "Medium",
+      citation = "Copied from this module's own pre-existing convention, not independently re-verified", expected = "classID/subClassID at the positions ClassifyConsumableItem already assumes." },
+    { id = "mp.mapPosition", module = "MythicPlus", api = "C_Map.GetBestMapForUnit / GetPlayerMapPosition", status = S.WIKI, confidence = "High", citation = "Warcraft Wiki" },
+    { id = "mp.spellData", module = "MythicPlus", api = "MythicPlusSpellData.lua defensive cooldown spell IDs (one per class)", status = S.NEEDS_LIVE, confidence = "Low",
+      citation = "Compiled from general knowledge, explicitly documented as a living list", expected = "Each listed spell ID actually corresponds to that class's well-known defensive cooldown on the current client." },
+
+    -- Framework services --------------------------------------------------------
+    { id = "notif.ticker", module = "NotificationService", api = "C_Timer.NewTicker", status = S.WIKI, confidence = "High", citation = "Warcraft Wiki (foundational timer utility)",
+      notes = "Only direct Blizzard API call across Progress/Recommendation/Notification/Milestone/Briefing services -- the rest are confirmed (repo-wide grep, this pass) to compute nothing from Blizzard APIs directly, only from other modules' already-verified public getters." },
+    { id = "devpanel.events", module = "DeveloperPanel", api = "PLAYER_ALIVE / BAG_UPDATE_DELAYED / BANKFRAME_OPENED / BANKFRAME_CLOSED (Event Monitor's own monitored list)", status = S.WIKI, confidence = "High",
+      citation = "Warcraft Wiki", notes = "Not individually re-fetched this pass -- long-standing stable events; every other event on the monitored list is already covered by its owning module's own registry row above." },
+
+    -- Player Journal & Community Notes -------------------------------------------
+    { id = "pj.rosterUnitAccessors", module = "PlayerJournal", api = "UnitFullName / UnitGUID / UnitClass / UnitGroupRolesAssigned (party1-4)", status = S.WIKI, confidence = "High",
+      citation = "Warcraft Wiki (same API family as char.unitAccessors, applied to party unit tokens instead of \"player\")",
+      expected = "Real identity/role facts for present party members; UnitExists gates each slot first." },
+    { id = "pj.unitDiedCombatLog", module = "PlayerJournal", api = "COMBAT_LOG_EVENT_UNFILTERED (UNIT_DIED / SPELL_INTERRUPT sub-events, party roster only)", status = S.WIKI, confidence = "High",
+      citation = "Warcraft Wiki (same event family as mp.combatLog -- MythicPlusModule's own player-only SPELL_INTERRUPT filtering)",
+      expected = "destGUID/sourceGUID match a tracked roster member's GUID for the relevant sub-event." },
+    { id = "pj.rosterLeaveDetection", module = "PlayerJournal", api = "Grace-period roster-departure heuristic (GROUP_ROSTER_UPDATE diff + 5s recheck)", status = S.NEEDS_LIVE, confidence = "Low",
+      citation = "Not a documented Blizzard behavior -- an addon-side heuristic layered on top of confirmed roster-read APIs.",
+      expected = "A party member missing from the roster for the full grace period, with the run still active, reliably indicates a real early departure rather than a brief reconnect/instance-transition hiccup." },
+    { id = "pj.eventOrderingDefer", module = "PlayerJournal", api = "C_Timer.After(0, ...) deferred read of MythicPlusModule:GetRecentRuns(1)", status = S.NEEDS_LIVE, confidence = "Medium",
+      citation = "Confirmed by reading Core/Events/EventManager.lua's own DispatchBlizzard (listeners fire in registration order; a timer only ever runs on OnUpdate, after the current frame's event-dispatch loop) -- correct by inspection of this addon's own code, not yet watched happen in a real client.",
+      expected = "MythicPlusModule:RecordCompletedRun() has already appended its ActivityHistoryService record by the time PlayerJournalModule's deferred read runs." },
+    { id = "ctxmenu.modifyMenu", module = "PlayerJournal", api = "Menu.ModifyMenu(tag, callback) + submenu auto-promotion (CreateButton then CreateButton again on the result)", status = S.WIKI, confidence = "Medium",
+      citation = "Warcraft Wiki's own Blizzard Menu implementation guide", expected = "Exactly one \"Azeroth Companion\" submenu appended to the target menu, never replacing existing entries." },
+    { id = "ctxmenu.unitMenuTags", module = "PlayerJournal", api = "Exact MENU_UNIT_* tag name(s) for \"any party member\"", status = S.NEEDS_LIVE, confidence = "Low",
+      citation = "Warcraft Wiki confirms the MENU_UNIT_<UNIT_TYPE> format with PARTY1 as one example, not whether a slot-independent tag also exists -- registered defensively against multiple plausible tags, each pcall-wrapped.",
+      expected = "At least one of the registered tags fires when right-clicking a real party member in a live client." },
+    { id = "ctxmenu.createCheckbox", module = "PlayerJournal", api = "ElementDescription:CreateCheckbox(text, isSelectedFunc, setSelectedFunc)", status = S.WIKI, confidence = "Medium",
+      citation = "Warcraft Wiki's own Blizzard Menu implementation guide (shown with an identical 3-argument example, a reputation-panel checkbox)", expected = "A checkbox menu entry reflecting IsFavorite's current value, toggling it on click." },
+    { id = "tooltip.postCall", module = "PlayerJournal", api = "TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, callback) + tooltip:GetUnit()", status = S.WIKI, confidence = "High",
+      citation = "Confirmed via real published addon source (the current, standard tooltip-extension technique, superseding the legacy OnTooltipSetUnit script hook)." },
+}
+
+-------------------------------------------------------------------------------
+-- Guided Verification Checklist
+--
+-- 26 scripted scenarios, each naming exactly which registry rows it
+-- actually exercises -- several deliberately list none, with an honest
+-- note explaining why, rather than padding every scenario with an
+-- API to "justify" its presence.
+-------------------------------------------------------------------------------
+
+local CHECKLIST =
+{
+    { id = "Login", labelKey = "Developer.ChecklistLogin", relatedIds = { "char.unitAccessors", "char.realmZone", "inv.container", "ach.achievementInfo", "ach.categoryEnumeration", "weekly.activities", "weekly.event", "mp.challengeMode", "mp.mythicPlusNamespace" } },
+    { id = "ReloadUI", labelKey = "Developer.ChecklistReloadUI", relatedIds = { "weekly.progressUnits" } },
+    { id = "CharacterSelect", labelKey = "Developer.ChecklistCharacterSelect", relatedIds = {} },
+    { id = "SpecSwap", labelKey = "Developer.ChecklistSpecSwap", relatedIds = { "char.specialization" } },
+    { id = "Hearthstone", labelKey = "Developer.ChecklistHearthstone", relatedIds = {} },
+    { id = "ZoneChange", labelKey = "Developer.ChecklistZoneChange", relatedIds = { "char.realmZone", "char.bestMap" } },
+    { id = "FlightPath", labelKey = "Developer.ChecklistFlightPath", relatedIds = { "char.bestMap" } },
+    { id = "Death", labelKey = "Developer.ChecklistDeath", relatedIds = { "mp.combatLog", "char.bestMap" } },
+    { id = "Resurrection", labelKey = "Developer.ChecklistResurrection", relatedIds = {} },
+    { id = "DungeonEnter", labelKey = "Developer.ChecklistDungeonEnter", relatedIds = { "mp.mapPosition", "mp.challengeMode", "pj.rosterUnitAccessors" } },
+    { id = "DungeonLeave", labelKey = "Developer.ChecklistDungeonLeave", relatedIds = { "mp.eventOrdering", "pj.rosterLeaveDetection" } },
+    { id = "KeystoneInsert", labelKey = "Developer.ChecklistKeystoneInsert", relatedIds = { "mp.eventsSource", "mp.eventOrdering" } },
+    { id = "KeystoneComplete", labelKey = "Developer.ChecklistKeystoneComplete", relatedIds = { "mp.eventsWiki", "mp.eventOrdering", "weekly.progressUnits", "pj.eventOrderingDefer", "pj.unitDiedCombatLog" } },
+    { id = "KeystoneFail", labelKey = "Developer.ChecklistKeystoneFail", relatedIds = { "mp.eventsSource", "mp.eventOrdering" } },
+    { id = "GreatVault", labelKey = "Developer.ChecklistGreatVault", relatedIds = { "weekly.activities", "weekly.itemLevelChain", "weekly.progressUnits", "weekly.event" } },
+    { id = "Bank", labelKey = "Developer.ChecklistBank", relatedIds = { "storage.bankTabs", "storage.bankerInteraction", "storage.pickupItem", "storage.favoriteField" } },
+    { id = "ReagentBank", labelKey = "Developer.ChecklistReagentBank", relatedIds = { "storage.reagentBankLegacy" } },
+    { id = "WarbandBank", labelKey = "Developer.ChecklistWarbandBank", relatedIds = { "storage.bankTabs" } },
+    { id = "Mailbox", labelKey = "Developer.ChecklistMailbox", relatedIds = {} },
+    { id = "Vendor", labelKey = "Developer.ChecklistVendor", relatedIds = { "inv.repairCost" } },
+    { id = "AuctionHouse", labelKey = "Developer.ChecklistAuctionHouse", relatedIds = {} },
+    { id = "AchievementEarned", labelKey = "Developer.ChecklistAchievementEarned", relatedIds = { "ach.achievementInfo", "ach.categoryEnumeration" } },
+    { id = "InventoryFull", labelKey = "Developer.ChecklistInventoryFull", relatedIds = { "inv.container" } },
+    { id = "EquipmentChange", labelKey = "Developer.ChecklistEquipmentChange", relatedIds = { "char.itemLevel", "inv.equippedSlots" } },
+    { id = "CurrencyGain", labelKey = "Developer.ChecklistCurrencyGain", relatedIds = {} },
+    { id = "WeeklyReset", labelKey = "Developer.ChecklistWeeklyReset", relatedIds = { "weekly.progressUnits", "weekly.activities" } },
+
+    -- Player Journal & Community Notes -------------------------------------------
+    { id = "PlayerJournalRun", labelKey = "Developer.ChecklistPlayerJournalRun", relatedIds = { "pj.rosterUnitAccessors", "pj.eventOrderingDefer", "pj.unitDiedCombatLog" } },
+    { id = "PlayerJournalLeave", labelKey = "Developer.ChecklistPlayerJournalLeave", relatedIds = { "pj.rosterLeaveDetection" } },
+    { id = "PlayerJournalContextMenu", labelKey = "Developer.ChecklistPlayerJournalContextMenu", relatedIds = { "ctxmenu.modifyMenu", "ctxmenu.unitMenuTags", "ctxmenu.createCheckbox" } },
+    { id = "PlayerJournalTooltip", labelKey = "Developer.ChecklistPlayerJournalTooltip", relatedIds = { "tooltip.postCall" } },
+}
+
+-------------------------------------------------------------------------------
+-- Registry Access
+-------------------------------------------------------------------------------
+
+function VerificationService:GetRegistry()
+
+    return REGISTRY
+
+end
+
+function VerificationService:GetById(id)
+
+    for _, entry in ipairs(REGISTRY) do
+
+        if entry.id == id then
+            return entry
+        end
+
+    end
+
+    return nil
+
+end
+
+function VerificationService:GetByModule(moduleName)
+
+    local results = {}
+
+    for _, entry in ipairs(REGISTRY) do
+
+        if entry.module == moduleName then
+            table.insert(results, entry)
+        end
+
+    end
+
+    return results
+
+end
+
+function VerificationService:GetChecklist()
+
+    return CHECKLIST
+
+end
+
+-------------------------------------------------------------------------------
+-- Persisted Log
+--
+-- Written only by an explicit human action (DeveloperPanel button /
+-- checklist checkbox), never automatically.
+-------------------------------------------------------------------------------
+
+local function GetLog()
+
+    return AC.DatabaseService:GetGlobal().VerificationLog
+
+end
+
+local function GetChecklistLog()
+
+    return AC.DatabaseService:GetGlobal().ChecklistLog
+
+end
+
+function VerificationService:RecordResult(id, passed, notes)
+
+    local log = GetLog()
+
+    log[id] =
+    {
+        passed = passed and true or false,
+        timestamp = time(),
+        source = "Live Client",
+        notes = notes or "",
+    }
+
+end
+
+function VerificationService:GetRecord(id)
+
+    return GetLog()[id]
+
+end
+
+function VerificationService:GetEffectiveStatus(id)
+
+    local record = GetLog()[id]
+
+    if record then
+        return record.passed and S.LIVE or S.INCORRECT
+    end
+
+    local entry = self:GetById(id)
+
+    return entry and entry.status or S.NEEDS_LIVE
+
+end
+
+function VerificationService:RecordChecklistScenario(scenarioId, completed)
+
+    local log = GetChecklistLog()
+
+    log[scenarioId] =
+    {
+        completed = completed and true or false,
+        timestamp = time(),
+    }
+
+end
+
+function VerificationService:GetChecklistRecord(scenarioId)
+
+    return GetChecklistLog()[scenarioId]
+
+end
+
+-------------------------------------------------------------------------------
+-- Summary
+-------------------------------------------------------------------------------
+
+function VerificationService:GetSummaryCounts()
+
+    local counts = { source = 0, wiki = 0, live = 0, needsLive = 0, incorrect = 0 }
+
+    for _, entry in ipairs(REGISTRY) do
+
+        local status = self:GetEffectiveStatus(entry.id)
+        counts[status] = (counts[status] or 0) + 1
+
+    end
+
+    return counts
+
+end
+
+-------------------------------------------------------------------------------
+-- Register
+-------------------------------------------------------------------------------
+
+AC.ServiceManager:Register("VerificationService", VerificationService)
+
+return VerificationService

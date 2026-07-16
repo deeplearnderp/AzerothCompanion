@@ -253,7 +253,7 @@ function Dashboard:Create()
     -- already set it to (WINDOW_BACKDROP's shared 0.95).
     -----------------------------------------------------------------------
 
-    local background = frame:CreateTexture(nil, "BACKGROUND")
+    local background = frame:CreateTexture(nil, "ARTWORK")
     background:SetTexture(AC.Presentation.DASHBOARD_BACKGROUND_TEXTURE)
     background:SetAlpha(AC.Presentation.DASHBOARD_BACKGROUND_ALPHA)
 

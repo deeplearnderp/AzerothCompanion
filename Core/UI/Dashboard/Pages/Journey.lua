@@ -116,7 +116,17 @@ local function BuildMilestoneJourneyEntry(milestone)
 
 end
 
-local function BuildJourneyEntries()
+-- newestFirst is presentation only -- the same entries, same fields,
+-- just walked the other direction. This is the one and only place sort
+-- direction is decided; GroupEntriesByYear and every layout function below
+-- already just render whatever order they're handed, so nothing else
+-- needs to change for either direction. Defaults to false (omitted
+-- argument), preserving today's oldest-first behavior for every existing
+-- caller -- GetJourneySummary below calls this with no argument and must
+-- keep doing so, since Home's teaser card is a separate consumer,
+-- unaffected by whatever sort direction the Journey page itself has
+-- toggled to.
+local function BuildJourneyEntries(newestFirst)
 
     local entries = {}
 
@@ -138,9 +148,11 @@ local function BuildJourneyEntries()
 
     end
 
-    table.sort(entries, function(a, b)
-        return a.timestamp < b.timestamp
-    end)
+    if newestFirst then
+        table.sort(entries, function(a, b) return a.timestamp > b.timestamp end)
+    else
+        table.sort(entries, function(a, b) return a.timestamp < b.timestamp end)
+    end
 
     return entries
 
@@ -358,13 +370,21 @@ function Dashboard:UpdateJourneyPage(frame)
 
     local scrollChild = page.ScrollChild
 
-    local entries = BuildJourneyEntries()
+    -- Timeline sort toggle -- session-only (not persisted, per explicit
+    -- instruction), defaults to nil/false, i.e. today's existing
+    -- oldest-first behavior, unchanged for anyone who never touches it.
+    local newestFirst = page.SortNewestFirst == true
+
+    local entries = BuildJourneyEntries(newestFirst)
     local yearBuckets = GroupEntriesByYear(entries)
 
     -- Page-wide accordion: one shared expanded-ID field, one shared
     -- toggle, passed identically into every year-bucket below. Record
     -- IDs are globally unique across sources, so "only the matching row
     -- anywhere on the page shows expanded" falls out automatically.
+    -- Robust to sort direction by construction -- keyed by recordID, never
+    -- by array position, so reordering entries never disturbs which one
+    -- is expanded.
     local function ToggleJourneyEntry(recordID)
 
         if page.ExpandedJourneyEntryID == recordID then
@@ -377,6 +397,18 @@ function Dashboard:UpdateJourneyPage(frame)
 
     end
 
+    -- Same idiom as ToggleJourneyEntry above: flip a page-local field,
+    -- re-run the whole page update. Changes presentation only --
+    -- BuildJourneyEntries' own sort direction is the one and only thing
+    -- this touches.
+    local function ToggleSortDirection()
+
+        page.SortNewestFirst = not page.SortNewestFirst
+
+        self:UpdateJourneyPage(frame)
+
+    end
+
     local function Layout_(width)
 
         page.ContentWidth = width
@@ -384,7 +416,14 @@ function Dashboard:UpdateJourneyPage(frame)
         local yOffset = -4
 
         local totalCount = #entries
-        local mostRecent = entries[totalCount]
+
+        -- Whichever end of the (already correctly sorted) array holds the
+        -- newest entry depends on which direction is active -- entries[1]
+        -- when newest-first, entries[totalCount] (today's only case) when
+        -- oldest-first. Was previously always entries[totalCount], which
+        -- would have silently shown the OLDEST entry as "most recent" once
+        -- Newest First became selectable.
+        local mostRecent = totalCount > 0 and (newestFirst and entries[1] or entries[totalCount]) or nil
 
         local heroCaption = totalCount > 0 and AC.L:Format("Journey.HeroCaptionFormat", mostRecent.title) or AC.L:Get("Journey.EmptyHeroCaption")
 
@@ -396,6 +435,10 @@ function Dashboard:UpdateJourneyPage(frame)
 
             yOffset = self:ShowEmptyLine(page, scrollChild, "EmptyStateText", yOffset, width, "Journey.EmptyStateBody")
 
+            if page.SortToggleButton then
+                page.SortToggleButton:Hide()
+            end
+
             return (-yOffset) + Layout.PAGE_BOTTOM_PADDING
 
         end
@@ -403,6 +446,28 @@ function Dashboard:UpdateJourneyPage(frame)
         if page.EmptyStateText then
             page.EmptyStateText:Hide()
         end
+
+        -- Sort toggle button -- pooled/created once (same "if not
+        -- page.X then create" idiom every other page-local action button
+        -- in this codebase already uses), only shown when there's
+        -- actually a list to reorder. Label reflects the CURRENTLY active
+        -- direction; clicking switches to the other.
+        if not page.SortToggleButton then
+
+            local button = CreateFrame("Button", nil, scrollChild, "UIPanelButtonTemplate")
+            button:SetSize(140, 20)
+
+            page.SortToggleButton = button
+
+        end
+
+        page.SortToggleButton:SetScript("OnClick", ToggleSortDirection)
+        page.SortToggleButton:ClearAllPoints()
+        page.SortToggleButton:SetPoint("TOPRIGHT", 0, yOffset)
+        page.SortToggleButton:SetText(newestFirst and AC.L:Get("Journey.SortNewestFirst") or AC.L:Get("Journey.SortOldestFirst"))
+        page.SortToggleButton:Show()
+
+        yOffset = yOffset - Layout.ROW_HEIGHT - Layout.SECTION_GROUP_GAP
 
         local keepKeys = {}
 

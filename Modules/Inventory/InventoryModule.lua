@@ -14,13 +14,28 @@
 -- Warcraft Wiki, including its documented "requires a merchant window
 -- open" constraint -- already correctly gated behind
 -- `MerchantFrame:IsShown()`/`CanMerchantRepair()` at the one call site
--- (`GetImportantItemsSummary`), not a bug. GetAverageItemLevel confirmed
+-- (`GetEquipmentHealthSummary`), not a bug. GetAverageItemLevel confirmed
 -- via Warcraft Wiki (3 return values: avgItemLevel, avgItemLevelEquipped,
 -- avgItemLevelPvp; added 4.0.1). GetInventoryItemID/GetInventoryItemLink,
 -- BAG_UPDATE/PLAYER_EQUIPMENT_CHANGED/PLAYER_ENTERING_WORLD/
 -- SETTINGS_CHANGED are long-standing stable globals/events, materially
 -- higher confidence than any of the above and not independently
 -- re-researched this pass.
+--
+-- Equipment Health feature -- GetInventoryItemDurability(invSlotId) ->
+-- current, max confirmed via Warcraft Wiki (single InventorySlotId
+-- parameter, two return values). UPDATE_INVENTORY_DURABILITY confirmed
+-- via Warcraft Wiki (fires whenever an equipped item's durability
+-- changes, no payload args -- a full ScanEquipment() re-scan on this
+-- event is correct, not a workaround, since there's no slot argument to
+-- scan selectively). One thing NOT Wiki-confirmed this pass: which
+-- specific slots return nil (no durability) versus 0/0. Jewelry/cosmetic
+-- slots (Neck, both Rings, both Trinkets, Shirt, Tabard) are commonly
+-- understood to have no durability and return nil, but that's general
+-- game knowledge, not a documented API guarantee -- GetEquipmentHealthSummary
+-- below is written to treat "no max durability returned" as "not tracked"
+-- regardless of whether that shows up as nil or 0, so this is safe either
+-- way, but worth a live spot-check.
 -------------------------------------------------------------------------------
 
 local AC = _G.AzerothCompanion
@@ -34,6 +49,7 @@ local GetContainerItemInfo = C_Container.GetContainerItemInfo
 local GetContainerItemLink = C_Container.GetContainerItemLink
 local GetInventoryItemID = GetInventoryItemID
 local GetInventoryItemLink = GetInventoryItemLink
+local GetInventoryItemDurability = GetInventoryItemDurability
 local GetAverageItemLevel = GetAverageItemLevel
 
 local InventoryModule =
@@ -123,6 +139,7 @@ function InventoryModule:Enable()
     AC.Events:Register("PLAYER_ENTERING_WORLD", self)
     AC.Events:Register("BAG_UPDATE", self)
     AC.Events:Register("PLAYER_EQUIPMENT_CHANGED", self)
+    AC.Events:Register("UPDATE_INVENTORY_DURABILITY", self)
     AC.Events:Register("SETTINGS_CHANGED", self, "OnSettingsChanged")
 
     if self:IsModuleEnabled() then
@@ -220,6 +237,20 @@ function InventoryModule:OnPlayerEquipmentChanged(equipmentSlot)
     else
         self:ScanEquipment()
     end
+
+end
+
+-- Equipment Health -- no slot argument is passed with this event (Wiki-
+-- confirmed, see this file's own header), so a full re-scan is the only
+-- option, not a shortcut taken for convenience. Cheap regardless -- 19
+-- equipment slots, no bag scanning.
+function InventoryModule:OnUpdateInventoryDurability()
+
+    if not self:IsModuleEnabled() then
+        return
+    end
+
+    self:ScanEquipment()
 
 end
 
@@ -367,11 +398,19 @@ function InventoryModule:ScanEquipmentSlot(slotID)
         return
     end
 
+    -- durabilityCurrent/Max come back nil for slots that don't track
+    -- durability (jewelry/cosmetic -- see this file's own header comment).
+    -- Stored as-is, nil and all -- GetEquipmentHealthSummary is what
+    -- decides "not tracked" vs "tracked", not this scan.
+    local durabilityCurrent, durabilityMax = GetInventoryItemDurability(slotID)
+
     self.Equipment[slotID] =
     {
         itemID = itemID,
         slotID = slotID,
         link = GetInventoryItemLink("player", slotID),
+        durabilityCurrent = durabilityCurrent,
+        durabilityMax = durabilityMax,
     }
 
 end
@@ -544,20 +583,83 @@ function InventoryModule:GetImportantItemsSummary()
 
     local hasHearthstone = self:HasItem(AC.HEARTHSTONE_ITEM_ID)
 
-    local needsRepair = nil
+    return
+    {
+        hasHearthstone = hasHearthstone,
+    }
+
+end
+
+-------------------------------------------------------------------------------
+-- Equipment Health
+--
+-- The one place equipped-gear durability is computed -- Dashboard and
+-- RecommendationEngine both read this directly; neither recalculates it
+-- (One Fact, One Home). Skips any slot where durabilityMax is nil/0 --
+-- that's "not tracked" (jewelry/cosmetic), not "broken".
+--
+-- overallDurability is durability-WEIGHTED (sum of current / sum of max
+-- across tracked pieces), not a simple average of per-item percentages --
+-- this reflects the total remaining durability pool rather than letting a
+-- low-max-durability piece count the same as a high-max one.
+--
+-- worstDurability (the single lowest percentage among tracked pieces) is
+-- tracked separately and deliberately: a single broken weapon or armor
+-- piece has real gameplay consequences (a broken weapon deals no damage)
+-- regardless of what the average looks like. Dashboard and
+-- RecommendationEngine key severity off worstDurability/brokenItems, not
+-- overallDurability, for exactly this reason.
+--
+-- repairCost is nil unless standing at a repair-capable merchant --
+-- GetRepairAllCost's own documented constraint (Warcraft Wiki-confirmed,
+-- see this file's header), same gate this codebase already used before
+-- this feature existed.
+-------------------------------------------------------------------------------
+
+function InventoryModule:GetEquipmentHealthSummary()
+
+    local totalCurrent, totalMax = 0, 0
+    local worstDurability = nil
+    local brokenItems, damagedItems = 0, 0
+
+    for _, item in pairs(self.Equipment) do
+
+        if item and item.durabilityMax and item.durabilityMax > 0 then
+
+            totalCurrent = totalCurrent + (item.durabilityCurrent or 0)
+            totalMax = totalMax + item.durabilityMax
+
+            local percentage = (item.durabilityCurrent or 0) / item.durabilityMax * 100
+
+            if not worstDurability or percentage < worstDurability then
+                worstDurability = percentage
+            end
+
+            if (item.durabilityCurrent or 0) <= 0 then
+                brokenItems = brokenItems + 1
+            elseif item.durabilityCurrent < item.durabilityMax then
+                damagedItems = damagedItems + 1
+            end
+
+        end
+
+    end
+
+    local overallDurability = totalMax > 0 and (totalCurrent / totalMax * 100) or nil
+    local repairCost = nil
 
     if MerchantFrame and MerchantFrame:IsShown() and CanMerchantRepair and CanMerchantRepair() then
-
-        local repairCost = GetRepairAllCost and GetRepairAllCost()
-
-        needsRepair = (repairCost and repairCost > 0) or false
-
+        repairCost = GetRepairAllCost and GetRepairAllCost()
     end
 
     return
     {
-        hasHearthstone = hasHearthstone,
-        needsRepair = needsRepair,
+        overallDurability = overallDurability,
+        worstDurability = worstDurability,
+        brokenItems = brokenItems,
+        damagedItems = damagedItems,
+        repairCost = repairCost,
+        needsRepair = (brokenItems + damagedItems) > 0,
     }
 
 end
@@ -647,22 +749,34 @@ function InventoryModule:GetInsights()
         })
     end
 
-    -- Equipment needs repair (only detectable while at a merchant, since
-    -- CanMerchantRepair() requires the merchant frame to be open --
-    -- reuses the same computation GetImportantItemsSummary already does)
-    local importantItems = self:GetImportantItemsSummary()
+    -- Equipment needs repair -- now detectable anywhere (Equipment Health
+    -- feature), not just at a merchant; GetEquipmentHealthSummary is the
+    -- one place this is computed, read directly rather than through
+    -- GetImportantItemsSummary's now-hearthstone-only shape. Priority
+    -- escalates when something is fully broken (a broken weapon deals no
+    -- damage -- a materially worse state than merely damaged gear, not an
+    -- arbitrary bump). data carries the real numbers through to
+    -- RecommendationEngine so it can vary its own wording without
+    -- recalculating anything itself (No Duplicated Calculations).
+    local equipmentHealth = self:GetEquipmentHealthSummary()
 
-    if importantItems.needsRepair then
+    if equipmentHealth.needsRepair then
         table.insert(insights,
         {
             title = "Repairs Needed",
             description = "Your equipment needs repair.",
-            priority = 60,
+            priority = equipmentHealth.brokenItems > 0 and 80 or 60,
             category = "Inventory",
             timestamp = time(),
             expiresAt = 0,
             dismissible = false,
-            data = {},
+            data =
+            {
+                brokenItems = equipmentHealth.brokenItems,
+                damagedItems = equipmentHealth.damagedItems,
+                worstDurability = equipmentHealth.worstDurability,
+                repairCost = equipmentHealth.repairCost,
+            },
         })
     end
 

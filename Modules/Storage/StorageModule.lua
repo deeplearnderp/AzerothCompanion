@@ -73,7 +73,6 @@ local format = string.format
 
 local GetContainerNumSlots = C_Container.GetContainerNumSlots
 local GetContainerItemInfo = C_Container.GetContainerItemInfo
-local GetItemInfoInstant = C_Item and C_Item.GetItemInfoInstant
 local GetItemInfo = C_Item and C_Item.GetItemInfo
 
 -- Execute (item movement) locals -- InCombatLockdown/CursorHasItem/
@@ -101,6 +100,11 @@ local Defaults =
     enabled = true,
     activeProfileID = "MythicPlus",
     groups = {},
+
+    -- Storage Supply Manager Sprint -- per-character recommendation
+    -- mode/override storage (see GetRecommendationMode/SetRecommendationMode,
+    -- below in this file). Keyed by "profileID|ruleLabel".
+    recommendationOverrides = {},
 }
 
 -------------------------------------------------------------------------------
@@ -120,11 +124,6 @@ function StorageModule:ResetState()
     self.BankSlotsScanned = 0
 
     self.BankOpen = false
-
-    -- itemID -> { classID, subClassID } -- memoized since GetItemInfoInstant
-    -- is a real (if cheap) Blizzard call; avoids re-querying the same
-    -- item repeatedly across a rule-matching pass over many stacks.
-    self.ItemClassCache = {}
 
     -- User-defined groups (Part 9): groupName -> { [itemID] = true }.
     -- Persisted via ConfigurationManager (a user preference, not gameplay
@@ -245,6 +244,23 @@ end
 function StorageModule:GetActiveProfileID()
 
     return AC.ConfigurationManager:GetValue("Storage", "activeProfileID") or "MythicPlus"
+
+end
+
+-- Storage Supply Manager Sprint -- previously only settable through
+-- Settings > Storage's own dropdown (which wrote directly to
+-- ConfigurationManager). This page-level on-page switcher needed the
+-- same write path exposed as a real module method instead of reaching
+-- into ConfigurationManager itself -- module owns its own setting.
+function StorageModule:SetActiveProfileID(profileID)
+
+    if type(profileID) ~= "string" or profileID == "" then
+        return false
+    end
+
+    AC.ConfigurationManager:SetValue("Storage", "activeProfileID", profileID)
+
+    return true
 
 end
 
@@ -477,40 +493,6 @@ function StorageModule:ScanBank()
 end
 
 -------------------------------------------------------------------------------
--- Item Classification (Category rule matching)
---
--- Memoized -- classID/subClassID are static per item, so this only ever
--- calls GetItemInfoInstant once per distinct itemID seen. Same taxonomy-
--- based approach as MythicPlusModule:ClassifyConsumableItem -- Blizzard's
--- own classID/subClassID, not a hardcoded item list.
--------------------------------------------------------------------------------
-
-function StorageModule:GetItemClassInfo(itemID)
-
-    local cached = self.ItemClassCache[itemID]
-
-    if cached then
-        return cached
-    end
-
-    if not GetItemInfoInstant then
-        return nil
-    end
-
-    local ok, _, _, _, _, _, classID, subClassID = pcall(GetItemInfoInstant, itemID)
-
-    if not ok or not classID then
-        return nil
-    end
-
-    local info = { classID = classID, subClassID = subClassID }
-    self.ItemClassCache[itemID] = info
-
-    return info
-
-end
-
--------------------------------------------------------------------------------
 -- Rule Matching
 --
 -- "Equipped" is checked against InventoryModule's own Equipment cache
@@ -539,7 +521,7 @@ function StorageModule:MatchesRule(itemID, rule, quality)
     if targetType == "Category" then
 
         local target = rule.targetValue or {}
-        local classInfo = self:GetItemClassInfo(itemID)
+        local classInfo = AC.ItemClassification:GetItemClassInfo(itemID)
 
         if not classInfo then
             return false
@@ -837,6 +819,318 @@ function StorageModule:GetShoppingList(profileID)
     local analysis = self:AnalyzeProfile(profileID)
 
     return analysis.missing
+
+end
+
+-------------------------------------------------------------------------------
+-- Shopping List Detail (Storage Supply Manager Sprint)
+--
+-- Upgrades GetShoppingList's category totals ("need 3 more Flasks") with
+-- the SPECIFIC items already held that satisfy that same shortfall,
+-- reusing MatchesRule -- the exact engine AnalyzeProfile already runs --
+-- rather than re-deriving category membership a second way. Never
+-- invents an item: a category with nothing held anywhere returns an
+-- empty `items` list, and the page is expected to show an honest "none
+-- currently held" line rather than guessing which item the rule means.
+--
+-- `analysis` is optional (Storage Sprint 1.1 -- Cleanup & Optimization):
+-- Pages/Storage.lua already computes AnalyzeProfile(profile.id) once per
+-- refresh for Supply Health/Bank Transfers; passing it through here
+-- avoids running that same profile-wide analysis a second time. Standalone
+-- callers (none today, but any future one) can still call this with just
+-- a profileID and get the identical result -- the public shape is
+-- unchanged, this only adds an optional shortcut.
+--
+-- `bagItems` is read once, before the per-rule loop below, not once per
+-- rule -- InventoryModule:GetItems() builds a fresh array on every call,
+-- so calling it inside the loop was redundant allocation, not a real
+-- need (bag contents don't change mid-refresh). The per-rule scan itself
+-- (checking every held item against that rule) is unchanged -- inherent
+-- to category-based rule matching (the same shape AnalyzeProfile's own
+-- CountMatchingInBags/CountMatchingInBank already have), not something
+-- this pass restructures away.
+-------------------------------------------------------------------------------
+
+function StorageModule:GetShoppingListDetail(profileID, analysis)
+
+    analysis = analysis or self:AnalyzeProfile(profileID)
+
+    local inventoryModule = AC.Core and AC.Core:GetModule("Inventory")
+    local bagItems = (inventoryModule and inventoryModule.GetItems) and inventoryModule:GetItems() or {}
+
+    local detail = {}
+
+    for _, entry in ipairs(analysis.missing) do
+
+        local heldByID = {}
+
+        local function CollectHeld(itemID, count, quality)
+
+            if not self:MatchesRule(itemID, entry.rule, quality) then
+                return
+            end
+
+            local held = heldByID[itemID]
+
+            if not held then
+
+                -- GetItemInfo can return nil until Blizzard's client-side
+                -- item cache populates (a well-known, async quirk, not
+                -- something this pass works around with a retry) -- falls
+                -- back to the raw itemID as a name rather than blocking.
+                local ok, name, _, _, _, _, _, _, _, icon = pcall(GetItemInfo, itemID)
+
+                held = { itemID = itemID, name = (ok and name) or tostring(itemID), icon = ok and icon or nil, currentCount = 0 }
+                heldByID[itemID] = held
+
+            end
+
+            held.currentCount = held.currentCount + count
+
+        end
+
+        for _, item in ipairs(bagItems) do
+            CollectHeld(item.itemID, item.count or 0, item.quality)
+        end
+
+        for _, item in pairs(self.BankItemsBySlot) do
+            CollectHeld(item.itemID, item.count or 0, item.quality)
+        end
+
+        local items = {}
+
+        for _, held in pairs(heldByID) do
+            table.insert(items, held)
+        end
+
+        detail[entry.label] = { amountMissing = entry.amount, items = items }
+
+    end
+
+    return detail
+
+end
+
+-------------------------------------------------------------------------------
+-- Consumable Inventory (Storage Supply Manager Sprint)
+--
+-- The definitive bag+bank supply list -- every tracked consumable by
+-- name/icon/bag count/bank count/total, grouped by the same category key
+-- AC.ItemClassification:ClassifyConsumable already returns (the identical
+-- classifier MythicPlusModule's own consumable tracking reads, so
+-- GetSupplyForecast below can cross-reference this module's stock against
+-- MythicPlusModule's usage history by category key with zero translation).
+-- Reads InventoryModule's bags through its public API (never rescans) and
+-- this module's own already-cached bank scan -- no new scanning, just a
+-- new aggregation over data both modules already maintain.
+-------------------------------------------------------------------------------
+
+function StorageModule:GetConsumableInventory()
+
+    local inventoryModule = AC.Core and AC.Core:GetModule("Inventory")
+    local categories = {}
+
+    local function AddItem(itemID, count, isBank)
+
+        local category = AC.ItemClassification:ClassifyConsumable(itemID)
+
+        if not category then
+            return
+        end
+
+        local bucket = categories[category]
+
+        if not bucket then
+            bucket = { items = {}, itemsByID = {}, categoryTotal = 0, categoryBagTotal = 0, categoryBankTotal = 0 }
+            categories[category] = bucket
+        end
+
+        local entry = bucket.itemsByID[itemID]
+
+        if not entry then
+
+            local ok, name, _, _, _, _, _, _, _, icon = pcall(GetItemInfo, itemID)
+
+            entry = { itemID = itemID, name = (ok and name) or tostring(itemID), icon = ok and icon or nil, bagCount = 0, bankCount = 0, totalCount = 0 }
+            bucket.itemsByID[itemID] = entry
+            table.insert(bucket.items, entry)
+
+        end
+
+        if isBank then
+            entry.bankCount = entry.bankCount + count
+            bucket.categoryBankTotal = bucket.categoryBankTotal + count
+        else
+            entry.bagCount = entry.bagCount + count
+            bucket.categoryBagTotal = bucket.categoryBagTotal + count
+        end
+
+        entry.totalCount = entry.bagCount + entry.bankCount
+        bucket.categoryTotal = bucket.categoryTotal + count
+
+    end
+
+    if inventoryModule and inventoryModule.GetItems then
+        for _, item in ipairs(inventoryModule:GetItems()) do
+            AddItem(item.itemID, item.count or 0, false)
+        end
+    end
+
+    for _, item in pairs(self.BankItemsBySlot) do
+        AddItem(item.itemID, item.count or 0, true)
+    end
+
+    return { categories = categories }
+
+end
+
+-------------------------------------------------------------------------------
+-- Supply Forecast (Storage Supply Manager Sprint)
+--
+-- "Approximately N Mythic+ runs remaining" -- current stock (this
+-- module's own GetConsumableInventory, above) divided by real historical
+-- per-run usage MythicPlusModule already tracks and exposes
+-- (GetSeasonStatistics().consumableTotals/trackedRunCount) -- zero new
+-- telemetry, this module records nothing about consumption itself. Gated
+-- on the same MIN_TRACKED_RUNS threshold MythicPlusModule's own
+-- Consumables Reminder Insight already uses, so this doesn't report a
+-- forecast built from one or two noisy runs. Category keys match
+-- GetConsumableInventory's exactly (both read the same shared
+-- classifier), so no translation table is needed between the two.
+--
+-- Explicitly scoped, not silently overstated: this only ever reflects
+-- Mythic+ consumption specifically -- MythicPlusModule doesn't track
+-- consumables used in world content, raids, or anywhere else, and this
+-- forecast doesn't claim to either.
+--
+-- `inventory` is optional (Storage Sprint 1.1 -- Cleanup & Optimization):
+-- Pages/Storage.lua already computes GetConsumableInventory() once per
+-- refresh for the Consumables section; passing it through here avoids
+-- scanning bags+bank a second time. A standalone caller can still call
+-- this with no arguments and get the identical result -- the public
+-- shape is unchanged, this only adds an optional shortcut.
+-------------------------------------------------------------------------------
+
+local SUPPLY_FORECAST_MIN_TRACKED_RUNS = 5
+
+function StorageModule:GetSupplyForecast(inventory)
+
+    local mythicPlusModule = AC.Core and AC.Core:GetModule("MythicPlus")
+
+    if not mythicPlusModule then
+        return {}
+    end
+
+    local seasonStats = mythicPlusModule:GetSeasonStatistics()
+
+    if not seasonStats or not seasonStats.trackedRunCount or seasonStats.trackedRunCount < SUPPLY_FORECAST_MIN_TRACKED_RUNS then
+        return {}
+    end
+
+    inventory = inventory or self:GetConsumableInventory()
+
+    local forecast = {}
+
+    for category, totalConsumed in pairs(seasonStats.consumableTotals or {}) do
+
+        local averagePerRun = totalConsumed / seasonStats.trackedRunCount
+
+        if averagePerRun > 0 then
+
+            local bucket = inventory.categories[category]
+            local currentStock = bucket and bucket.categoryTotal or 0
+
+            forecast[category] =
+            {
+                currentStock = currentStock,
+                averagePerRun = averagePerRun,
+                estimatedRunsRemaining = math.floor(currentStock / averagePerRun),
+            }
+
+        end
+
+    end
+
+    return forecast
+
+end
+
+-------------------------------------------------------------------------------
+-- Recommendation Mode (Storage Supply Manager Sprint)
+--
+-- Per-character mode/override storage for the three-mode design
+-- (CompanionRecommended/Preferred/Any) -- see StorageProfiles.lua's own
+-- header for why this is NOT a field on the shared built-in profile
+-- data. Persisted via ConfigurationManager (a per-character setting,
+-- same tier as activeProfileID), keyed by profile id + rule label.
+-- "CompanionRecommended" is accepted and stored like any other mode, but
+-- has no effect on what's displayed yet -- the shared
+-- ItemRecommendationService it's designed to call is a reserved future
+-- service, not built this pass. Every rule defaults to "Any" -- today's
+-- existing behavior -- until a player explicitly sets something else.
+--
+-- Verified (Sprint 1.1 cleanup pass): no page reads or writes any of
+-- GetRecommendationMode/GetPreferredItem/SetRecommendationMode today --
+-- confirmed by a repo-wide search, not assumed. This section is data
+-- model only, deliberately with no UI wired to it yet, so there is
+-- nothing here for a player to see do nothing.
+-------------------------------------------------------------------------------
+
+local VALID_RECOMMENDATION_MODES =
+{
+    CompanionRecommended = true,
+    Preferred = true,
+    Any = true,
+}
+
+function StorageModule:GetRecommendationOverrides()
+
+    return AC.ConfigurationManager:GetValue("Storage", "recommendationOverrides") or {}
+
+end
+
+function StorageModule:GetRecommendationMode(profileID, ruleLabel)
+
+    if not profileID or not ruleLabel then
+        return "Any"
+    end
+
+    local overrides = self:GetRecommendationOverrides()
+    local key = profileID .. "|" .. ruleLabel
+    local stored = overrides[key]
+
+    return (stored and stored.mode) or "Any"
+
+end
+
+function StorageModule:GetPreferredItem(profileID, ruleLabel)
+
+    if not profileID or not ruleLabel then
+        return nil
+    end
+
+    local overrides = self:GetRecommendationOverrides()
+    local key = profileID .. "|" .. ruleLabel
+    local stored = overrides[key]
+
+    return stored and stored.preferredItemID or nil
+
+end
+
+function StorageModule:SetRecommendationMode(profileID, ruleLabel, mode, preferredItemID)
+
+    if not profileID or not ruleLabel or not VALID_RECOMMENDATION_MODES[mode] then
+        return false
+    end
+
+    local overrides = AC.ConfigurationManager:GetValue("Storage", "recommendationOverrides") or {}
+    local key = profileID .. "|" .. ruleLabel
+
+    overrides[key] = { mode = mode, preferredItemID = (mode == "Preferred") and preferredItemID or nil }
+
+    AC.ConfigurationManager:SetValue("Storage", "recommendationOverrides", overrides)
+
+    return true
 
 end
 

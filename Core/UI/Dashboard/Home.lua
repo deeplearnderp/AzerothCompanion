@@ -221,6 +221,59 @@ function Dashboard:Create()
     frame:SetSize(Layout.WINDOW_WIDTH, Layout.WINDOW_HEIGHT)
 
     -----------------------------------------------------------------------
+    -- Shared Decorative Background (Dashboard Background Polish Pass)
+    --
+    -- One CreateTexture, one owner (frame itself -- the single frame every
+    -- page/card is already a descendant of via ContentArea/CreateDataPage),
+    -- one SetTexture, one texture constant, one alpha constant. Drawn at
+    -- the BACKGROUND layer directly on frame -- every page and every card
+    -- is a CHILD frame of this one, so it renders behind all of them
+    -- automatically; a future page added the same way (CreateDataPage,
+    -- parented through ContentArea) inherits this with zero new code,
+    -- since nothing here is keyed to which pages currently exist. Created
+    -- once here, never touched by ShowPage/page-switching, so it stays
+    -- fixed while navigating -- not special-cased, simply never hidden,
+    -- moved, or recreated by anything else.
+    --
+    -- Uniform "cover" scale, centered, computed from
+    -- DASHBOARD_BACKGROUND_ASPECT_RATIO -- not SetAllPoints(frame). The
+    -- artwork's real pixel size (957x1643, read from the PNG header) is
+    -- portrait and very close to this frame's own ratio, so this comes
+    -- out to roughly 420x721 -- effectively edge-to-edge with negligible
+    -- overflow, not the previous SetAllPoints approach's independent-axis
+    -- stretch (which was fine only because the earlier, now-replaced
+    -- artwork was landscape). One hardcoded ratio is required here since
+    -- there is no runtime API to ask a texture file for its native pixel
+    -- dimensions -- see DASHBOARD_BACKGROUND_ASPECT_RATIO's own comment in
+    -- Presentation.lua for where that number comes from and why it's not
+    -- a magic literal.
+    --
+    -- Explicit instruction this pass: do NOT touch the Dashboard's own
+    -- backdrop alpha -- it stays exactly whatever BaseWindow:Create()
+    -- already set it to (WINDOW_BACKDROP's shared 0.95).
+    -----------------------------------------------------------------------
+
+    local background = frame:CreateTexture(nil, "BACKGROUND")
+    background:SetTexture(AC.Presentation.DASHBOARD_BACKGROUND_TEXTURE)
+    background:SetAlpha(AC.Presentation.DASHBOARD_BACKGROUND_ALPHA)
+
+    local backgroundAspectRatio = AC.Presentation.DASHBOARD_BACKGROUND_ASPECT_RATIO
+    local backgroundWidth, backgroundHeight
+
+    if (Layout.WINDOW_WIDTH / Layout.WINDOW_HEIGHT) < backgroundAspectRatio then
+        backgroundHeight = Layout.WINDOW_HEIGHT
+        backgroundWidth = backgroundHeight * backgroundAspectRatio
+    else
+        backgroundWidth = Layout.WINDOW_WIDTH
+        backgroundHeight = backgroundWidth / backgroundAspectRatio
+    end
+
+    background:SetSize(backgroundWidth, backgroundHeight)
+    background:SetPoint("CENTER", frame, "CENTER", 0, 0)
+
+    frame.Background = background
+
+    -----------------------------------------------------------------------
     -- Header
     --
     -- BaseWindow already creates frame.Title. Reposition it to the left
@@ -251,6 +304,60 @@ function Dashboard:Create()
     frame.SettingsButton = settingsButton
 
     -----------------------------------------------------------------------
+    -- Keyboard Navigation (Navigation UX Sprint)
+    --
+    -- EnableKeyboard(true) is set once, here, for the lifetime of this
+    -- frame -- it does NOT globally capture keys: WoW does not dispatch
+    -- OnKeyDown to a hidden frame, so this only ever intercepts anything
+    -- while the Dashboard itself is actually shown, which is exactly
+    -- "only while Azeroth Companion has focus." Every key this handler
+    -- doesn't explicitly recognize is propagated (SetPropagateKeyboardInput(true))
+    -- so normal keybinds/movement/chat are never affected while the
+    -- Dashboard happens to be open.
+    --
+    -- Both branches call the exact same Dashboard:GoBack()/CanGoBack()
+    -- the Back button itself calls (Sections.lua's CreateDataPage) -- no
+    -- second copy of "is there anywhere to go back to."
+    --
+    -- NOT independently verified against a live client this pass: whether
+    -- an open chat EditBox's own keyboard focus takes priority over this
+    -- frame's EnableKeyboard for Backspace while both are active at once
+    -- (e.g. Dashboard open, player typing a chat message). WoW's EditBox
+    -- focus and plain-Frame EnableKeyboard are understood to be separate
+    -- mechanisms, but this specific interaction needs an in-game check,
+    -- not an assumption -- see the live verification checklist.
+    -----------------------------------------------------------------------
+
+    frame:EnableKeyboard(true)
+
+    frame:SetScript("OnKeyDown", function(self, key)
+
+        if key == "ESCAPE" then
+
+            if Dashboard:CanGoBack() then
+                Dashboard:GoBack()
+            else
+                Dashboard:Hide()
+            end
+
+            self:SetPropagateKeyboardInput(false)
+
+        elseif key == "BACKSPACE" and Dashboard:CanGoBack() then
+
+            -- Backspace has no defined action when there's nowhere to go
+            -- back to (unlike Escape, which always does something) --
+            -- propagate in that case rather than silently swallowing a
+            -- key that did nothing.
+            Dashboard:GoBack()
+            self:SetPropagateKeyboardInput(false)
+
+        else
+            self:SetPropagateKeyboardInput(true)
+        end
+
+    end)
+
+    -----------------------------------------------------------------------
     -- Content Area
     --
     -- Everything below the header lives inside here. Pages are children
@@ -274,21 +381,23 @@ function Dashboard:Create()
     -- real ScrollFrame the cards below Recent Activity would render past
     -- the window's bottom edge, unclipped and completely unreachable
     -- (v1.0 Polish Sprint audit -- a real, confirmed bug, not a cosmetic
-    -- gap). Home gets the exact same ScrollFrame/ScrollChild shape every
-    -- other page already uses (see CreateDataPage, Sections.lua) rather
-    -- than a bespoke mechanism -- card width is fixed (360) regardless of
-    -- scrollbar, so Home skips the FULL/SCROLLABLE width-measuring dance
-    -- data pages need for their fluid-width text rows and always reserves
-    -- scrollbar space, since Home's content height is large enough that a
-    -- scrollbar is effectively always needed.
+    -- gap). Home gets its ScrollFrame from the exact same
+    -- Dashboard:CreatePageScrollFrame every other page uses (Dashboard
+    -- Scrollbar Standardization -- previously Home built its own inline
+    -- copy, which is why its scrollbar used to sit in a different place,
+    -- and never had its arrow buttons hidden, unlike every other page).
+    -- topInset 0 (no Back/Title/Updated header sits above Home's content)
+    -- and leftInset 0 (card width is fixed at 360 regardless of scrollbar,
+    -- centered off an absolute WINDOW_WIDTH-based formula below, not a
+    -- page-relative one) are both genuine, permanent differences from a
+    -- data page's shape, not scrollbar-position drift -- see
+    -- CreatePageScrollFrame's own comment (Sections.lua).
     -----------------------------------------------------------------------
 
     local homePage = CreateFrame("Frame", nil, contentArea)
     homePage:SetAllPoints(contentArea)
 
-    local homeScrollFrame = CreateFrame("ScrollFrame", nil, homePage, "UIPanelScrollFrameTemplate")
-    homeScrollFrame:SetPoint("TOPLEFT", 0, 0)
-    homeScrollFrame:SetPoint("BOTTOMRIGHT", -Layout.SCROLLBAR_RESERVE, 0)
+    local homeScrollFrame = Dashboard:CreatePageScrollFrame(homePage, 0, 0)
 
     local homeScrollChild = CreateFrame("Frame", nil, homeScrollFrame)
     homeScrollChild:SetWidth(Layout.WINDOW_WIDTH - Layout.SCROLLBAR_RESERVE)
@@ -388,6 +497,7 @@ function Dashboard:Create()
         titleFont = "GameFontNormalLarge",
         primaryFont = "GameFontHighlightLarge",
         emphasized = true,
+        hideIndicator = true, -- UI Polish Pass -- Dismiss/Why? already occupy this card's top-right corner; a second, generic click-navigation chevron there read as redundant and disconnected from the actual action buttons. The card body stays clickable (onClick below still fires).
         tooltip = AC.L:Get("Dashboard.TooltipRecommendations"),
         onClick = function()
             Dashboard:Navigate("Recommendations")
@@ -406,10 +516,16 @@ function Dashboard:Create()
     -- button is built once but the recommendation it points at changes
     -- every refresh. Hidden entirely when there's nothing to inspect
     -- (the player is caught up).
+    --
+    -- UI Polish Pass -- anchored at the card's own shared padding
+    -- constants (CARD_PADDING_RIGHT/TOP) instead of independent hand-typed
+    -- offsets (-10/-10), so this stays aligned with the title row if that
+    -- padding ever changes again, and nudged up 3px from the title's own
+    -- baseline to center against GameFontNormalLarge's taller line height.
 
     local whyButton = CreateFrame("Button", nil, recommendationCard, "UIPanelButtonTemplate")
     whyButton:SetSize(56, 20)
-    whyButton:SetPoint("TOPRIGHT", -10, -10)
+    whyButton:SetPoint("TOPRIGHT", -Layout.CARD_PADDING_RIGHT, -(Layout.CARD_PADDING_TOP - 3))
     whyButton:SetText(AC.L:Get("Inspector.WhyButton"))
 
     -- Sits on top of the card's own onClick (which navigates to the
@@ -422,8 +538,11 @@ function Dashboard:Create()
 
     whyButton:SetScript("OnClick", function()
 
-        if recommendationCard.CurrentRecommendation and AC.RecommendationInspector then
-            AC.RecommendationInspector:Show(recommendationCard.CurrentRecommendation)
+        -- Navigation UX Sprint -- was AC.RecommendationInspector:Show(...)
+        -- (a standalone popup); Recommendation Details is a real Dashboard
+        -- page now, navigated to exactly like any other page.
+        if recommendationCard.CurrentRecommendation then
+            Dashboard:ShowRecommendationDetails(recommendationCard.CurrentRecommendation)
         end
 
     end)
@@ -438,7 +557,7 @@ function Dashboard:Create()
 
     local dismissButton = CreateFrame("Button", nil, recommendationCard, "UIPanelButtonTemplate")
     dismissButton:SetSize(20, 20)
-    dismissButton:SetPoint("TOPRIGHT", whyButton, "TOPLEFT", -4, 0)
+    dismissButton:SetPoint("TOPRIGHT", whyButton, "TOPLEFT", -Layout.CARD_ACTION_BUTTON_GAP, 0)
     dismissButton:SetText(AC.L:Get("Dashboard.DismissButtonGlyph"))
     dismissButton:SetFrameLevel(recommendationCard:GetFrameLevel() + 1)
     dismissButton:Hide()
@@ -772,6 +891,23 @@ function Dashboard:Create()
     frame.Pages.Journey = journeyPage
 
     -----------------------------------------------------------------------
+    -- Recommendation Details Page (Navigation UX Sprint)
+    --
+    -- Replaces the standalone RecommendationInspector popup -- the exact
+    -- same shared page shell every other page above uses, not a special
+    -- case. Fully dynamic (no static schema), same reasoning as
+    -- Journey/Accomplishments above. See Pages/RecommendationDetails.lua.
+    -- Reads Dashboard.CurrentRecommendationDetails (Navigation.lua's
+    -- ShowRecommendationDetails), the one piece of state this page needs
+    -- that no other page does, since a Recommendation has no stable
+    -- persisted identity to look up by page name alone.
+    -----------------------------------------------------------------------
+
+    local recommendationDetailsPage = self:CreateDataPage(contentArea, AC.L:Get("Inspector.Title"))
+
+    frame.Pages.RecommendationDetails = recommendationDetailsPage
+
+    -----------------------------------------------------------------------
     -- Refresh Function
     -----------------------------------------------------------------------
 
@@ -831,41 +967,33 @@ function Dashboard:UpdateContent(frame)
 
     if recommendation then
 
-        frame.RecommendationCard:SetStarRating(recommendation.priority)
         frame.RecommendationCard:SetPrimaryValue(recommendation.title)
         frame.RecommendationCard:SetSecondaryText(recommendation.description)
 
         local sections = {}
 
-        -- Confidence (Companion Intelligence V3) -- purely reads the
-        -- field RecommendationEngine already computed; this card never
-        -- derives confidence itself (Dashboard only renders).
+        -- Priority + Confidence ONLY (Home Dashboard Evolution, Highest
+        -- Priority card pass). Reason/Expected Benefit/Estimated Time/
+        -- Supporting Evidence removed from this card -- not deleted, they
+        -- already live in full via the Why? button/RecommendationInspector
+        -- (LayoutSupportingEvidence etc.), so nothing is lost, only moved
+        -- behind a deliberate click. This is the exact same progressive-
+        -- disclosure resolution the Recommendations page's own list rows
+        -- already went through (Rows.lua's BuildRecommendationRow --
+        -- Title/Description/one compact Meta line, everything else
+        -- Inspector-only) -- previously flagged in
+        -- docs/DEVELOPMENT_BACKLOG.md as "a real candidate for the same
+        -- audit in a future pass" and left alone at the time since that
+        -- pass was scoped to the Recommendations page only. This is that
+        -- future pass. A card meant to be read in seconds shouldn't be
+        -- able to grow to six stacked sections -- Priority and Confidence
+        -- are the two facts worth an at-a-glance read without a click;
+        -- everything else is reasoning, which belongs on demand.
+        local priorityLabel, priorityColor = Format.GetPriorityLabel(recommendation.priority)
+        table.insert(sections, { label = AC.L:Get("Dashboard.SectionPriority"), text = priorityLabel, emphasized = true, color = priorityColor })
+
         if recommendation.confidence then
-            table.insert(sections, { label = AC.L:Get("Dashboard.SectionConfidence"), text = AC.L:Get("Dashboard.Confidence" .. recommendation.confidence) })
-        end
-
-        if recommendation.reason and recommendation.reason ~= "" then
-            table.insert(sections, { label = AC.L:Get("Dashboard.SectionReason"), text = recommendation.reason })
-        end
-
-        if recommendation.expectedBenefit and recommendation.expectedBenefit ~= "" then
-            table.insert(sections, { label = AC.L:Get("Dashboard.SectionExpectedBenefit"), text = recommendation.expectedBenefit })
-        end
-
-        if recommendation.estimatedTime and recommendation.estimatedTime ~= "" then
-            table.insert(sections, { label = AC.L:Get("Dashboard.SectionEstimatedTime"), text = recommendation.estimatedTime })
-        end
-
-        if recommendation.supportingEvidence and #recommendation.supportingEvidence > 0 then
-
-            local bulletLines = {}
-
-            for _, evidence in ipairs(recommendation.supportingEvidence) do
-                table.insert(bulletLines, "\226\128\162 " .. AC.L:Format("Dashboard.EvidenceLineFormat", evidence.label or "", evidence.value or ""))
-            end
-
-            table.insert(sections, { label = AC.L:Get("Dashboard.SectionSupportingEvidence"), text = table.concat(bulletLines, "\n") })
-
+            table.insert(sections, { label = AC.L:Get("Dashboard.SectionConfidence"), text = AC.L:Get("Dashboard.Confidence" .. recommendation.confidence), emphasized = true, color = Format.GetConfidenceColor(recommendation.confidence) })
         end
 
         frame.RecommendationCard:SetDetailSections(sections)
@@ -876,7 +1004,6 @@ function Dashboard:UpdateContent(frame)
 
     else
 
-        frame.RecommendationCard:SetStarRating(nil)
         frame.RecommendationCard:SetPrimaryValue(AC.L:Get("Dashboard.CaughtUp"))
         frame.RecommendationCard:SetSecondaryText("")
         frame.RecommendationCard:SetDetailSections({})
@@ -942,6 +1069,34 @@ function Dashboard:UpdateContent(frame)
 
         if #factLines > 0 then
             table.insert(sections, { text = table.concat(factLines, "\n") })
+        end
+
+        -- This Session (Home Dashboard Evolution, Profile card pass) --
+        -- the "trend that naturally belongs here" the Product Vision
+        -- asked for: CharacterModule already computes this via
+        -- GetSessionInfo() (the same getter the Profile page's own
+        -- session fields already read) -- no new system, just a card that
+        -- wasn't showing a fact its own module already tracked. Omitted
+        -- entirely when nothing changed this session, never a fabricated
+        -- "no change" line.
+        local sessionInfo = characterModule.GetSessionInfo and characterModule:GetSessionInfo()
+
+        if sessionInfo then
+
+            local sessionLines = {}
+
+            if sessionInfo.levelsGained and sessionInfo.levelsGained > 0 then
+                table.insert(sessionLines, AC.L:Format("Dashboard.LevelsGainedSessionFormat", profile.level))
+            end
+
+            if sessionInfo.itemLevelGained and sessionInfo.itemLevelGained ~= 0 then
+                table.insert(sessionLines, AC.L:Format("Dashboard.ItemLevelGainedSessionFormat", AC.Presentation.FormatSignedNumber(sessionInfo.itemLevelGained, 1)))
+            end
+
+            if #sessionLines > 0 then
+                table.insert(sections, { label = AC.L:Get("Dashboard.SectionSessionChange"), text = table.concat(sessionLines, "\n"), color = "success" })
+            end
+
         end
 
         frame.ProfileCard:SetDetailSections(sections)
@@ -1250,14 +1405,17 @@ function Dashboard:UpdateContent(frame)
                 local missingLines = {}
 
                 for _, missing in ipairs(mpPreparation.missing) do
-                    table.insert(missingLines, "\226\128\162 " .. AC.L:Get(missing.label))
+                    table.insert(missingLines, Format.BULLET .. " " .. AC.L:Get(missing.label))
                 end
 
+                -- Equipment Health feature -- reads GetEquipmentHealthSummary
+                -- directly (GetImportantItemsSummary is hearthstone-only now).
                 local inventoryModuleForMP = AC.Core and AC.Core:GetModule("Inventory")
-                local importantItemsForMP = inventoryModuleForMP and inventoryModuleForMP.GetImportantItemsSummary and inventoryModuleForMP:GetImportantItemsSummary()
+                local equipmentHealthForMP = inventoryModuleForMP and inventoryModuleForMP.GetEquipmentHealthSummary and inventoryModuleForMP:GetEquipmentHealthSummary()
 
-                if importantItemsForMP and importantItemsForMP.needsRepair then
-                    table.insert(missingLines, "\226\128\162 " .. AC.L:Get("Inventory.RepairsNeeded"))
+                if equipmentHealthForMP and equipmentHealthForMP.needsRepair then
+                    local repairLineKey = (equipmentHealthForMP.brokenItems or 0) > 0 and "Inventory.EquipmentBroken" or "Inventory.RepairsNeeded"
+                    table.insert(missingLines, Format.BULLET .. " " .. AC.L:Get(repairLineKey))
                 end
 
                 if #missingLines > 0 then

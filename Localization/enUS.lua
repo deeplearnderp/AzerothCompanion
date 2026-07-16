@@ -29,7 +29,7 @@ AC.Locales.enUS =
     -----------------------------------------------------------------------
 
     ["Dashboard.Settings"] = "Settings",
-    ["Dashboard.Back"] = "< Back",
+    ["Dashboard.Back"] = "Back",
     ["Dashboard.Version"] = "Version %s",
     ["Dashboard.CaughtUp"] = "You're all caught up.",
     ["Dashboard.Loading"] = "Loading...",
@@ -72,14 +72,13 @@ AC.Locales.enUS =
     ["Dashboard.EquippedItemLevelFormat"] = "Equipped Item Level: %s",
     ["Dashboard.LevelClassFormat"] = "Level %d %s",
     ["Dashboard.LevelSpecClassFormat"] = "Level %d %s %s",
-    ["Dashboard.RecommendationMetaFormat"] = "Priority: %s   Category: %s",
-    ["Dashboard.RecommendationMetaWithConfidenceFormat"] = "Priority: %s   Category: %s   Confidence: %s",
+    ["Dashboard.RecommendationMetaFormat"] = "Priority: %s",
     ["Dashboard.ConfidenceHigh"] = "High",
     ["Dashboard.ConfidenceMedium"] = "Medium",
     ["Dashboard.ConfidenceLow"] = "Low",
-    ["Dashboard.RecommendationReasonFormat"] = "Reason: %s",
-    ["Dashboard.RecommendationBenefitFormat"] = "Expected Benefit: %s",
-    ["Dashboard.RecommendationTimeFormat"] = "Estimated Time: %s",
+    ["Dashboard.PriorityHigh"] = "High",
+    ["Dashboard.PriorityMedium"] = "Medium",
+    ["Dashboard.PriorityLow"] = "Low",
     ["Dashboard.RecentAccomplishmentFormat"] = "Recent: %s",
     ["Dashboard.JourneyEntryCountFormat"] = "%d Moments",
     ["Dashboard.RecentJourneyEntryFormat"] = "Recent: %s",
@@ -146,6 +145,7 @@ AC.Locales.enUS =
     -- now separate label from value visually instead of merging them.
     -----------------------------------------------------------------------
 
+    ["Dashboard.SectionPriority"] = "Priority",
     ["Dashboard.SectionConfidence"] = "Confidence",
     ["Dashboard.SectionReason"] = "Reason",
     ["Dashboard.SectionExpectedBenefit"] = "Expected Benefit",
@@ -154,6 +154,10 @@ AC.Locales.enUS =
 
     ["Dashboard.SectionItemLevel"] = "Item Level",
     ["Dashboard.LocationFormat"] = "%s - %s",
+
+    ["Dashboard.SectionSessionChange"] = "This Session",
+    ["Dashboard.ItemLevelGainedSessionFormat"] = "Item Level %s",
+    ["Dashboard.LevelsGainedSessionFormat"] = "Reached level %d",
 
     ["Dashboard.SectionMissing"] = "Missing",
 
@@ -216,6 +220,7 @@ AC.Locales.enUS =
     ["Inventory.SectionBagSummary"] = "Bag Summary",
     ["Inventory.SectionEquipment"] = "Equipment",
     ["Inventory.SectionImportantItems"] = "Important Items",
+    ["Inventory.SectionEquipmentHealth"] = "Equipment Health",
     ["Inventory.SectionSession"] = "Session",
 
     ["Inventory.UsedSlots"] = "Used Slots",
@@ -227,6 +232,9 @@ AC.Locales.enUS =
     ["Inventory.AverageItemLevel"] = "Average Item Level",
     ["Inventory.Hearthstone"] = "Hearthstone",
     ["Inventory.RepairStatus"] = "Repair Status",
+    ["Inventory.OverallDurability"] = "Overall Durability",
+    ["Inventory.WorstItemDurability"] = "Worst Item",
+    ["Inventory.RepairCost"] = "Repair Cost",
     ["Inventory.ItemsAdded"] = "Items Added",
     ["Inventory.ItemsRemoved"] = "Items Removed",
     ["Inventory.BagUsageChange"] = "Bag Usage Change",
@@ -235,6 +243,12 @@ AC.Locales.enUS =
     ["Inventory.HearthstoneMissing"] = "Missing",
     ["Inventory.RepairsNeeded"] = "Repairs needed",
     ["Inventory.NoRepairsNeeded"] = "No repairs needed",
+    ["Inventory.EquipmentBroken"] = "Equipment broken!",
+    ["Inventory.RepairCostUnavailable"] = "Visit a repair vendor to see cost",
+    ["Inventory.EquipmentHealthExcellent"] = "Excellent",
+    ["Inventory.EquipmentHealthGood"] = "Good",
+    ["Inventory.EquipmentHealthFair"] = "Fair",
+    ["Inventory.EquipmentHealthCritical"] = "Critical",
 
     ["Inventory.SectionRecommendations"] = "Recommendations",
     ["Inventory.SectionInsights"] = "Insights",
@@ -307,6 +321,8 @@ AC.Locales.enUS =
     ["Journey.UndatedSectionLabel"] = "Undated",
     ["Journey.FieldRecorded"] = "Recorded",
     ["Journey.CategoryPersonalMilestone"] = "Personal Milestone",
+    ["Journey.SortNewestFirst"] = "Newest First",
+    ["Journey.SortOldestFirst"] = "Oldest First",
 
     -----------------------------------------------------------------------
     -- MythicPlus Page
@@ -351,17 +367,13 @@ AC.Locales.enUS =
     ["MythicPlus.StatFailedRuns"] = "Failed Runs",
     ["MythicPlus.StatSuccessRate"] = "Success Rate",
     ["MythicPlus.StatAverageKeyLevel"] = "Average Key Level",
-    ["MythicPlus.StatHighestTimed"] = "Highest Timed",
-    ["MythicPlus.StatHighestCompleted"] = "Highest Completed",
     ["MythicPlus.StatRatingGained"] = "Rating Gained",
     ["MythicPlus.StatFastestRun"] = "Fastest Run",
     ["MythicPlus.StatAverageDeaths"] = "Average Deaths",
     ["MythicPlus.StatAverageCompletionTime"] = "Average Completion Time",
 
-    ["MythicPlus.SectionPersonalBests"] = "Personal Bests",
     ["MythicPlus.SectionPerformanceTrends"] = "Performance Trends",
     ["MythicPlus.SectionConsumables"] = "Consumables",
-    ["MythicPlus.NoPersonalBests"] = "Personal bests will appear after your first completed run.",
     ["MythicPlus.NoPerformanceTrends"] = "Performance trends will appear after your first completed run.",
     ["MythicPlus.NoConsumableData"] = "Consumable usage will appear after your first tracked run.",
 
@@ -385,38 +397,87 @@ AC.Locales.enUS =
     -- Storage Page
     -----------------------------------------------------------------------
 
-    ["Storage.SectionInventorySummary"] = "Inventory Summary",
+    -- Storage Supply Manager Sprint -- Inventory Summary + Storage Health
+    -- merged into one Storage Summary section (they answered the same
+    -- "how much room/stuff do I have" question as two thin sections).
+    ["Storage.SectionStorageSummary"] = "Storage Summary",
     ["Storage.StatBagSlotsUsed"] = "Bag Slots Used",
     ["Storage.StatBagSlotsFree"] = "Bag Slots Free",
-
-    ["Storage.SectionStorageHealth"] = "Storage Health",
     ["Storage.NotAtBank"] = "Visit a banker to scan your bank.",
-    ["Storage.StatBankSlotsScanned"] = "Bank Slots Scanned",
+    ["Storage.StatBankSlotsScanned"] = "Bank Slots Used",
     ["Storage.StatBankDistinctItems"] = "Distinct Items in Bank",
 
+    -- Supply Health -- one sentence, hero position. Detailed reasoning
+    -- lives in the sections below it, never repeated here.
+    ["Storage.SectionSupplyHealth"] = "Supply Health",
+    -- UI Polish Pass -- icon-prefixed (code prepends a Ready Check icon
+    -- texture keyed off SUPPLY_HEALTH_ICONS depending on state, see
+    -- Pages/Storage.lua), so these strings stay icon-free and short/
+    -- conversational, never repeating "missing"/"need more" in the same
+    -- sentence.
+    ["Storage.SupplyHealthReady"] = "Ready to Play",
+    ["Storage.SupplyHealthMissingFormat"] = "Missing %d %s",
+    ["Storage.SupplyHealthMultipleMissing"] = "Multiple Required Consumables Missing",
+    ["Storage.SupplyHealthTransfersFormat"] = "Ready after %d Bank Transfer(s)",
+
     ["Storage.SectionCurrentProfile"] = "Current Profile",
-    ["Storage.NoProfileSelected"] = "No storage profile selected. Choose one in Settings.",
+    ["Storage.NoProfileSelected"] = "No storage profile selected.",
     ["Storage.FieldActiveProfile"] = "Active Profile",
     ["Storage.FieldRuleCount"] = "Rule Count",
 
-    ["Storage.SectionRestockStatus"] = "Restock Status",
+    -- Renamed from "Restock Status" -- action-oriented, and now strictly
+    -- scoped to what Execute can actually move (withdrawals + deposits
+    -- only). Missing items live in Shopping List instead -- see that
+    -- section's own comment in Pages/Storage.lua for why these were
+    -- merged before and are now deliberately split.
+    ["Storage.SectionBankTransfers"] = "Bank Transfers",
     ["Storage.AmountWithdrawFormat"] = "Withdraw %d",
-    ["Storage.AmountMissingFormat"] = "Missing %d",
     ["Storage.AmountDepositFormat"] = "Deposit %d",
-    ["Storage.NoRestockNeeded"] = "Your bags already match your active profile.",
+    ["Storage.NoBankTransfersNeeded"] = "Nothing to move between bags and bank right now.",
 
+    -- Shopping List -- missing only, now itemized (Storage Supply Manager
+    -- Sprint): the specific already-held item(s) per shortfall, never a
+    -- guessed item name for a category with nothing held.
     ["Storage.SectionShoppingList"] = "Shopping List",
     ["Storage.NothingToBuy"] = "Nothing to buy right now.",
+    -- Final Polish -- "Need %d" (dropped "more"), now rendered as its own
+    -- right-aligned value FontString next to the category label, not
+    -- concatenated into one string.
+    ["Storage.ShoppingListNeedFormat"] = "Need %d",
+    ["Storage.ShoppingListItemFormat"] = "%s (have %d)",
+    ["Storage.ShoppingListNoneHeld"] = "None currently held -- check a vendor or the Auction House.",
 
-    ["Storage.SectionRecommendations"] = "Recommendations",
-    ["Storage.NoRecommendations"] = "You're all caught up.",
+    -- Consumables -- the definitive supply-check view: every tracked
+    -- consumable by icon/name/bag count/bank count/total, grouped by
+    -- category, independent of the active profile (your bags don't
+    -- change because you switched profiles).
+    ["Storage.SectionConsumables"] = "Consumables",
+    ["Storage.NoConsumablesTracked"] = "No tracked consumables found in your bags or bank.",
+    ["Storage.ConsumableCountFormat"] = "%d total (%d bag, %d bank)",
+    ["Storage.Category.potion"] = "Potions",
+    ["Storage.Category.flask"] = "Flasks",
+    ["Storage.Category.food"] = "Food",
+    ["Storage.Category.itemEnhancement"] = "Weapon Enhancements",
+    ["Storage.Category.healthstone"] = "Healthstones",
 
-    ["Storage.SectionInsights"] = "Insights",
+    -- Supply Forecast -- player-friendly sentences built from real
+    -- Mythic+ consumption history (MythicPlusModule), not raw numbers.
+    ["Storage.SectionSupplyForecast"] = "Supply Forecast",
+    ["Storage.NoSupplyForecast"] = "Not enough Mythic+ history yet to forecast supply usage.",
+    ["Storage.SupplyForecastFormat"] = "Approximately %d Mythic+ runs remaining",
+
+    -- Storage Insights only -- the "Recommendations" mini-section
+    -- (general RecommendationEngine advice, e.g. "Complete Your
+    -- Keystone") is removed entirely; that belongs on the Recommendations
+    -- page, not here.
+    ["Storage.SectionInsights"] = "Storage Insights",
     ["Storage.NoInsights"] = "No storage insights right now.",
 
     ["Storage.Profile.MythicPlus"] = "Mythic+",
     ["Storage.Profile.Raid"] = "Raid",
     ["Storage.Profile.Questing"] = "Questing",
+    ["Storage.Profile.Delves"] = "Delves",
+    ["Storage.Profile.PvP"] = "PvP",
     ["Storage.Profile.Custom"] = "Custom",
 
     ["Storage.Rule.Potions"] = "Potions",
@@ -500,6 +561,7 @@ AC.Locales.enUS =
 
     ["Recommendation.RepairYourGear.Title"] = "Repair Your Gear",
     ["Recommendation.RepairYourGear.Description"] = "Your equipment needs repair. Take care of it while you're at a vendor.",
+    ["Recommendation.RepairYourGear.DescriptionBroken"] = "Some of your gear is completely broken and providing no benefit. Repair before your next Mythic+ run or raid.",
 
     ["Recommendation.RetrieveKeystone.Title"] = "Retrieve Your Keystone",
     ["Recommendation.RetrieveKeystone.Description"] = "You don't have a keystone slotted. Pick one up before your next Mythic+ run.",
@@ -587,7 +649,6 @@ AC.Locales.enUS =
     ["Recommendation.ReconnectWithFavorite.Description"] = "A player you've marked as a Favorite hasn't grouped with you in a while.",
 
     ["Evidence.PlayerJournalRunsTogetherFormat"] = "%d runs together",
-    ["Evidence.PlayerJournalFavoriteGlyph"] = "\226\152\133",
 
     -----------------------------------------------------------------------
     -- Companion Intelligence V4 -- Player Briefing & Notifications
@@ -771,7 +832,7 @@ AC.Locales.enUS =
     -- Recommendation Inspector ("Why?")
     -----------------------------------------------------------------------
 
-    ["Dashboard.ClickForWhy"] = "Click for Why?",
+    ["Dashboard.ClickForWhy"] = "Why?",
 
     ["Inspector.Title"] = "Recommendation Details",
     ["Inspector.WhyButton"] = "Why?",
@@ -805,6 +866,7 @@ AC.Locales.enUS =
     ["Inspector.ScoreHistory"] = "Score History",
     ["Inspector.NoScoreHistory"] = "No score history recorded yet.",
     ["Inspector.ScoreHistoryScoreLabel"] = "Score:",
+    ["Inspector.FutureSuggestedActions"] = "Suggested Actions",
 
     ["ScoreFactor.BasePriority"] = "Base Priority",
     ["ScoreFactor.HistoricalSuccessHigh"] = "Historical Success Rate >= 70%",
@@ -830,6 +892,8 @@ AC.Locales.enUS =
     ["Developer.TabOverview"] = "Overview",
     ["Developer.TabModules"] = "Modules",
     ["Developer.TabEvents"] = "Events",
+    ["Developer.TabErrors"] = "Errors",
+    ["Developer.TabSecretValues"] = "Secret Values",
     ["Developer.TabLiveAPI"] = "Live API",
     ["Developer.TabHistory"] = "History",
     ["Developer.TabChecklist"] = "Checklist",
@@ -874,6 +938,40 @@ AC.Locales.enUS =
     ["Developer.LabelLastError"] = "Last Error",
 
     ["Developer.NoEvents"] = "No events recorded yet.",
+
+    ["Developer.ClearErrors"] = "Clear Errors",
+    ["Developer.GenerateTestError"] = "Generate Test Error",
+    ["Developer.ExportAllErrors"] = "Export All Errors",
+    ["Developer.CaptureOn"] = "ON",
+    ["Developer.CaptureOff"] = "OFF",
+    ["Developer.InstalledYes"] = "YES",
+    ["Developer.InstalledNo"] = "NO",
+    ["Developer.ErrorsStatusFormat"] = "Capture: %s   Installed: %s   |   Errors: %d",
+    ["Developer.ErrorMetaFormat"] = "Occurrences: %d   Last Seen: %s",
+    ["Developer.NoErrorsCaptured"] = "No runtime errors have been captured.\n\nDeveloper Mode is monitoring the addon.",
+    ["Developer.ErrorFieldMessage"] = "Full Message",
+    ["Developer.ErrorFieldSignature"] = "Signature",
+    ["Developer.ErrorFieldOrigin"] = "Origin",
+    ["Developer.ErrorFieldOriginThirdPartyFormat"] = "Third Party (Addon: %s)",
+    ["Developer.ErrorFieldFirstSeen"] = "First Seen",
+    ["Developer.ErrorFieldLastSeen"] = "Last Seen",
+    ["Developer.ErrorFieldOccurrences"] = "Occurrence Count",
+    ["Developer.ErrorFieldStackTrace"] = "Stack Trace",
+    ["Developer.ErrorNoStackTrace"] = "(not captured -- Capture Stack Traces was off, or unavailable for this error)",
+
+    ["Developer.ClearSecretValues"] = "Clear Events",
+    ["Developer.SecretValuesStatusFormat"] = "Recording: %s   |   Events: %d",
+    ["Developer.SecretValueContextFormat"] = "%s   [%s]",
+    ["Developer.SecretValueMetaFormat"] = "Occurrences: %d   Last Seen: %s",
+    ["Developer.NoSecretValueEvents"] = "No secret-value events have been recorded.\n\nDeveloper Mode is monitoring this addon's Blizzard secure-callback boundaries (tooltip/menu hooks).",
+    ["Developer.SecretValueFieldMessage"] = "Full Message",
+    ["Developer.SecretValueFieldSource"] = "Source",
+    ["Developer.SecretValueFieldStatus"] = "Status",
+    ["Developer.SecretValueFieldFirstSeen"] = "First Seen",
+    ["Developer.SecretValueFieldLastSeen"] = "Last Seen",
+    ["Developer.SecretValueFieldOccurrences"] = "Occurrence Count",
+    ["Developer.SecretValueFieldStackTrace"] = "Stack Trace",
+    ["Developer.SecretValueNoStackTrace"] = "(not captured)",
 
     ["Developer.ProbeWeekly"] = "Inspect Weekly/Vault",
     ["Developer.ProbeStorage"] = "Inspect Storage/Bank",
@@ -986,7 +1084,7 @@ AC.Locales.enUS =
 
     ["PlayerJournal.NoPlayerSelected"] = "No player selected. Use Search to find someone in your journal.",
     ["PlayerJournal.RealmSuffixFormat"] = "-%s",
-    ["PlayerJournal.FavoriteOn"] = "\226\152\133 Favorite",
+    ["PlayerJournal.FavoriteOn"] = "%s Favorite",
     ["PlayerJournal.FavoriteOff"] = "Add Favorite",
 
     ["PlayerJournal.SectionOverview"] = "Overview",
@@ -1043,7 +1141,7 @@ AC.Locales.enUS =
     ["PlayerJournal.NoSearchResults"] = "No players match your search.",
     ["PlayerJournal.SearchResultMetaFormat"] = "%d run(s) together -- last seen %s",
 
-    ["PlayerJournal.TooltipFavorite"] = "\226\152\133 Favorite Player",
+    ["PlayerJournal.TooltipFavorite"] = "%s Favorite Player",
     ["PlayerJournal.TooltipRunsTogether"] = "Runs Together",
     ["PlayerJournal.TooltipLastSeen"] = "Last Seen",
     ["PlayerJournal.TooltipNotePreviewFormat"] = "\"%s\"",

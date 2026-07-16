@@ -115,13 +115,10 @@ function Dashboard:GetProfileFieldValues()
             end
 
             if session.itemLevelGained then
-
-                if session.itemLevelGained > 0 then
-                    values.itemLevelGained = string.format("+%.1f", session.itemLevelGained)
-                else
-                    values.itemLevelGained = string.format("%.1f", session.itemLevelGained)
-                end
-
+                -- Home Dashboard Evolution -- now shares AC.Presentation.FormatSignedNumber
+                -- with Home's own Profile card instead of a second inline copy of this
+                -- same +/- rule.
+                values.itemLevelGained = AC.Presentation.FormatSignedNumber(session.itemLevelGained, 1)
             end
 
             if session.levelsGained then

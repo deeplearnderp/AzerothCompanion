@@ -92,7 +92,7 @@ end
 -- Add Close Button
 --
 -- The standard top-right close button every standalone window
--- (DiagnosticsWindow, SettingsWindow, RecommendationInspector,
+-- (DiagnosticsWindow, SettingsWindow, PlayerJournalWindow,
 -- DeveloperPanel) wired up identically -- extracted here once a fourth
 -- window repeated the exact same five lines. `owner` is whichever object
 -- the window's own Show/Hide lifecycle lives on (almost always the same

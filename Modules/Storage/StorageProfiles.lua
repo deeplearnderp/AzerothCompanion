@@ -30,10 +30,26 @@
 --              for deposit even if it also matches a broader category rule.
 --
 -- Category targets use Blizzard's own classID/subClassID taxonomy
--- (Enum.ItemClass/Enum.ItemConsumableSubclass) -- the same self-maintaining
--- approach MythicPlusModule:ClassifyConsumableItem already uses, so a
--- brand-new seasonal potion is matched correctly the day it ships, no
--- addon update required.
+-- (Enum.ItemClass/Enum.ItemConsumableSubclass), resolved through the shared
+-- AC.ItemClassification (Core/Utility/ItemClassification.lua) -- the same
+-- self-maintaining classifier MythicPlusModule's consumable tracking also
+-- reads, so a brand-new seasonal potion is matched correctly the day it
+-- ships, no addon update required.
+--
+-- Recommendation Mode (Storage Supply Manager Sprint) -- not a field on
+-- the rule table itself (that stays shared, built-in data, not per-
+-- player). Per-character mode ("CompanionRecommended" | "Preferred" |
+-- "Any") and any preferred itemID override live in
+-- ConfigurationManager, keyed by profile id + rule label (see
+-- StorageModule:GetRecommendationMode/SetRecommendationMode). Every
+-- rule reads as "Any" -- today's existing behavior, unchanged -- until a
+-- player explicitly picks something else. "CompanionRecommended" has no
+-- effect yet: the shared ItemRecommendationService this mode is designed
+-- to call is a reserved future service, not built this pass -- see
+-- docs/GameplayModuleArchitecture.md's Storage section for the full
+-- architecture writeup. This is intentionally NOT a field on this table:
+-- these presets are shared, built-in data every character reads
+-- identically; a player's chosen mode/override is their own state.
 -------------------------------------------------------------------------------
 
 local AC = _G.AzerothCompanion
@@ -49,8 +65,8 @@ AC.StorageProfiles.BuiltIn =
         rules =
         {
             { action = "Maintain", targetType = "Category", targetValue = { subclass = "Potion" }, amount = 20, label = "Storage.Rule.Potions" },
-            { action = "Maintain", targetType = "Category", targetValue = { subclass = "Flask" }, amount = 8, label = "Storage.Rule.Flasks" },
-            { action = "Maintain", targetType = "Category", targetValue = { subclass = "Food" }, amount = 40, label = "Storage.Rule.Food" },
+            { action = "Maintain", targetType = "Category", targetValue = { subclass = "Flasksphials" }, amount = 8, label = "Storage.Rule.Flasks" },
+            { action = "Maintain", targetType = "Category", targetValue = { subclass = "Fooddrink" }, amount = 40, label = "Storage.Rule.Food" },
             { action = "Keep", targetType = "Item", targetValue = AC.HEARTHSTONE_ITEM_ID, amount = 1, label = "Storage.Rule.Hearthstone" },
             { action = "NeverMove", targetType = "Category", targetValue = { classKey = "Questitem" }, label = "Storage.Rule.QuestItems" },
             { action = "NeverMove", targetType = "Equipped", targetValue = nil, label = "Storage.Rule.CurrentEquipment" },
@@ -63,8 +79,8 @@ AC.StorageProfiles.BuiltIn =
         rules =
         {
             { action = "Maintain", targetType = "Category", targetValue = { subclass = "Potion" }, amount = 40, label = "Storage.Rule.Potions" },
-            { action = "Maintain", targetType = "Category", targetValue = { subclass = "Flask" }, amount = 8, label = "Storage.Rule.Flasks" },
-            { action = "Maintain", targetType = "Category", targetValue = { subclass = "Food" }, amount = 40, label = "Storage.Rule.Food" },
+            { action = "Maintain", targetType = "Category", targetValue = { subclass = "Flasksphials" }, amount = 8, label = "Storage.Rule.Flasks" },
+            { action = "Maintain", targetType = "Category", targetValue = { subclass = "Fooddrink" }, amount = 40, label = "Storage.Rule.Food" },
             { action = "NeverMove", targetType = "Category", targetValue = { classKey = "Questitem" }, label = "Storage.Rule.QuestItems" },
             { action = "NeverMove", targetType = "Equipped", targetValue = nil, label = "Storage.Rule.CurrentEquipment" },
         },
@@ -80,6 +96,46 @@ AC.StorageProfiles.BuiltIn =
             { action = "Deposit", targetType = "Category", targetValue = { classKey = "Tradegoods" }, amount = 0, label = "Storage.Rule.CraftingMaterials" },
         },
     },
+
+    -- Storage Supply Manager Sprint -- Delves/PvP were requested profiles
+    -- with no prior preset to draw from. Amounts below are a starting
+    -- default, not a researched balance number -- deliberately mirroring
+    -- Raid/MythicPlus's own shape (same rule types, same NeverMove
+    -- guards) rather than inventing new consumable categories, since
+    -- fabricating a PvP-specific item ID would be exactly the kind of
+    -- guess this addon avoids elsewhere. Meant to be tuned, not treated
+    -- as final -- see this file's own header on why that's a data-only
+    -- edit, not an engine change.
+    {
+        id = "Delves",
+        label = "Storage.Profile.Delves",
+        builtin = true,
+        rules =
+        {
+            { action = "Maintain", targetType = "Category", targetValue = { subclass = "Potion" }, amount = 10, label = "Storage.Rule.Potions" },
+            { action = "Maintain", targetType = "Category", targetValue = { subclass = "Flasksphials" }, amount = 4, label = "Storage.Rule.Flasks" },
+            { action = "Maintain", targetType = "Category", targetValue = { subclass = "Fooddrink" }, amount = 20, label = "Storage.Rule.Food" },
+            { action = "NeverMove", targetType = "Category", targetValue = { classKey = "Questitem" }, label = "Storage.Rule.QuestItems" },
+            { action = "NeverMove", targetType = "Equipped", targetValue = nil, label = "Storage.Rule.CurrentEquipment" },
+        },
+    },
+    {
+        id = "PvP",
+        label = "Storage.Profile.PvP",
+        builtin = true,
+        rules =
+        {
+            -- No Flask rule -- unlike Raid/Mythic+/Delves, PvP consumable
+            -- conventions lean far more on player preference than a
+            -- default this addon should assert. Left out rather than
+            -- guessed at.
+            { action = "Maintain", targetType = "Category", targetValue = { subclass = "Potion" }, amount = 10, label = "Storage.Rule.Potions" },
+            { action = "Maintain", targetType = "Category", targetValue = { subclass = "Fooddrink" }, amount = 20, label = "Storage.Rule.Food" },
+            { action = "NeverMove", targetType = "Category", targetValue = { classKey = "Questitem" }, label = "Storage.Rule.QuestItems" },
+            { action = "NeverMove", targetType = "Equipped", targetValue = nil, label = "Storage.Rule.CurrentEquipment" },
+        },
+    },
+
     {
         id = "Custom",
         label = "Storage.Profile.Custom",

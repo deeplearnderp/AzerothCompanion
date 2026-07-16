@@ -5,21 +5,23 @@
 -- Companion Intelligence V4 -- "Today's Briefing" on the Home page. This
 -- service owns exactly one responsibility: SELECTING and ORDERING a
 -- short list of already-real facts into a briefing, never generating a
--- new one. Every line comes verbatim from a real Insight's or
--- Recommendation's own `description`/`reason` field -- both of those are
--- already properly-worded, real, module-owned sentences (InsightEngine/
--- RecommendationEngine already require every module to supply real text,
--- never this service inventing a fabricated fact or rephrasing one).
+-- new one.
 --
--- Ownership: BriefingService reads AC.RecommendationEngine and
--- AC.InsightEngine's already-public output only -- it never reads a
--- gameplay module directly, and it never computes a new gameplay fact
--- (e.g. "your strongest dungeon"; that is MythicPlusModule's own
--- "Strongest Dungeon" Insight, added this same pass, precisely so a
--- consumer like this one never has to derive it itself). This mirrors
--- RecommendationEngine's own Rule 6 discipline: the "what's noteworthy"
--- judgment always comes from a module's Insight, this layer only curates
--- and orders what already exists.
+-- Home Dashboard Evolution (Today's Briefing pass) -- this no longer
+-- reads AC.RecommendationEngine at all. It used to lead every briefing
+-- with the single highest-priority recommendation's own reason/
+-- description -- a real, confirmed duplicate of what Home's Highest
+-- Priority card already shows in full, one card above this one (Product
+-- Vision audit). Deleted, not reworded: Highest Priority already owns
+-- "what should I do next" outright. This service's job is narrower now --
+-- "what else is worth knowing today" -- built from two sources:
+-- AC.InsightEngine's own output (real, module-owned noteworthy facts,
+-- never this service's own judgment), and two "Companion Memory"
+-- observations read directly from PlayerJournal/MythicPlus's own public
+-- getters (real, recurring habits, phrased as observations, never a new
+-- gameplay judgment -- the one place this service reads a gameplay
+-- module directly rather than going through InsightEngine, unchanged
+-- from when Companion Memory was added).
 -------------------------------------------------------------------------------
 
 local AC = _G.AzerothCompanion
@@ -37,11 +39,10 @@ AC.BriefingService = BriefingService
 -------------------------------------------------------------------------------
 -- Constants
 --
--- One line for the single highest-priority recommendation (the "what
--- should I do right now" headline every other page already leads with),
--- plus up to MAX_INSIGHT_LINES more -- one per distinct category, so a
--- single chatty module (MythicPlus has the most Insights of any module
--- today) can't crowd out every other module's own briefing-worthy fact.
+-- Up to MAX_INSIGHT_LINES Insight lines -- one per distinct category, so
+-- a single chatty module (MythicPlus has the most Insights of any module
+-- today) can't crowd out every other module's own briefing-worthy fact --
+-- plus up to MAX_MEMORY_LINES Companion Memory observations (below).
 -------------------------------------------------------------------------------
 
 local MAX_INSIGHT_LINES = 4
@@ -103,69 +104,43 @@ end
 -------------------------------------------------------------------------------
 -- Refresh
 --
--- Called after AC.RecommendationEngine/AC.InsightEngine have already
--- refreshed this cycle (Dashboard:RefreshEngines, Sections.lua, already
--- orders this correctly) -- this service never refreshes either of them
--- itself, it only reads their already-current output.
+-- Called after AC.InsightEngine has already refreshed this cycle
+-- (Dashboard:RefreshEngines, Sections.lua, already orders this correctly)
+-- -- this service never refreshes it itself, it only reads its
+-- already-current output. No longer depends on AC.RecommendationEngine
+-- at all (see this file's own header) -- the guard below only checks
+-- what this function actually reads.
 -------------------------------------------------------------------------------
 
 function BriefingService:Refresh()
 
     self.Lines = {}
 
-    if not AC.RecommendationEngine or not AC.InsightEngine then
+    if not AC.InsightEngine then
         return
     end
 
-    local seenCategories = {}
-
-    -- The single highest-value activity, exactly as the Home page's own
-    -- Highest Priority card already frames it -- reason when the
-    -- recommendation has one (more specific), description otherwise.
-    local topRecommendation = AC.RecommendationEngine:GetHighestPriority()
-
-    if topRecommendation then
-
-        local text = topRecommendation.reason
-
-        if not text or text == "" then
-            text = topRecommendation.description
-        end
-
-        if text and text ~= "" then
-
-            table.insert(self.Lines, { text = text, category = topRecommendation.category })
-            seenCategories[topRecommendation.category] = true
-
-        end
-
-    end
-
-    -- Up to MAX_INSIGHT_LINES more, one per distinct category not
-    -- already covered above, highest priority within each -- InsightEngine
-    -- already sorts its list by priority, so the first insight seen for
-    -- a not-yet-covered category is that category's own highest-priority
-    -- one.
-    for _, insight in ipairs(AC.InsightEngine:GetInsights()) do
-
-        if #self.Lines >= MAX_INSIGHT_LINES + 1 then
-            break
-        end
-
-        if not seenCategories[insight.category] and insight.description and insight.description ~= "" then
-
-            seenCategories[insight.category] = true
-            table.insert(self.Lines, { text = insight.description, category = insight.category })
-
-        end
-
-    end
-
-    -- Companion Memory (Companion Intelligence vNext) -- real, recurring
-    -- observations, phrased as observations ("you usually/typically..."),
-    -- never a new gameplay judgment. Both sources are already-public
-    -- getters on modules that own the underlying fact (Rule 6/1) --
-    -- this service only curates/orders, exactly like every line above.
+    -- Home Dashboard Evolution (Today's Briefing pass) -- the single
+    -- highest-value activity this service used to lead with here is
+    -- DELETED, not reworded: it was the exact same fact, in the exact
+    -- same words (reason/description), that Home's own Highest Priority
+    -- card already shows in full, one card above this one. That was a
+    -- real duplicate, not two cards with different angles on one fact --
+    -- confirmed by the Product Vision's own audit. This service's job is
+    -- no longer "restate what to do next" (Highest Priority already owns
+    -- that outright) -- it's "what else is worth knowing today," which is
+    -- a genuinely different question. AC.RecommendationEngine is no
+    -- longer read here at all as a result; only AC.InsightEngine and the
+    -- Companion Memory sources below remain.
+    --
+    -- Companion Memory leads now (Companion Intelligence vNext -- real,
+    -- recurring observations, phrased as observations, "you usually/
+    -- typically...", never a new gameplay judgment) -- this is the most
+    -- distinctly personal-companion content this service has, and the
+    -- least available anywhere else on Home, so it earns first position
+    -- now that it isn't following a restated recommendation. Both sources
+    -- are already-public getters on modules that own the underlying fact
+    -- (Rule 6/1) -- this service only curates/orders, same as before.
     local memoryLinesAdded = 0
 
     if memoryLinesAdded < MAX_MEMORY_LINES then
@@ -188,6 +163,33 @@ function BriefingService:Refresh()
         if seasonStats and seasonStats.trackedRunCount and seasonStats.trackedRunCount >= 3 and seasonStats.averageConsumablesPerRun and seasonStats.averageConsumablesPerRun > 0 then
             table.insert(self.Lines, { text = AC.L:Format("Briefing.TypicalConsumablesFormat", string.format("%.1f", seasonStats.averageConsumablesPerRun)), category = "MythicPlus" })
             memoryLinesAdded = memoryLinesAdded + 1
+        end
+
+    end
+
+    -- Up to MAX_INSIGHT_LINES more, one per distinct category -- InsightEngine
+    -- already sorts its list by priority, so the first insight seen for
+    -- a not-yet-covered category is that category's own highest-priority
+    -- one. Tracked with its own counter (insightLinesAdded), not #self.Lines
+    -- -- self.Lines may already hold up to MAX_MEMORY_LINES memory lines
+    -- from above, and this budget is MAX_INSIGHT_LINES on its own, not
+    -- shared with memory's count. No longer seeded with a recommendation's
+    -- category either, since there isn't one anymore.
+    local seenCategories = {}
+    local insightLinesAdded = 0
+
+    for _, insight in ipairs(AC.InsightEngine:GetInsights()) do
+
+        if insightLinesAdded >= MAX_INSIGHT_LINES then
+            break
+        end
+
+        if not seenCategories[insight.category] and insight.description and insight.description ~= "" then
+
+            seenCategories[insight.category] = true
+            table.insert(self.Lines, { text = insight.description, category = insight.category })
+            insightLinesAdded = insightLinesAdded + 1
+
         end
 
     end

@@ -1,25 +1,87 @@
 -------------------------------------------------------------------------------
 -- Azeroth Companion
--- Dashboard Page: Storage
+-- Dashboard Page: Storage (Supply Manager)
 --
--- Inventory Summary/Storage Health/Current Profile/Restock Status/
--- Shopping List/Recommendations/Insights. Profile switching itself lives
--- in Settings > Storage (a simple dropdown -- see StorageModule:Initialize)
--- rather than on this page, per "do not overload the page" -- this page
--- displays the active profile and what it means for the player right now,
--- it does not edit it.
+-- "Do I have everything I need to play?" -- Supply Health answers that in
+-- one sentence at the top; every section below explains why. Everything
+-- here is driven by the active storage profile (switched via the
+-- dropdown on this page, not just Settings) -- switching it recomputes
+-- Supply Health, Bank Transfers, Shopping List, and Storage Insights
+-- immediately. Consumables is the one section that does NOT re-scope
+-- with the profile (your bags don't change because you switched
+-- profiles) -- it's the definitive bag+bank supply list, full stop.
+--
+-- Storage Insights only -- no "Recommendations" mini-section. General
+-- gameplay advice (e.g. "Complete Your Keystone") belongs on the
+-- Recommendations page; this page reads AC.InsightEngine directly for
+-- Storage-tagged insights only, not the combined
+-- GetCategorizedRecommendationsAndInsights every other page uses.
 --
 -- Also owns the Storage Execute confirmation flow (StaticPopupDialogs +
--- ShowExecuteResult) -- previously registered in generic Dashboard chrome
--- even though it is entirely Storage-specific (Dashboard Refactor: moved
--- here so this file has the whole feature, not just the page rendering
--- half of it).
+-- ShowExecuteResult), unchanged from before this pass.
 -------------------------------------------------------------------------------
 
 local AC = _G.AzerothCompanion
 
 local Dashboard = AC.Dashboard
 local Layout = AC.DashboardLayout
+local Format = AC.DashboardFormat
+
+-------------------------------------------------------------------------------
+-- Category Display Labels
+--
+-- AC.ItemClassification:ClassifyConsumable's own return strings
+-- ("potion"/"flask"/"food"/"itemEnhancement"/"healthstone") are internal
+-- keys, not display text -- Dashboard owns presentation, so the label
+-- lookup lives here, not in StorageModule.
+-------------------------------------------------------------------------------
+
+local CATEGORY_DISPLAY_ORDER = { "potion", "flask", "food", "itemEnhancement", "healthstone" }
+
+local function GetCategoryLabel(categoryKey)
+
+    return AC.L:Get("Storage.Category." .. categoryKey)
+
+end
+
+-------------------------------------------------------------------------------
+-- Supply Health Icons (UI Polish Pass)
+--
+-- Replaces the Unicode CHECK_GLYPH/WARNING_GLYPH/CROSS_GLYPH characters
+-- Supply Health previously prefixed onto its verdict sentence. Those
+-- glyphs were never live-confirmed (VerificationService's own registry
+-- already flags "presentation.unverifiedGlyphs" as NEEDS_LIVE), and this
+-- codebase has an established, CONFIRMED pattern of exactly this failure:
+-- Unicode outside Latin/WGL4 (Geometric Shapes ▶/▼/▲, Miscellaneous
+-- Symbols ★) rendering as missing-character boxes in Blizzard's client
+-- font. Rather than fall back to another ASCII substitute (acceptable for
+-- small inline indicators like DISCLOSURE_*/TREND_ARROWS, but this is the
+-- page's single hero verdict line), these three states reuse Blizzard's
+-- own Ready Check icon set (Interface\RaidFrame\ReadyCheck-*) --
+-- standalone textures, not font glyphs, so there is no font-coverage risk
+-- at all, and every player already recognizes this exact green
+-- check/red X/amber-waiting visual language from raid ready checks. Only
+-- Storage's Supply Health reads this table (single caller), so it stays
+-- page-local rather than promoted to Presentation.lua.
+-------------------------------------------------------------------------------
+
+local SUPPLY_HEALTH_ICONS =
+{
+    ready = "Interface\\RaidFrame\\ReadyCheck-Ready",
+    waiting = "Interface\\RaidFrame\\ReadyCheck-Waiting",
+    notReady = "Interface\\RaidFrame\\ReadyCheck-NotReady",
+}
+
+local SUPPLY_HEALTH_ICON_SIZE = 20
+local SUPPLY_HEALTH_ICON_GAP = 6
+
+-- Supply Forecast's own low-runs-remaining marker used the same
+-- unverified WARNING_GLYPH, appended into a LayoutStatisticsGrid value
+-- string (a plain FontString, no icon slot) -- an icon texture isn't an
+-- option here without extending that shared grid, so this follows the
+-- addon's other established ASCII-fallback precedent instead (DISCLOSURE_*/
+-- TREND_ARROWS in Format.lua), not a new convention.
+local LOW_SUPPLY_MARKER = "|cffe6b800!|r"
 
 -------------------------------------------------------------------------------
 -- Storage Execute Confirmation
@@ -88,6 +150,172 @@ function Dashboard:ShowExecuteResult(result)
 end
 
 -------------------------------------------------------------------------------
+-- Consumables Accordion -- category (collapsed) expands to every tracked
+-- item (icon/name/bag count/bank count/total). Reuses the shared
+-- LayoutAccordionRows engine (Rows.lua -- the same one Accomplishments/
+-- Journey/MythicPlus history already use) for the category-level
+-- expand/collapse; the item-level rows are this page's own bespoke
+-- content (icons aren't something the generic accordion detail-field
+-- helper renders), pooled per accordion row exactly like
+-- LayoutContributingModules pools its own buttons in
+-- Pages/RecommendationDetails.lua.
+-------------------------------------------------------------------------------
+
+local function BuildConsumableCategoryRow(scrollChild)
+
+    local row = CreateFrame("Button", nil, scrollChild)
+    row:EnableMouse(true)
+
+    local background = row:CreateTexture(nil, "BACKGROUND")
+    background:SetAllPoints()
+    background:SetColorTexture(1, 1, 1, 0)
+    row.Background = background
+
+    row:SetScript("OnEnter", function(self) self.Background:SetColorTexture(1, 1, 1, 0.06) end)
+    row:SetScript("OnLeave", function(self) self.Background:SetColorTexture(1, 1, 1, 0) end)
+
+    local nameText = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    nameText:SetJustifyH("LEFT")
+    Format.SetHighlightColor(nameText)
+    row.NameText = nameText
+
+    local countText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    countText:SetJustifyH("RIGHT")
+    row.CountText = countText
+
+    return row
+
+end
+
+local function LayoutConsumableCollapsed(row, record, width)
+
+    local baseX = Layout.ACCORDION_DISCLOSURE_WIDTH + Layout.ROW_INDENT
+    local countWidth = 170
+
+    row.NameText:ClearAllPoints()
+    row.NameText:SetPoint("TOPLEFT", baseX, 0)
+    row.NameText:SetWidth(width - baseX - countWidth)
+    row.NameText:SetText(GetCategoryLabel(record.key))
+
+    row.CountText:ClearAllPoints()
+    row.CountText:SetPoint("TOPRIGHT", 0, 0)
+    row.CountText:SetWidth(countWidth)
+    row.CountText:SetJustifyH("RIGHT")
+    row.CountText:SetText(AC.L:Format("Storage.ConsumableCountFormat", record.bucket.categoryTotal, record.bucket.categoryBagTotal, record.bucket.categoryBankTotal))
+
+    return math.max(row.NameText:GetStringHeight() or Layout.ROW_HEIGHT, Layout.ROW_HEIGHT)
+
+end
+
+local function BuildConsumableItemRow(parent)
+
+    local row = CreateFrame("Frame", nil, parent)
+    row:SetHeight(18)
+
+    local icon = row:CreateTexture(nil, "ARTWORK")
+    icon:SetSize(16, 16)
+    icon:SetPoint("LEFT", 0, 0)
+    row.Icon = icon
+
+    local nameText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    nameText:SetJustifyH("LEFT")
+    nameText:SetPoint("LEFT", icon, "RIGHT", 4, 0)
+    row.NameText = nameText
+
+    local countText = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    countText:SetJustifyH("RIGHT")
+    countText:SetPoint("RIGHT", 0, 0)
+    row.CountText = countText
+
+    return row
+
+end
+
+local CONSUMABLE_ITEM_COUNT_WIDTH = 130
+
+local function BuildConsumablesDetail(row, record, width, detailYOffset)
+
+    row.ItemRows = row.ItemRows or {}
+
+    local baseX = Layout.ACCORDION_DETAIL_INDENT
+    local rowWidth = width - baseX
+    local yOffset = detailYOffset
+
+    for index, item in ipairs(record.bucket.items) do
+
+        local itemRow = row.ItemRows[index]
+
+        if not itemRow then
+            itemRow = BuildConsumableItemRow(row)
+            row.ItemRows[index] = itemRow
+        end
+
+        itemRow:ClearAllPoints()
+        itemRow:SetPoint("TOPLEFT", baseX, yOffset)
+        itemRow:SetWidth(rowWidth)
+
+        itemRow.Icon:SetTexture(item.icon)
+
+        itemRow.NameText:SetWidth(rowWidth - 16 - 4 - CONSUMABLE_ITEM_COUNT_WIDTH)
+        itemRow.NameText:SetText(item.name)
+
+        itemRow.CountText:SetWidth(CONSUMABLE_ITEM_COUNT_WIDTH)
+        itemRow.CountText:SetText(AC.L:Format("Storage.ConsumableCountFormat", item.totalCount, item.bagCount, item.bankCount))
+
+        itemRow:Show()
+
+        yOffset = yOffset - 18
+
+    end
+
+    for index = #record.bucket.items + 1, #row.ItemRows do
+        row.ItemRows[index]:Hide()
+    end
+
+    return detailYOffset - yOffset
+
+end
+
+local function HideConsumablesDetail(row)
+
+    if row.ItemRows then
+        for _, itemRow in ipairs(row.ItemRows) do
+            itemRow:Hide()
+        end
+    end
+
+end
+
+-------------------------------------------------------------------------------
+-- Profile Switcher -- on-page, per your explicit direction (editing/
+-- creating/deleting profiles stays in Settings; this is the everyday
+-- quick-switch). Built directly on WowStyle1DropdownTemplate -- the same
+-- Blizzard building block AC.Widgets.Dropdown already wraps for the
+-- Settings window -- rather than going through the full Widget/
+-- WidgetManager framework that's built specifically for Settings pages.
+-------------------------------------------------------------------------------
+
+local function BuildProfileDropdown(page, parent)
+
+    if page.ProfileDropdown then
+        return page.ProfileDropdown
+    end
+
+    local frame = CreateFrame("Frame", nil, parent)
+    frame:SetSize(200, 22)
+
+    local dropdown = CreateFrame("DropdownButton", nil, frame, "WowStyle1DropdownTemplate")
+    dropdown:SetPoint("LEFT", frame, "LEFT", 0, 0)
+    dropdown:SetPoint("RIGHT", frame, "RIGHT", 0, 0)
+
+    frame.Dropdown = dropdown
+    page.ProfileDropdown = frame
+
+    return frame
+
+end
+
+-------------------------------------------------------------------------------
 -- Update
 -------------------------------------------------------------------------------
 
@@ -110,68 +338,78 @@ function Dashboard:UpdateStoragePage(frame)
 
     local scrollChild = page.ScrollChild
 
+    -- Cleanup & Optimization pass -- analysis/consumableInventory are each
+    -- computed exactly once here and threaded into GetShoppingListDetail/
+    -- GetSupplyForecast below instead of letting those methods recompute
+    -- them internally (both accept the precomputed result as an optional
+    -- argument; a standalone caller with just a profileID still works
+    -- unchanged).
     local profile = storageModule:GetActiveProfile()
-    local analysis = profile and storageModule:AnalyzeProfile(profile.id) or { missing = {}, excess = {}, withdrawals = {}, deposits = {}, actionsNeeded = 0 }
+    local analysis = profile and storageModule:AnalyzeProfile(profile.id) or { missing = {}, excess = {}, withdrawals = {}, deposits = {}, actionsNeeded = 0, readinessPercent = 100 }
+    local shoppingDetail = profile and storageModule:GetShoppingListDetail(profile.id, analysis) or {}
+    local consumableInventory = storageModule:GetConsumableInventory()
+    local supplyForecast = storageModule:GetSupplyForecast(consumableInventory)
     local bankSummary = storageModule:GetBankSummary()
     local bagSummary = inventoryModule:GetBagSummary()
 
-    local recommendations, insights = self:GetCategorizedRecommendationsAndInsights("Storage")
+    -- Storage Insights only -- reads AC.InsightEngine directly, not
+    -- GetCategorizedRecommendationsAndInsights (which also gathers
+    -- RecommendationEngine's general advice -- deliberately not shown
+    -- here, per this page's own scope).
+    local insights = AC.InsightEngine and AC.InsightEngine:GetInsightsByCategory("Storage") or {}
 
     -- Delegates to the shared Dashboard:ShowEmptyLine.
     local function ShowEmptyLine(cacheKey, yOffset, width, textKey)
         return self:ShowEmptyLine(page, scrollChild, cacheKey, yOffset, width, textKey)
     end
 
-    -- A label/value field row, cached and reused across refreshes --
-    -- unlike Dashboard:AddField (which is only ever called once, at
-    -- static page construction time), this page rebuilds its layout on
-    -- every ShowPage("Storage"), so a field row must reuse the same pair
-    -- of FontStrings rather than creating a new pair each time.
-    local function AddCachedField(cacheKey, labelKey, value, yOffset, width)
+    -- A single dim, label-less sentence -- Supply Health's one-line
+    -- verdict. Same cached-FontString-reused-across-refreshes shape as
+    -- every other page-local text cache in this codebase. `iconKey`
+    -- (UI Polish Pass) is optional -- a key into SUPPLY_HEALTH_ICONS --
+    -- and pools a sibling Texture alongside the FontString; omitting it
+    -- (the "No profile selected" neutral state) hides the icon and keeps
+    -- the sentence at the plain ROW_INDENT it always used.
+    local function AddSentence(cacheKey, text, yOffset, width, color, iconKey)
 
-        local labelCacheKey = cacheKey .. "Label"
-        local valueCacheKey = cacheKey .. "Value"
+        if not page[cacheKey] then
 
-        if not page[labelCacheKey] then
+            local sentence = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
+            sentence:SetJustifyH("LEFT")
+            sentence:SetWordWrap(true)
+            page[cacheKey] = sentence
 
-            local labelText = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-            labelText:SetJustifyH("LEFT")
-            labelText:SetTextColor(unpack(AC.Presentation.GetSemanticColor("dim")))
-            page[labelCacheKey] = labelText
-
-            local valueText = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-            valueText:SetJustifyH("LEFT")
-            page[valueCacheKey] = valueText
+            local icon = scrollChild:CreateTexture(nil, "ARTWORK")
+            icon:SetSize(SUPPLY_HEALTH_ICON_SIZE, SUPPLY_HEALTH_ICON_SIZE)
+            page[cacheKey .. "Icon"] = icon
 
         end
 
-        local valueWidth = width - Layout.ROW_INDENT - Layout.FIELD_LABEL_WIDTH - Layout.FIELD_LABEL_VALUE_GAP
+        local sentence = page[cacheKey]
+        local icon = page[cacheKey .. "Icon"]
+        local textIndent = Layout.ROW_INDENT
 
-        page[labelCacheKey]:ClearAllPoints()
-        page[labelCacheKey]:SetPoint("TOPLEFT", Layout.ROW_INDENT, yOffset)
-        page[labelCacheKey]:SetWidth(Layout.FIELD_LABEL_WIDTH)
-        page[labelCacheKey]:SetText(AC.L:Get(labelKey))
-        page[labelCacheKey]:Show()
+        icon:ClearAllPoints()
 
-        page[valueCacheKey]:ClearAllPoints()
-        page[valueCacheKey]:SetPoint("TOPLEFT", Layout.ROW_INDENT + Layout.FIELD_LABEL_WIDTH + Layout.FIELD_LABEL_VALUE_GAP, yOffset)
-        page[valueCacheKey]:SetWidth(valueWidth)
-        page[valueCacheKey]:SetText(value)
-        page[valueCacheKey]:Show()
+        if iconKey and SUPPLY_HEALTH_ICONS[iconKey] then
 
-        return yOffset - Layout.ROW_HEIGHT
+            icon:SetTexture(SUPPLY_HEALTH_ICONS[iconKey])
+            icon:SetPoint("TOPLEFT", Layout.ROW_INDENT, yOffset - 1)
+            icon:Show()
+            textIndent = textIndent + SUPPLY_HEALTH_ICON_SIZE + SUPPLY_HEALTH_ICON_GAP
 
-    end
-
-    local function HideCachedField(cacheKey)
-
-        if page[cacheKey .. "Label"] then
-            page[cacheKey .. "Label"]:Hide()
+        else
+            icon:Hide()
         end
 
-        if page[cacheKey .. "Value"] then
-            page[cacheKey .. "Value"]:Hide()
-        end
+        sentence:ClearAllPoints()
+        sentence:SetPoint("TOPLEFT", textIndent, yOffset)
+        sentence:SetWidth(width - textIndent)
+        sentence:SetText(text)
+        sentence:SetTextColor(unpack(AC.Presentation.GetSemanticColor(color or "dim")))
+        sentence:Show()
+
+        return yOffset - math.max(sentence:GetStringHeight(), SUPPLY_HEALTH_ICON_SIZE) - 8
 
     end
 
@@ -182,97 +420,129 @@ function Dashboard:UpdateStoragePage(frame)
         local yOffset = -4
 
         -----------------------------------------------------------------------
-        -- Inventory Summary
+        -- Profile Switcher
         -----------------------------------------------------------------------
 
-        yOffset = self:BeginSection(scrollChild, "Storage.SectionInventorySummary", yOffset)
+        local dropdownFrame = BuildProfileDropdown(page, scrollChild)
+        dropdownFrame:ClearAllPoints()
+        dropdownFrame:SetPoint("TOPLEFT", Layout.ROW_INDENT, yOffset)
 
-        local inventoryStats =
+        local profileList = AC.StorageProfiles and AC.StorageProfiles.BuiltIn or {}
+
+        dropdownFrame.Dropdown:SetupMenu(function(_, rootDescription)
+
+            for _, candidate in ipairs(profileList) do
+
+                rootDescription:CreateButton(AC.L:Get(candidate.label), function()
+                    storageModule:SetActiveProfileID(candidate.id)
+                    Dashboard:UpdateStoragePage(frame)
+                end)
+
+            end
+
+        end)
+
+        dropdownFrame.Dropdown:SetDefaultText(profile and AC.L:Get(profile.label) or AC.L:Get("Storage.NoProfileSelected"))
+
+        yOffset = yOffset - 26 - Layout.SECTION_GROUP_GAP
+
+        -----------------------------------------------------------------------
+        -- Supply Health -- one sentence. "Am I ready?" answered outright;
+        -- every section below explains why, never repeated here.
+        -----------------------------------------------------------------------
+
+        yOffset = self:BeginSection(scrollChild, "Storage.SectionSupplyHealth", yOffset)
+
+        local isReady = #analysis.missing == 0 and #analysis.withdrawals == 0
+
+        -- Final Polish -- glyph-prefixed, four real states (not a single
+        -- "not ready" catch-all): ready; exactly one thing missing (named
+        -- directly, no "need...more" duplication); more than one thing
+        -- missing (severe enough to earn the cross glyph instead of the
+        -- warning triangle, and a summary phrase rather than picking one
+        -- arbitrarily); nothing missing but Bank Transfers still pending.
+        -- Detail for every state still lives in the sections below --
+        -- this sentence never repeats it, only names the headline.
+        if not profile then
+
+            yOffset = AddSentence("SupplyHealthText", AC.L:Get("Storage.NoProfileSelected"), yOffset, width, "dim")
+
+        elseif isReady then
+
+            yOffset = AddSentence("SupplyHealthText", AC.L:Get("Storage.SupplyHealthReady"), yOffset, width, "success", "ready")
+
+        elseif #analysis.missing == 1 then
+
+            local onlyMissing = analysis.missing[1]
+            local text = AC.L:Format("Storage.SupplyHealthMissingFormat", onlyMissing.amount, AC.L:Get(onlyMissing.label))
+
+            yOffset = AddSentence("SupplyHealthText", text, yOffset, width, "warning", "waiting")
+
+        elseif #analysis.missing > 1 then
+
+            yOffset = AddSentence("SupplyHealthText", AC.L:Get("Storage.SupplyHealthMultipleMissing"), yOffset, width, "critical", "notReady")
+
+        else
+
+            local text = AC.L:Format("Storage.SupplyHealthTransfersFormat", #analysis.withdrawals + #analysis.deposits)
+
+            yOffset = AddSentence("SupplyHealthText", text, yOffset, width, "warning", "waiting")
+
+        end
+
+        yOffset = self:EndSection(yOffset)
+
+        -----------------------------------------------------------------------
+        -- Storage Summary (merged Inventory Summary + Storage Health)
+        -----------------------------------------------------------------------
+
+        yOffset = self:BeginSection(scrollChild, "Storage.SectionStorageSummary", yOffset)
+
+        local summaryStats =
         {
             { label = "Storage.StatBagSlotsUsed", value = tostring(bagSummary.usedSlots or 0) },
             { label = "Storage.StatBagSlotsFree", value = tostring(bagSummary.freeSlots or 0) },
         }
 
-        yOffset = self:LayoutStatisticsGrid(page, "InventorySummary", scrollChild, yOffset, width, inventoryStats)
-        yOffset = self:EndSection(yOffset)
+        if bankSummary.accessible then
 
-        -----------------------------------------------------------------------
-        -- Storage Health
-        -----------------------------------------------------------------------
+            table.insert(summaryStats, { label = "Storage.StatBankSlotsScanned", value = tostring(bankSummary.slotsScanned or 0) })
+            table.insert(summaryStats, { label = "Storage.StatBankDistinctItems", value = tostring(bankSummary.distinctItems or 0) })
 
-        yOffset = self:BeginSection(scrollChild, "Storage.SectionStorageHealth", yOffset)
+        end
+
+        yOffset = self:LayoutStatisticsGrid(page, "StorageSummary", scrollChild, yOffset, width, summaryStats)
 
         if not bankSummary.accessible then
-
-            yOffset = ShowEmptyLine("HealthEmptyText", yOffset, width, "Storage.NotAtBank")
-
-        else
-
-            if page.HealthEmptyText then
-                page.HealthEmptyText:Hide()
-            end
-
-            local healthStats =
-            {
-                { label = "Storage.StatBankSlotsScanned", value = tostring(bankSummary.slotsScanned or 0) },
-                { label = "Storage.StatBankDistinctItems", value = tostring(bankSummary.distinctItems or 0) },
-            }
-
-            yOffset = self:LayoutStatisticsGrid(page, "StorageHealth", scrollChild, yOffset, width, healthStats)
-
+            yOffset = ShowEmptyLine("BankNotAccessibleText", yOffset, width, "Storage.NotAtBank")
+        elseif page.BankNotAccessibleText then
+            page.BankNotAccessibleText:Hide()
         end
 
         yOffset = self:EndSection(yOffset)
 
         -----------------------------------------------------------------------
-        -- Current Profile
+        -- Bank Transfers -- ONLY what Execute can actually move
+        -- (withdrawals + deposits). Missing items live in Shopping List
+        -- instead -- these two used to share one merged grid (a real
+        -- in-page duplication with Shopping List), now cleanly split.
         -----------------------------------------------------------------------
 
-        yOffset = self:BeginSection(scrollChild, "Storage.SectionCurrentProfile", yOffset)
+        yOffset = self:BeginSection(scrollChild, "Storage.SectionBankTransfers", yOffset)
 
-        if not profile then
-
-            HideCachedField("ActiveProfile")
-            HideCachedField("RuleCount")
-
-            yOffset = ShowEmptyLine("ProfileEmptyText", yOffset, width, "Storage.NoProfileSelected")
-
-        else
-
-            if page.ProfileEmptyText then
-                page.ProfileEmptyText:Hide()
-            end
-
-            yOffset = AddCachedField("ActiveProfile", "Storage.FieldActiveProfile", AC.L:Get(profile.label), yOffset, width)
-            yOffset = AddCachedField("RuleCount", "Storage.FieldRuleCount", tostring(#profile.rules), yOffset, width)
-
-        end
-
-        yOffset = self:EndSection(yOffset)
-
-        -----------------------------------------------------------------------
-        -- Restock Status
-        -----------------------------------------------------------------------
-
-        yOffset = self:BeginSection(scrollChild, "Storage.SectionRestockStatus", yOffset)
-
-        local restockRows = {}
+        local transferRows = {}
 
         for _, entry in ipairs(analysis.withdrawals) do
-            table.insert(restockRows, { label = entry.label, value = AC.L:Format("Storage.AmountWithdrawFormat", entry.amount) })
-        end
-
-        for _, entry in ipairs(analysis.missing) do
-            table.insert(restockRows, { label = entry.label, value = AC.L:Format("Storage.AmountMissingFormat", entry.amount) })
+            table.insert(transferRows, { label = entry.label, value = AC.L:Format("Storage.AmountWithdrawFormat", entry.amount) })
         end
 
         for _, entry in ipairs(analysis.deposits) do
-            table.insert(restockRows, { label = entry.label, value = AC.L:Format("Storage.AmountDepositFormat", entry.amount) })
+            table.insert(transferRows, { label = entry.label, value = AC.L:Format("Storage.AmountDepositFormat", entry.amount) })
         end
 
-        if #restockRows == 0 then
+        if #transferRows == 0 then
 
-            yOffset = ShowEmptyLine("RestockEmptyText", yOffset, width, "Storage.NoRestockNeeded")
+            yOffset = ShowEmptyLine("TransfersEmptyText", yOffset, width, "Storage.NoBankTransfersNeeded")
 
             if page.ExecuteButton then
                 page.ExecuteButton:Hide()
@@ -280,17 +550,12 @@ function Dashboard:UpdateStoragePage(frame)
 
         else
 
-            if page.RestockEmptyText then
-                page.RestockEmptyText:Hide()
+            if page.TransfersEmptyText then
+                page.TransfersEmptyText:Hide()
             end
 
-            yOffset = self:LayoutStatisticsGrid(page, "RestockStatus", scrollChild, yOffset, width, restockRows)
+            yOffset = self:LayoutStatisticsGrid(page, "BankTransfers", scrollChild, yOffset, width, transferRows)
 
-            -- Execute -- only offered when the bank is actually open
-            -- (moving to/from it requires that) and there's a real
-            -- withdrawal or deposit to make -- "missing" entries have
-            -- nothing to move, only to acquire, so they alone don't
-            -- enable this button.
             local canExecute = bankSummary.accessible and (#analysis.withdrawals > 0 or #analysis.deposits > 0)
 
             if canExecute then
@@ -332,7 +597,9 @@ function Dashboard:UpdateStoragePage(frame)
         yOffset = self:EndSection(yOffset)
 
         -----------------------------------------------------------------------
-        -- Shopping List
+        -- Shopping List -- ONLY items that must be obtained elsewhere,
+        -- now itemized: the specific already-held item(s) per shortfall,
+        -- never a guessed item for a category with nothing held.
         -----------------------------------------------------------------------
 
         yOffset = self:BeginSection(scrollChild, "Storage.SectionShoppingList", yOffset)
@@ -341,32 +608,223 @@ function Dashboard:UpdateStoragePage(frame)
 
             yOffset = ShowEmptyLine("ShoppingListEmptyText", yOffset, width, "Storage.NothingToBuy")
 
+            if page.ShoppingHeaders then
+
+                for label, header in pairs(page.ShoppingHeaders) do
+
+                    header.Label:Hide()
+                    header.Value:Hide()
+
+                    local poolKey = "ShoppingItems" .. label
+
+                    if page.Pools and page.Pools[poolKey] then
+                        for _, row in ipairs(page.Pools[poolKey]) do
+                            row:Hide()
+                        end
+                    end
+
+                end
+
+            end
+
         else
 
             if page.ShoppingListEmptyText then
                 page.ShoppingListEmptyText:Hide()
             end
 
-            local shoppingRows = {}
+            -- Each missing rule gets its own small header -- category
+            -- name and "Need N" as two separate FontStrings (Final
+            -- Polish pass), matching the label/value visual language
+            -- Storage Summary/Bank Transfers already use, not one
+            -- concatenated string -- plus the specific already-held
+            -- item(s), or the honest "none currently held" fallback,
+            -- never a guessed item name. Headers/item pools are cached
+            -- per rule label and explicitly hidden once a rule is no
+            -- longer missing, so a resolved shortfall doesn't leave a
+            -- stale header on screen.
+            page.ShoppingHeaders = page.ShoppingHeaders or {}
+            page.Pools = page.Pools or {}
+
+            local seenLabels = {}
+            local valueWidth = 100
 
             for _, entry in ipairs(analysis.missing) do
-                table.insert(shoppingRows, { label = entry.label, value = AC.L:Format("Storage.AmountMissingFormat", entry.amount) })
+
+                seenLabels[entry.label] = true
+
+                local header = page.ShoppingHeaders[entry.label]
+
+                if not header then
+
+                    local labelText = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                    labelText:SetJustifyH("LEFT")
+                    Format.SetHighlightColor(labelText)
+
+                    local valueText = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+                    valueText:SetJustifyH("RIGHT")
+                    valueText:SetTextColor(unpack(AC.Presentation.GetSemanticColor("warning")))
+
+                    header = { Label = labelText, Value = valueText }
+                    page.ShoppingHeaders[entry.label] = header
+
+                end
+
+                header.Label:ClearAllPoints()
+                header.Label:SetPoint("TOPLEFT", Layout.ROW_INDENT, yOffset)
+                header.Label:SetWidth(width - Layout.ROW_INDENT - valueWidth)
+                header.Label:SetText(AC.L:Get(entry.label))
+                header.Label:Show()
+
+                -- TOPLEFT at an explicit X derived from `width` (not
+                -- TOPRIGHT relative to scrollChild's own actual width,
+                -- which MeasureAndApplyScrolling only updates AFTER
+                -- Layout_ returns -- mid-layout it could still reflect a
+                -- prior refresh's width). SetJustifyH("RIGHT") right-aligns
+                -- the text within this box, ending flush with every other
+                -- right edge on the page.
+                header.Value:ClearAllPoints()
+                header.Value:SetPoint("TOPLEFT", width - valueWidth, yOffset)
+                header.Value:SetWidth(valueWidth)
+                header.Value:SetText(AC.L:Format("Storage.ShoppingListNeedFormat", entry.amount))
+                header.Value:Show()
+
+                yOffset = yOffset - math.max(header.Label:GetStringHeight() or Layout.ROW_HEIGHT, Layout.ROW_HEIGHT) - 4
+
+                local detail = shoppingDetail[entry.label]
+                local lines = {}
+
+                if detail and #detail.items > 0 then
+
+                    for _, item in ipairs(detail.items) do
+                        table.insert(lines, AC.L:Format("Storage.ShoppingListItemFormat", item.name, item.currentCount))
+                    end
+
+                else
+                    table.insert(lines, AC.L:Get("Storage.ShoppingListNoneHeld"))
+                end
+
+                local poolKey = "ShoppingItems" .. entry.label
+                page.Pools[poolKey] = page.Pools[poolKey] or {}
+
+                yOffset = self:LayoutTextLines(scrollChild, page.Pools[poolKey], lines, yOffset, width, "Storage.ShoppingListNoneHeld", function(line)
+                    return Format.BULLET .. " " .. line
+                end)
+
+                yOffset = yOffset - Layout.SECTION_HEADER_GAP
+
             end
 
-            yOffset = self:LayoutStatisticsGrid(page, "ShoppingList", scrollChild, yOffset, width, shoppingRows)
+            for label, header in pairs(page.ShoppingHeaders) do
+
+                if not seenLabels[label] then
+
+                    header.Label:Hide()
+                    header.Value:Hide()
+
+                    local poolKey = "ShoppingItems" .. label
+
+                    if page.Pools[poolKey] then
+                        for _, row in ipairs(page.Pools[poolKey]) do
+                            row:Hide()
+                        end
+                    end
+
+                end
+
+            end
 
         end
 
         yOffset = self:EndSection(yOffset)
 
         -----------------------------------------------------------------------
-        -- Recommendations
+        -- Consumables -- the definitive supply-check view. Independent
+        -- of the active profile (bag/bank contents don't change with it).
         -----------------------------------------------------------------------
 
-        yOffset = self:AppendDynamicSection(page, "Recommendations", "Storage.SectionRecommendations", yOffset, recommendations, "Storage.NoRecommendations", true)
+        yOffset = self:BeginSection(scrollChild, "Storage.SectionConsumables", yOffset)
+
+        local consumableRecords = {}
+
+        for _, categoryKey in ipairs(CATEGORY_DISPLAY_ORDER) do
+
+            local bucket = consumableInventory.categories[categoryKey]
+
+            if bucket and #bucket.items > 0 then
+                table.insert(consumableRecords, { key = categoryKey, bucket = bucket })
+            end
+
+        end
+
+        yOffset = self:LayoutAccordionRows(page, "Consumables", scrollChild, yOffset, width, consumableRecords,
+        {
+            buildRow = BuildConsumableCategoryRow,
+            getRecordID = function(record) return record.key end,
+            expandedField = "ExpandedConsumableCategory",
+            layoutCollapsed = LayoutConsumableCollapsed,
+            buildDetail = BuildConsumablesDetail,
+            hideDetail = HideConsumablesDetail,
+            onToggle = function(recordID)
+
+                if page.ExpandedConsumableCategory == recordID then
+                    page.ExpandedConsumableCategory = nil
+                else
+                    page.ExpandedConsumableCategory = recordID
+                end
+
+                Dashboard:UpdateStoragePage(frame)
+
+            end,
+            emptyTextKey = "Storage.NoConsumablesTracked",
+            rowGap = Layout.ACCORDION_ROW_GAP,
+        })
+
+        yOffset = self:EndSection(yOffset)
 
         -----------------------------------------------------------------------
-        -- Insights
+        -- Supply Forecast -- player-friendly sentences, real Mythic+
+        -- history only.
+        -----------------------------------------------------------------------
+
+        yOffset = self:BeginSection(scrollChild, "Storage.SectionSupplyForecast", yOffset)
+
+        local forecastRows = {}
+
+        for _, categoryKey in ipairs(CATEGORY_DISPLAY_ORDER) do
+
+            local forecast = supplyForecast[categoryKey]
+
+            if forecast then
+
+                local value = AC.L:Format("Storage.SupplyForecastFormat", forecast.estimatedRunsRemaining)
+
+                if forecast.estimatedRunsRemaining <= 2 then
+                    value = value .. " " .. LOW_SUPPLY_MARKER
+                end
+
+                table.insert(forecastRows, { label = "Storage.Category." .. categoryKey, value = value })
+
+            end
+
+        end
+
+        if #forecastRows == 0 then
+            yOffset = ShowEmptyLine("ForecastEmptyText", yOffset, width, "Storage.NoSupplyForecast")
+        else
+
+            if page.ForecastEmptyText then
+                page.ForecastEmptyText:Hide()
+            end
+
+            yOffset = self:LayoutStatisticsGrid(page, "SupplyForecast", scrollChild, yOffset, width, forecastRows)
+
+        end
+
+        yOffset = self:EndSection(yOffset)
+
+        -----------------------------------------------------------------------
+        -- Storage Insights (Storage-only -- no Recommendations section)
         -----------------------------------------------------------------------
 
         yOffset = self:AppendDynamicSection(page, "Insights", "Storage.SectionInsights", yOffset, insights, "Storage.NoInsights")

@@ -122,13 +122,17 @@ end
 -- this is one implementation with readable names at the call site, not
 -- three separate formatters.
 --
--- Deliberately NOT covering the 3 signed "+/-" call sites (Profile's
--- itemLevelGained, Inventory's bagUsageChange, MythicPlus's rating-change
--- line) -- docs/DEVELOPMENT_BACKLOG.md already logs a real open question
--- there (whether exactly 0 earns a "+" prefix) that needs in-game
--- verification before consolidating; routing them through FormatNumber
--- here would silently resolve that question without doing the
--- verification it explicitly requires.
+-- Of the 3 signed "+/-" call sites (Profile's itemLevelGained, Inventory's
+-- bagUsageChange, MythicPlus's rating-change line), only Profile's is
+-- consolidated below (Home Dashboard Evolution, Profile card pass) --
+-- it now has two real call sites (the Profile page and Home's Profile
+-- card) sharing one implementation instead of drifting into two copies.
+-- Inventory's and MythicPlus's own sites are deliberately untouched --
+-- out of scope for this pass, not overlooked. FormatSignedNumber matches
+-- the behavior Profile's page already shipped (exactly 0 gets no "+")
+-- rather than resolving it fresh -- docs/DEVELOPMENT_BACKLOG.md's open
+-- question (whether 0 SHOULD earn a "+") is a UX judgment call, not
+-- something this consolidation settles; it still needs a live look.
 -------------------------------------------------------------------------------
 
 function Presentation.FormatNumber(value, decimals)
@@ -136,6 +140,18 @@ function Presentation.FormatNumber(value, decimals)
     decimals = tonumber(decimals) or 0
 
     return string.format("%." .. decimals .. "f", tonumber(value) or 0)
+
+end
+
+function Presentation.FormatSignedNumber(value, decimals)
+
+    value = tonumber(value) or 0
+
+    if value > 0 then
+        return "+" .. Presentation.FormatNumber(value, decimals)
+    end
+
+    return Presentation.FormatNumber(value, decimals)
 
 end
 
@@ -291,5 +307,65 @@ Presentation.PANEL_BACKDROP =
     bgColor = { 0.10, 0.10, 0.10, 0.90 },
     borderColor = { 1, 1, 1, 0.25 },
 }
+
+-------------------------------------------------------------------------------
+-- Dashboard Background (Shared Decorative Background)
+--
+-- Dashboard-specific only -- WINDOW_BACKDROP above is untouched and stays
+-- shared by every OTHER BaseWindow (Developer Panel, Settings,
+-- Diagnostics, PlayerJournal, RecommendationInspector); this pass does not
+-- touch backdrop alpha at all, per explicit instruction -- see Home.lua's
+-- own comment at the Dashboard:Create() call site. Centralized here, not
+-- inline in Home.lua, so a future Appearance/Theme system has exactly one
+-- place to read/override these two values from -- deliberately not a
+-- ThemeService yet, just the values one would need to own.
+--
+-- DASHBOARD_BACKGROUND_TEXTURE keeps the .png extension -- final call,
+-- made per explicit delegation ("use the format appropriate for the
+-- client"). Reasoning: extension-less paths only resolve implicitly for
+-- Blizzard's own MPQ/BLP-archived art; a loose file an addon ships itself
+-- (this PNG, not BLP-converted) is a literal file-path read by the
+-- client's loader, so the extension is required rather than optional.
+-- This is a technical judgment, not a live-client-confirmed fact -- worth
+-- a one-line check (drop the extension here) if the background doesn't
+-- appear in-game.
+--
+-- DASHBOARD_BACKGROUND_ASPECT_RATIO (width / height) -- Background Polish
+-- pass: the artwork at DASHBOARD_BACKGROUND_TEXTURE is now confirmed
+-- 957x1643px (read directly from the PNG header), giving 957/1643 =
+-- 0.5825 -- corrected from this constant's previous value of 1.5, a
+-- landscape-image placeholder left over from before a portrait asset
+-- existed. That stale value was the actual cause of this pass's reported
+-- "busy center, corners not quite right" symptom: Home.lua's cover-fit
+-- math trusted it over the real file, computing a background region far
+-- wider than the frame (1080x720 instead of ~420x720), which showed only
+-- the map's center strip inside the window while the true edges (and
+-- this constant's own decorative corners) rendered outside the frame's
+-- bounds entirely, unclipped (nothing in this codebase calls
+-- SetClipsChildren). At the corrected ratio the region comes out to
+-- ~420x721 -- effectively edge-to-edge with negligible overflow, matching
+-- what the artwork was actually composed for.
+-------------------------------------------------------------------------------
+
+Presentation.DASHBOARD_BACKGROUND_TEXTURE = "Interface\\AddOns\\AzerothCompanion\\Images\\background1.png"
+Presentation.DASHBOARD_BACKGROUND_ALPHA = 0.15
+Presentation.DASHBOARD_BACKGROUND_ASPECT_RATIO = 957 / 1643
+
+-------------------------------------------------------------------------------
+-- Status Glyphs (raw, uncolored)
+--
+-- Presentation Asset Audit -- bare glyph primitives, not the composed
+-- (colored) versions Dashboard call sites use. Promoted here (not
+-- Format.lua) because VerificationService/DeveloperPanel need the exact
+-- same checkmark/cross/warning concept and are not Dashboard code --
+-- same "generic primitive, addon-wide" reasoning as HIGHLIGHT_COLOR
+-- above. Format.lua's CHECK_SUCCESS/CHECK_FAILURE now compose color
+-- codes around these instead of carrying an independent copy of the
+-- glyph bytes.
+-------------------------------------------------------------------------------
+
+Presentation.CHECK_GLYPH = "\226\156\147" -- "✓"
+Presentation.CROSS_GLYPH = "\226\156\151" -- "✗"
+Presentation.WARNING_GLYPH = "\226\154\160" -- "⚠"
 
 return Presentation

@@ -5,9 +5,13 @@
 -- Shared infrastructure every data-backed page is built from: the page
 -- shell (title, Back button, scrollable content area), the composable
 -- section/field-row primitives, and the "measure once, build at the right
--- width" content builder for static-schema pages. Used by Profile,
--- Inventory, Accomplishments, MythicPlus, Storage, Weekly, and
--- Recommendations alike -- nothing here is specific to any one page.
+-- width" content builder for static-schema pages. Used by every secondary
+-- Dashboard page -- Profile, Inventory, Accomplishments, MythicPlus,
+-- Storage, Weekly, Recommendations, Progress, Statistics, and Journey
+-- alike (corrected here -- this list had gone stale, missing the last
+-- three, which is exactly why a Journey Back-button "inconsistency" audit
+-- found none: CreateDataPage was already the one shared implementation
+-- for it too) -- nothing here is specific to any one page.
 --
 -- Passing scrollChild = nil to a builder measures without creating any
 -- widgets -- every function below still returns the correctly-advanced
@@ -25,27 +29,97 @@ local Dashboard = AC.Dashboard
 local Layout = AC.DashboardLayout
 
 -------------------------------------------------------------------------------
--- Content Padding
+-- Page ScrollFrame (Dashboard Scrollbar Standardization)
 --
--- The one place a page's outer padding is applied: Card Border -> Outer
--- Padding -> Content Area. Every data page's ScrollFrame is inset through
--- here rather than each page anchoring its own padding inline.
+-- The single, true owner of every Dashboard page's ScrollFrame: creates
+-- it, positions it, and strips Blizzard's default chrome from it. Used by
+-- CreateDataPage below (every secondary page) AND Home.lua -- previously
+-- Home built its own copy of this inline (a second, independently-drifted
+-- version that used the correct right inset but never hid the arrow
+-- buttons), which is exactly why the scrollbar used to sit in a
+-- different place, and look different, depending on which page you were
+-- on. There is exactly one place left that calls CreateFrame("ScrollFrame",
+-- ..., "UIPanelScrollFrameTemplate") for a real Dashboard page -- this
+-- function -- and no page should ever call SetPoint on the ScrollFrame or
+-- its ScrollBar itself again.
+--
+-- Right inset is always SCROLLBAR_RESERVE, unconditionally, on every
+-- page -- not narrower when a page doesn't currently need to scroll (see
+-- Layout.lua's own comment on PAGE_CONTENT_WIDTH_FULL for why: a
+-- scrollbar that only sometimes reserves its footprint is a scrollbar
+-- that can appear to move). Bottom inset is always PAGE_BOTTOM_INSET.
+-- topInset/leftInset are the only two things that legitimately differ
+-- between page shapes -- Home has no Back/Title/Updated header above its
+-- content (topInset 0, not PAGE_HEADER_HEIGHT) and sizes its scrollChild
+-- off an absolute WINDOW_WIDTH-based formula rather than a page-relative
+-- one (leftInset 0, not PAGE_PADDING) -- both are genuine content-shape
+-- differences, not scrollbar-position drift, so both stay parameters
+-- rather than being forced identical.
 -------------------------------------------------------------------------------
 
-function Dashboard:ApplyContentPadding(scrollFrame)
+function Dashboard:CreatePageScrollFrame(parent, topInset, leftInset)
 
-    scrollFrame:SetPoint("TOPLEFT", Layout.PAGE_PADDING, -Layout.PAGE_HEADER_HEIGHT)
-    scrollFrame:SetPoint("BOTTOMRIGHT", -Layout.PAGE_PADDING, Layout.PAGE_BOTTOM_INSET)
+    topInset = topInset or Layout.PAGE_HEADER_HEIGHT
+    leftInset = leftInset or Layout.PAGE_PADDING
+
+    local scrollFrame = CreateFrame("ScrollFrame", nil, parent, "UIPanelScrollFrameTemplate")
+
+    scrollFrame:SetPoint("TOPLEFT", leftInset, -topInset)
+    scrollFrame:SetPoint("BOTTOMRIGHT", -Layout.SCROLLBAR_RESERVE, Layout.PAGE_BOTTOM_INSET)
+
+    -- Scrollbar Polish Pass -- UIPanelScrollFrameTemplate's ScrollBar
+    -- (UIPanelScrollBarTemplate) ships its own ScrollUpButton/
+    -- ScrollDownButton, stock Blizzard parchment-skinned arrow buttons
+    -- that clash with this addon's dark custom aesthetic -- most visible
+    -- as the odd button sitting at the very bottom of the track. Hidden
+    -- once, here, for every page built through this one function.
+    -- Mouse-wheel scrolling (bound to scrollFrame itself) and thumb-drag
+    -- (bound to the ScrollBar/Slider) are both untouched -- neither
+    -- depends on these buttons, only on incrementing/decrementing the
+    -- Slider's value, which the buttons' own OnClick did on top of, not
+    -- instead of. Guarded the same way ApplyPageScrolling already treats
+    -- scrollFrame.ScrollBar, so a future template swap degrades to
+    -- "buttons stay visible" rather than an error.
+    local scrollBar = scrollFrame.ScrollBar
+
+    if scrollBar then
+
+        if scrollBar.ScrollUpButton then
+            scrollBar.ScrollUpButton:Hide()
+        end
+
+        if scrollBar.ScrollDownButton then
+            scrollBar.ScrollDownButton:Hide()
+        end
+
+    end
+
+    return scrollFrame
 
 end
 
 -------------------------------------------------------------------------------
 -- Data Page
 --
--- Shared shell for every real, data-backed page: a title, a Back button,
--- and a scrollable content area. Starts at the full content width --
--- BuildDataPageContent (static pages) or each dynamic page's own Layout()
--- narrow it later only if their content turns out to need a scrollbar.
+-- Shared shell for every real, data-backed page: a header (Back, Title,
+-- Updated, a divider) and a scrollable content area. Starts at the full
+-- content width -- BuildDataPageContent (static pages) or each dynamic
+-- page's own Layout() narrow it later only if their content turns out to
+-- need a scrollbar.
+--
+-- Header Polish Pass -- Back is now a real UIPanelButtonTemplate (matching
+-- Settings' own styling, per explicit product direction superseding this
+-- section's earlier "plain clickable FontString" redesign) rather than
+-- text with hand-rolled hover-color handling -- the template already
+-- provides its own hover/pressed states, so the old OnEnter/OnLeave color
+-- swap is deleted, not carried forward as now-redundant code. Back and
+-- Updated both anchor at Layout.PAGE_PADDING from their respective edges
+-- now, not 0 -- previously they sat flush against the raw window edge
+-- while the header's own divider and the content area below both already
+-- used PAGE_PADDING, a real inconsistency this corrects by reusing the
+-- existing shared constant rather than inventing a new one. Title's own
+-- anchor is untouched (TOP, centered on the full page width, independent
+-- of Back/Updated) -- it remains visually centered by construction.
 -------------------------------------------------------------------------------
 
 function Dashboard:CreateDataPage(parent, pageTitle)
@@ -55,8 +129,8 @@ function Dashboard:CreateDataPage(parent, pageTitle)
     page:Hide()
 
     local backButton = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
-    backButton:SetSize(70, 22)
-    backButton:SetPoint("TOPLEFT", 0, 0)
+    backButton:SetSize(76, 22)
+    backButton:SetPoint("TOPLEFT", Layout.PAGE_PADDING, -Layout.PAGE_HEADER_SIDE_TOP)
     backButton:SetText(AC.L:Get("Dashboard.Back"))
 
     backButton:SetScript("OnClick", function()
@@ -64,20 +138,35 @@ function Dashboard:CreateDataPage(parent, pageTitle)
     end)
 
     local titleText = page:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    titleText:SetPoint("TOP", 0, -4)
+    titleText:SetPoint("TOP", 0, -Layout.PAGE_HEADER_TITLE_TOP)
     titleText:SetText(pageTitle or "")
 
     -- "Last updated" -- RecommendationEngine/InsightEngine's own
     -- GetLastRefresh(). Every dynamic page gets this for free;
-    -- UpdateLastUpdatedText below is the one place that reads it.
+    -- UpdateLastUpdatedText below is the one place that reads it. Still
+    -- the same quiet, no-border treatment -- Back's upgrade to a real
+    -- button doesn't change what Updated is: secondary metadata, not an
+    -- action.
     local lastUpdatedText = page:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    lastUpdatedText:SetPoint("TOPRIGHT", -4, -6)
+    lastUpdatedText:SetPoint("TOPRIGHT", -Layout.PAGE_PADDING, -Layout.PAGE_HEADER_SIDE_TOP)
     lastUpdatedText:SetJustifyH("RIGHT")
 
     page.LastUpdatedText = lastUpdatedText
 
-    local scrollFrame = CreateFrame("ScrollFrame", nil, page, "UIPanelScrollFrameTemplate")
-    self:ApplyContentPadding(scrollFrame)
+    -- Header Divider -- a static hairline below Back/Title/Updated,
+    -- separating the header from scrollable content on every page (the
+    -- ASCII mockup's own "------" row). Same color/alpha as every other
+    -- divider in this codebase (Dashboard:AddDivider) -- not a new visual
+    -- language, just this file's own one-time (not per-section, not
+    -- scrollable) version of it, since the header sits above ScrollFrame,
+    -- never inside scrollChild.
+    local headerDivider = page:CreateTexture(nil, "ARTWORK")
+    headerDivider:SetColorTexture(1, 1, 1, 0.10)
+    headerDivider:SetHeight(Layout.DIVIDER_HEIGHT)
+    headerDivider:SetPoint("TOPLEFT", Layout.PAGE_PADDING, -(Layout.PAGE_HEADER_HEIGHT - Layout.DIVIDER_MARGIN_BOTTOM))
+    headerDivider:SetPoint("TOPRIGHT", -Layout.PAGE_PADDING, -(Layout.PAGE_HEADER_HEIGHT - Layout.DIVIDER_MARGIN_BOTTOM))
+
+    local scrollFrame = self:CreatePageScrollFrame(page)
 
     local scrollChild = CreateFrame("Frame", nil, scrollFrame)
     scrollChild:SetWidth(Layout.PAGE_CONTENT_WIDTH_FULL)
@@ -287,6 +376,21 @@ end
 -- scroll offset. Purely about the scrollbar/wheel/position -- content
 -- WIDTH is decided by the caller before this runs, since that decision
 -- has to happen before content is laid out, not after.
+--
+-- Dashboard Initialization Fix -- this function is called far more often
+-- than just on navigation (every accordion expand/collapse, Storage
+-- Execute, Plan switching, Home dismiss, sorting all refresh a page in
+-- place), so it must never reset scroll position itself -- that now
+-- happens exactly once, in Navigation.lua's ShowPage, at the one moment
+-- a page is actually newly shown. What DOES belong here: `scrollFrame:
+-- GetHeight()` is anchor-derived, not an explicit SetSize, and can read
+-- 0 (or otherwise unresolved) if this runs before the frame tree's first
+-- layout pass has completed -- most likely the very first time any page
+-- is shown in a session. Treat that as "layout not ready" rather than
+-- "content overflows a zero-height viewport" (which a bare `contentHeight
+-- > viewportHeight` comparison would otherwise always conclude), since a
+-- momentarily-unresolved read is not evidence that scrolling is actually
+-- needed.
 -------------------------------------------------------------------------------
 
 function Dashboard:ApplyPageScrolling(page, contentHeight)
@@ -301,7 +405,7 @@ function Dashboard:ApplyPageScrolling(page, contentHeight)
     scrollChild:SetHeight(math.max(contentHeight, 1))
 
     local viewportHeight = scrollFrame:GetHeight()
-    local needsScroll = contentHeight > viewportHeight
+    local needsScroll = viewportHeight > 0 and contentHeight > viewportHeight
 
     -- ScrollBar is UIPanelScrollFrameTemplate's standard exposed child --
     -- guarded rather than assumed, so a template change degrades to
@@ -332,31 +436,24 @@ end
 -------------------------------------------------------------------------------
 -- Measure And Apply Scrolling (Presentation System v2)
 --
--- The "measure at full width, remeasure narrower only if it doesn't fit"
--- decision every dynamic page (Storage/Weekly/MythicPlus/Accomplishments/
--- Progress/Statistics/Recommendations) needs -- previously hand-copied,
--- byte-identical, into all 7 of those files' own Update*Page functions
--- instead of factored once, the way BuildDataPageContent already does this
--- exact job for the two static-schema pages. `measureFn` is the page's own
--- `Layout_(width)` closure -- called once at PAGE_CONTENT_WIDTH_FULL, and
--- again at PAGE_CONTENT_WIDTH_SCROLLABLE only if the first result exceeds
--- the viewport -- returning the measured content height either way, same
--- contract every page's own `Layout_` already implements. Sets
--- `scrollChild`'s width and calls ApplyPageScrolling -- the one thing left
--- for the caller to do afterward is nothing; this is the whole sequence.
+-- The one-measure-pass decision every dynamic page (Storage/Weekly/
+-- MythicPlus/Accomplishments/Progress/Statistics/Recommendations) needs --
+-- previously hand-copied, byte-identical, into all 7 of those files' own
+-- Update*Page functions instead of factored once, the way
+-- BuildDataPageContent already does this exact job for the two
+-- static-schema pages. `measureFn` is the page's own `Layout_(width)`
+-- closure -- called once at PAGE_CONTENT_WIDTH_FULL, the only content
+-- width there is now (Dashboard Scrollbar Standardization -- see
+-- Layout.lua) -- returning the measured content height, same contract
+-- every page's own `Layout_` already implements. Sets `scrollChild`'s
+-- width and calls ApplyPageScrolling -- the one thing left for the caller
+-- to do afterward is nothing; this is the whole sequence.
 -------------------------------------------------------------------------------
 
 function Dashboard:MeasureAndApplyScrolling(page, scrollChild, measureFn)
 
-    local viewportHeight = page.ScrollFrame:GetHeight()
-
     local contentWidth = Layout.PAGE_CONTENT_WIDTH_FULL
     local contentHeight = measureFn(contentWidth)
-
-    if contentHeight > viewportHeight then
-        contentWidth = Layout.PAGE_CONTENT_WIDTH_SCROLLABLE
-        contentHeight = measureFn(contentWidth)
-    end
 
     scrollChild:SetWidth(contentWidth)
 
@@ -617,7 +714,7 @@ function Dashboard:AppendFutureFeatures(scrollChild, yOffset, items, contentWidt
         local bulletLines = {}
 
         for _, itemKey in ipairs(items or {}) do
-            table.insert(bulletLines, "\226\128\162 " .. AC.L:Get(itemKey)) -- "• "
+            table.insert(bulletLines, AC.DashboardFormat.BULLET .. " " .. AC.L:Get(itemKey))
         end
 
         -- Same muted, "planned not built" font as the single-line
@@ -650,18 +747,16 @@ end
 -- Build Data Page Content
 --
 -- The single call a static-schema page needs: measures content once at
--- the full width; if that fits the viewport, builds at full width and
--- shows no scrollbar (the common case). If it doesn't fit, measures again
--- at the narrower scrollbar-safe width and builds at that instead. Either
--- way this is the one place that decision gets made -- a page builder
--- just calls this and never thinks about scrollbars or widths at all.
+-- the one content width every page builds at (Dashboard Scrollbar
+-- Standardization -- see Layout.lua's PAGE_CONTENT_WIDTH_FULL comment),
+-- then builds at that same width and lets ApplyPageScrolling decide
+-- whether a scrollbar is needed. A page builder just calls this and never
+-- thinks about scrollbars or widths at all.
 --
 -- Stores page.StaticEndOffset and page.ContentWidth -- pages that also
 -- have a dynamic trailing section (Inventory/Accomplishments' Recommendations
 -- and Insights) append starting from that offset, at that width, on
--- every refresh (see Rows.lua's AppendDynamicSection). The width decision
--- made here is not revisited once dynamic content is appended -- see
--- AppendDynamicSection's comment for why that's an acceptable trade-off.
+-- every refresh (see Rows.lua's AppendDynamicSection).
 -------------------------------------------------------------------------------
 
 function Dashboard:BuildDataPageContent(page, sections, futureFeatureItems)
@@ -678,15 +773,8 @@ function Dashboard:BuildDataPageContent(page, sections, futureFeatureItems)
 
     end
 
-    local viewportHeight = page.ScrollFrame:GetHeight()
-
     local contentWidth = Layout.PAGE_CONTENT_WIDTH_FULL
     local contentHeight = Measure(contentWidth)
-
-    if contentHeight > viewportHeight then
-        contentWidth = Layout.PAGE_CONTENT_WIDTH_SCROLLABLE
-        contentHeight = Measure(contentWidth)
-    end
 
     page.ScrollChild:SetWidth(contentWidth)
 

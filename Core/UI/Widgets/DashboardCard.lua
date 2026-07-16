@@ -35,7 +35,6 @@ function DashboardCard:Create(parent, title, options)
     local PRIMARY_TO_SECONDARY_GAP = Layout.CARD_PRIMARY_TO_SECONDARY_GAP
     local SECONDARY_TO_DETAIL_GAP = Layout.CARD_SECONDARY_TO_DETAIL_GAP
     local DETAIL_TO_BAR_GAP = Layout.CARD_DETAIL_TO_BAR_GAP
-    local TITLE_TO_STARS_GAP = Layout.CARD_TITLE_TO_STARS_GAP
 
     -- Detail Sections (Home Dashboard Evolution) -- a labeled "caption, then
     -- value" block, used instead of the single-line DetailText below when a
@@ -71,15 +70,17 @@ function DashboardCard:Create(parent, title, options)
     -- background instead of everything bleeding together as one solid
     -- gray field. The card's own backdrop color (not a separate texture)
     -- is what OnEnter/OnLeave below brightens on hover.
+    --
+    -- UI Polish Pass -- `emphasized` no longer tints the background at all
+    -- (a live visual review called the prior olive/gold wash "heavy," and
+    -- it was also the one real inconsistency between cards: every card
+    -- otherwise shares this exact same neutral backdrop). Emphasis is now
+    -- carried entirely by the border (brighter, gold-tinted) plus the
+    -- card's own title/content font choices -- real definition without a
+    -- second background color for players to learn.
     -----------------------------------------------------------------------
 
-    local baseR, baseG, baseB, baseA
-
-    if options.emphasized then
-        baseR, baseG, baseB, baseA = 0.17, 0.15, 0.09, 0.92
-    else
-        baseR, baseG, baseB, baseA = 0.15, 0.15, 0.15, 0.85
-    end
+    local baseR, baseG, baseB, baseA = 0.15, 0.15, 0.15, 0.85
 
     card:SetBackdrop(
     {
@@ -90,7 +91,16 @@ function DashboardCard:Create(parent, title, options)
     })
 
     card:SetBackdropColor(baseR, baseG, baseB, baseA)
-    card:SetBackdropBorderColor(1, 1, 1, options.emphasized and 0.45 or 0.28)
+
+    local borderR, borderG, borderB, borderA
+
+    if options.emphasized then
+        borderR, borderG, borderB, borderA = AC.Presentation.HIGHLIGHT_COLOR[1], AC.Presentation.HIGHLIGHT_COLOR[2], AC.Presentation.HIGHLIGHT_COLOR[3], 0.5
+    else
+        borderR, borderG, borderB, borderA = 1, 1, 1, 0.28
+    end
+
+    card:SetBackdropBorderColor(borderR, borderG, borderB, borderA)
 
     -----------------------------------------------------------------------
     -- Title
@@ -174,27 +184,17 @@ function DashboardCard:Create(parent, title, options)
     end
 
     -----------------------------------------------------------------------
-    -- Priority Stars (optional -- Companion Intelligence Part 1)
-    --
-    -- Hidden by default; SetStarRating() shows it and re-anchors
-    -- PrimaryValue below it instead of directly below Title. A card that
-    -- never calls SetStarRating behaves exactly as before this addition.
-    -----------------------------------------------------------------------
-
-    local starsText = card:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    starsText:SetPoint("TOPLEFT", titleText, "BOTTOMLEFT", 0, -TITLE_TO_STARS_GAP)
-    AC.DashboardFormat.SetHighlightColor(starsText)
-    starsText:SetText("")
-    starsText:Hide()
-
-    card.StarsText = starsText
-
-    -----------------------------------------------------------------------
     -- Primary Value
+    --
+    -- UI Polish Pass -- a recommendation's priority is no longer a
+    -- separate line here; it renders as the first (colored, emphasized)
+    -- Detail Section instead (see SetDetailSections' `color` field below),
+    -- alongside Confidence, rather than a dedicated star-rating row
+    -- between Title and PrimaryValue. See Format.lua's own header for why.
     -----------------------------------------------------------------------
 
     local primaryFont = options.primaryFont or "GameFontHighlight"
-    local textWidth = width - PADDING_LEFT - PADDING_RIGHT - (options.onClick and INDICATOR_RESERVE or 0)
+    local textWidth = width - PADDING_LEFT - PADDING_RIGHT - (options.onClick and not options.hideIndicator and INDICATOR_RESERVE or 0)
 
     card.TextWidth = textWidth
 
@@ -299,22 +299,41 @@ function DashboardCard:Create(parent, title, options)
     -- WoW does not expose a generic "pointer" cursor API for plain
     -- frames the way a browser does, so clickability is communicated
     -- through a hover highlight plus a right-side indicator instead.
+    --
+    -- UI Polish Pass -- the indicator now anchors at the same TOPRIGHT
+    -- padding the title anchors its TOPLEFT at, instead of vertically
+    -- centered on the whole (variable-height) card -- on a short card the
+    -- two were close enough not to matter, but on a tall one (the Highest
+    -- Priority card, RECOMMENDATION_HEIGHT well above CARD_HEIGHT) a
+    -- chevron floating in empty space below the header read as
+    -- disconnected from anything. `options.hideIndicator` lets a card with
+    -- its own explicit action buttons already occupying that corner (Home's
+    -- Highest Priority card: Dismiss + Why?) opt out of a second,
+    -- redundant "click me" affordance entirely rather than overlapping one.
+    -- The card body stays clickable either way -- this only affects the
+    -- visual glyph.
     -----------------------------------------------------------------------
 
     if options.onClick then
 
-        local indicator = card:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        indicator:SetPoint("RIGHT", -14, 0)
-        indicator:SetText("\226\150\182") -- "▶"
-        indicator:SetTextColor(0.6, 0.6, 0.6)
+        local indicator
 
-        card.Indicator = indicator
+        if not options.hideIndicator then
+
+            indicator = card:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+            indicator:SetPoint("TOPRIGHT", -PADDING_RIGHT, -PADDING_TOP)
+            indicator:SetText(">") -- was Unicode "▶" -- same codepoint confirmed to render as a missing-character box (accordion disclosure glyph fix, Presentation Asset Audit)
+            indicator:SetTextColor(0.6, 0.6, 0.6)
+
+            card.Indicator = indicator
+
+        end
 
         card:EnableMouse(true)
 
         card:SetScript("OnEnter", function(self)
             self:SetBackdropColor(baseR + 0.05, baseG + 0.05, baseB + 0.05, baseA)
-            self:SetBackdropBorderColor(1, 1, 1, 0.6)
+            self:SetBackdropBorderColor(borderR, borderG, borderB, math.min(borderA + 0.2, 1))
             if self.Indicator then
                 AC.DashboardFormat.SetHighlightColor(self.Indicator)
             end
@@ -327,7 +346,7 @@ function DashboardCard:Create(parent, title, options)
 
         card:SetScript("OnLeave", function(self)
             self:SetBackdropColor(baseR, baseG, baseB, baseA)
-            self:SetBackdropBorderColor(1, 1, 1, options.emphasized and 0.45 or 0.28)
+            self:SetBackdropBorderColor(borderR, borderG, borderB, borderA)
             if self.Indicator then
                 self.Indicator:SetTextColor(0.6, 0.6, 0.6)
             end
@@ -364,10 +383,6 @@ function DashboardCard:Create(parent, title, options)
 
         if self.Title:GetText() ~= "" then
             contentHeight = contentHeight + self.Title:GetStringHeight()
-        end
-
-        if self.StarsText:IsShown() then
-            contentHeight = contentHeight + TITLE_TO_STARS_GAP + self.StarsText:GetStringHeight()
         end
 
         if self.PrimaryValue:GetText() ~= "" then
@@ -425,42 +440,6 @@ function DashboardCard:Create(parent, title, options)
         self:UpdateHeight()
     end
 
-    -----------------------------------------------------------------------
-    -- Star Rating (Companion Intelligence Part 1)
-    --
-    -- priority is the same 0-100ish Insight/Recommendation priority
-    -- Dashboard.lua's PriorityToStars already converts to stars for list
-    -- rows -- pass nil to hide the line entirely (e.g. no recommendation
-    -- currently active). Re-anchors PrimaryValue since the stars line
-    -- occupies the space between Title and PrimaryValue only when shown.
-    -----------------------------------------------------------------------
-
-    function card:SetStarRating(priority)
-
-        if priority == nil then
-
-            self.StarsText:SetText("")
-            self.StarsText:Hide()
-
-        else
-
-            self.StarsText:SetText(AC.DashboardFormat.RenderStars(priority))
-            self.StarsText:Show()
-
-        end
-
-        self.PrimaryValue:ClearAllPoints()
-
-        if self.StarsText:IsShown() then
-            self.PrimaryValue:SetPoint("TOPLEFT", self.StarsText, "BOTTOMLEFT", 0, -TITLE_TO_PRIMARY_GAP)
-        else
-            self.PrimaryValue:SetPoint("TOPLEFT", self.Title, "BOTTOMLEFT", 0, -TITLE_TO_PRIMARY_GAP)
-        end
-
-        self:UpdateHeight()
-
-    end
-
     function card:SetSecondaryText(text)
         self.SecondaryText:SetText(text or "")
         self:UpdateHeight()
@@ -483,9 +462,21 @@ function DashboardCard:Create(parent, title, options)
     -- Item Level, Mythic+/Storage's "Missing" bullets, Vault's Highest
     -- Reward. `sections` is an ordered list of
     -- `{ label = "text or nil", text = "already-formatted string
-    -- (may contain \n)", emphasized = true/nil }` -- wording and
-    -- formatting are always decided by the caller, this widget only
-    -- owns layout, exactly like DetailText/SetStatus already do.
+    -- (may contain \n)", emphasized = true/nil, color = "semantic name or
+    -- nil" }` -- wording and formatting are always decided by the caller,
+    -- this widget only owns layout, exactly like DetailText/SetStatus
+    -- already do.
+    --
+    -- UI Polish Pass -- `color` (a name from AC.Presentation.GetSemanticColor,
+    -- e.g. "critical"/"warning"/"success"/"dim") lets a caller flag a
+    -- section as carrying real at-a-glance meaning -- Home's Highest
+    -- Priority card uses it for Priority and Confidence, so both read
+    -- as important without the player parsing a sentence, while Reason/
+    -- Expected Benefit/Estimated Time stay plain. Omitted (nil) keeps
+    -- today's plain body-text color -- explicitly reset every call rather
+    -- than left alone, since a pooled entry could otherwise keep a
+    -- previous refresh's color after being reassigned to a differently-
+    -- colored (or uncolored) section.
     --
     -- Pooled per index (entry.Caption/entry.Body), same reuse-don't-
     -- recreate pattern as every other pooled Dashboard list. Clears
@@ -525,6 +516,12 @@ function DashboardCard:Create(parent, title, options)
             end
 
             entry.Body:SetFontObject(section.emphasized and "GameFontHighlight" or "GameFontHighlightSmall")
+
+            if section.color then
+                entry.Body:SetTextColor(unpack(AC.Presentation.GetSemanticColor(section.color)))
+            else
+                entry.Body:SetTextColor(1, 1, 1)
+            end
 
             entry.Caption:ClearAllPoints()
             entry.Body:ClearAllPoints()

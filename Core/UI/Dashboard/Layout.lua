@@ -28,8 +28,8 @@ DashboardLayout.CONTENT_TOP_OFFSET = -50
 DashboardLayout.CARD_WIDTH = 360
 DashboardLayout.CARD_HEIGHT = 112
 DashboardLayout.CARD_HEIGHT_WITH_BAR = 128
-DashboardLayout.RECOMMENDATION_HEIGHT = 130
-DashboardLayout.HOME_SECTION_GAP = 14
+DashboardLayout.RECOMMENDATION_HEIGHT = 150
+DashboardLayout.HOME_SECTION_GAP = 16
 
 -- DashboardCard internal layout (Presentation System v2) -- moved here,
 -- identical values, from Core/UI/Widgets/DashboardCard.lua's own
@@ -40,48 +40,95 @@ DashboardLayout.HOME_SECTION_GAP = 14
 -- use inside Create() rather than caching a file-top `local Layout =
 -- AC.DashboardLayout` upvalue -- Widgets/DashboardCard.lua loads before
 -- this file in the .toc, so a cached upvalue would capture nil.
+--
+-- UI Polish Pass -- every gap below widened one notch (a live visual
+-- review found the card interior "cramped," most visibly on the
+-- Highest Priority card's dense recommendation content). Values chosen to
+-- read as deliberate breathing room, not the maximum spacing that still
+-- fits -- Blizzard's own panels stay dense, not airy.
 
 DashboardLayout.CARD_PADDING_LEFT = 14
 DashboardLayout.CARD_PADDING_RIGHT = 14
-DashboardLayout.CARD_PADDING_TOP = 12
-DashboardLayout.CARD_PADDING_BOTTOM = 12
+DashboardLayout.CARD_PADDING_TOP = 14
+DashboardLayout.CARD_PADDING_BOTTOM = 14
 DashboardLayout.CARD_INDICATOR_RESERVE = 20
 
-DashboardLayout.CARD_TITLE_TO_PRIMARY_GAP = 10
-DashboardLayout.CARD_PRIMARY_TO_SECONDARY_GAP = 8
-DashboardLayout.CARD_SECONDARY_TO_DETAIL_GAP = 6
+DashboardLayout.CARD_TITLE_TO_PRIMARY_GAP = 12
+DashboardLayout.CARD_PRIMARY_TO_SECONDARY_GAP = 10
+DashboardLayout.CARD_SECONDARY_TO_DETAIL_GAP = 10
 DashboardLayout.CARD_DETAIL_TO_BAR_GAP = 8
-DashboardLayout.CARD_TITLE_TO_STARS_GAP = 6
 
 -- Detail Sections (Home Dashboard Evolution) -- a labeled "caption, then
 -- value" block. CARD_SECTION_GAP separates one section from the next;
 -- CARD_SECTION_LABEL_BODY_GAP separates a section's own caption from its
 -- value.
-DashboardLayout.CARD_SECTION_GAP = 8
-DashboardLayout.CARD_SECTION_LABEL_BODY_GAP = 2
+DashboardLayout.CARD_SECTION_GAP = 10
+DashboardLayout.CARD_SECTION_LABEL_BODY_GAP = 3
 
 DashboardLayout.CARD_ICON_SIZE = 20
 DashboardLayout.CARD_ICON_TITLE_GAP = 6
 
 DashboardLayout.CARD_BAR_ANIMATION_DURATION = 0.35
 
+-- UI Polish Pass -- the top-right action-button row (Home's Highest
+-- Priority card: Dismiss + Why?). Both it and the click-navigation
+-- indicator (DashboardCard.lua) now anchor at CARD_PADDING_RIGHT/TOP --
+-- the same shared padding every other edge of the card already respects,
+-- rather than independent hand-typed magic numbers (-10/-14/-4) that
+-- could silently drift out of alignment with a future padding change.
+DashboardLayout.CARD_ACTION_BUTTON_GAP = 6
+
 -- Data Pages ------------------------------------------------------------------
 --
--- Two content widths: FULL is used whenever a page's content fits without
--- scrolling -- the common case -- so nothing reserves scrollbar space it
--- isn't using. SCROLLABLE is narrower by exactly the scrollbar's footprint,
--- used only once a page's content is actually measured to exceed the
--- viewport. Dashboard:BuildDataPageContent (Sections.lua) is what measures
--- and picks between them; nothing else needs to.
+-- Dashboard Scrollbar Standardization -- PAGE_CONTENT_WIDTH_FULL used to
+-- have a narrower SCROLLABLE sibling, reserved only once a page's content
+-- was actually measured to overflow, so a non-scrolling page could use
+-- the couple dozen extra pixels a hidden scrollbar wasn't using. That
+-- traded away a harder requirement: the scrollbar's own screen position
+-- (and therefore every page's ScrollFrame's own outer bounds, which the
+-- scrollbar anchors against) has to be identical and FIXED on every page,
+-- whether or not that page happens to be scrolling right now -- a
+-- scrollbar that only sometimes reserves its footprint is a scrollbar
+-- that can appear to jump when content crosses the overflow threshold.
+-- Every ScrollFrame (Dashboard:CreatePageScrollFrame, Sections.lua) now
+-- reserves SCROLLBAR_RESERVE unconditionally, so there is only one
+-- content width left -- not a FULL/SCROLLABLE pair to measure and choose
+-- between.
 
 DashboardLayout.PAGE_PADDING = 16
-DashboardLayout.PAGE_HEADER_HEIGHT = 36
+DashboardLayout.PAGE_HEADER_HEIGHT = 46
 DashboardLayout.PAGE_BOTTOM_INSET = 8
 DashboardLayout.PAGE_BOTTOM_PADDING = 12
 DashboardLayout.SCROLLBAR_RESERVE = 24
 
-DashboardLayout.PAGE_CONTENT_WIDTH_FULL = DashboardLayout.WINDOW_WIDTH - (DashboardLayout.PAGE_PADDING * 2)
-DashboardLayout.PAGE_CONTENT_WIDTH_SCROLLABLE = DashboardLayout.PAGE_CONTENT_WIDTH_FULL - DashboardLayout.SCROLLBAR_RESERVE
+-- Page Header (UI Polish Pass -- Navigation Audit, then Header Polish Pass)
+-- -- the one Back/Title/Updated header every secondary page shares via
+-- Dashboard:CreateDataPage (Sections.lua). PAGE_HEADER_TITLE_TOP/
+-- PAGE_HEADER_SIDE_TOP are deliberately different values, not the same
+-- offset reused twice: Title uses a taller font (GameFontNormalLarge) than
+-- Updated (GameFontDisableSmall), and the 4px gap between them approximates
+-- optical center-alignment across the two font sizes (half the visible
+-- height difference) rather than both simply starting flush at the same Y,
+-- which reads as "Title floats high" once the fonts differ this much. Back
+-- is now a real UIPanelButtonTemplate button rather than text, so its
+-- optical alignment against Title depends on the template's own internal
+-- label-centering, not just font height -- this still anchors it at
+-- PAGE_HEADER_SIDE_TOP as the best available reference point, but exact
+-- pixel alignment against Title hasn't been confirmed against a live
+-- client and may want a small nudge once seen rendered. PAGE_HEADER_HEIGHT
+-- grew 36 -> 40 (Navigation Audit) -> 46 (Header Polish Pass, to give the
+-- now-22px-tall Back button the same ~8px clearance before the divider
+-- that DIVIDER_MARGIN_BOTTOM already establishes as this codebase's own
+-- standard breathing room before a divider, rather than the button
+-- crowding it).
+DashboardLayout.PAGE_HEADER_TITLE_TOP = 4
+DashboardLayout.PAGE_HEADER_SIDE_TOP = 8
+
+-- The one content width every data page measures and builds at -- derived
+-- from PAGE_PADDING (left inset) and SCROLLBAR_RESERVE (right inset,
+-- reserved unconditionally -- see the comment above), matching exactly
+-- what Dashboard:CreatePageScrollFrame's default insets produce.
+DashboardLayout.PAGE_CONTENT_WIDTH_FULL = DashboardLayout.WINDOW_WIDTH - DashboardLayout.PAGE_PADDING - DashboardLayout.SCROLLBAR_RESERVE
 
 -- Field Rows ------------------------------------------------------------------
 
@@ -207,6 +254,11 @@ DashboardLayout.VALID_PAGES =
     Progress = true,
     Statistics = true,
     Journey = true,
+
+    -- Navigation UX Sprint -- Recommendation Details, formerly the
+    -- standalone RecommendationInspector popup, is now a real Dashboard
+    -- page like every other entry above.
+    RecommendationDetails = true,
 }
 
 return DashboardLayout

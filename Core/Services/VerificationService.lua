@@ -53,13 +53,18 @@ VerificationService.Status =
     INCORRECT = "incorrect", -- Confirmed wrong/nonexistent
 }
 
+-- Presentation Asset Audit -- these previously carried an independent
+-- copy of the same checkmark/cross bytes DashboardFormat.CHECK_SUCCESS/
+-- CHECK_FAILURE already define (colored, for Dashboard rows). Both now
+-- point at the one shared bare-glyph source (AC.Presentation), so a
+-- future font-support fix only has one place to touch.
 VerificationService.StatusGlyph =
 {
-    source = "\226\156\147",    -- checkmark
-    wiki = "\226\156\147",
-    live = "\226\156\147",
-    needsLive = "\226\154\160", -- warning
-    incorrect = "\226\156\151", -- cross
+    source = AC.Presentation.CHECK_GLYPH,
+    wiki = AC.Presentation.CHECK_GLYPH,
+    live = AC.Presentation.CHECK_GLYPH,
+    needsLive = AC.Presentation.WARNING_GLYPH,
+    incorrect = AC.Presentation.CROSS_GLYPH,
 }
 
 VerificationService.StatusLabelKey =
@@ -201,7 +206,7 @@ local REGISTRY =
     { id = "mp.combatLog", module = "MythicPlus", api = "COMBAT_LOG_EVENT_UNFILTERED (SPELL_INTERRUPT sub-event only)", status = S.WIKI, confidence = "High",
       citation = "Warcraft Wiki (long-standing stable event)", notes = "Filtered to exactly one sub-event, sourced from the player only -- not a general combat log parser." },
     { id = "mp.itemInfoInstant", module = "MythicPlus", api = "C_Item.GetItemInfoInstant (classID/subClassID return-position offset)", status = S.NEEDS_LIVE, confidence = "Medium",
-      citation = "Copied from this module's own pre-existing convention, not independently re-verified", expected = "classID/subClassID at the positions ClassifyConsumableItem already assumes." },
+      citation = "Now resolved in the shared AC.ItemClassification (Core/Utility/ItemClassification.lua) -- consolidated out of MythicPlusModule and StorageModule's previously-independent copies during the consumable classifier consolidation, so this single entry now covers both consumers, not just MythicPlus.", expected = "classID/subClassID at the positions AC.ItemClassification:GetItemClassInfo assumes." },
     { id = "mp.mapPosition", module = "MythicPlus", api = "C_Map.GetBestMapForUnit / GetPlayerMapPosition", status = S.WIKI, confidence = "High", citation = "Warcraft Wiki" },
     { id = "mp.spellData", module = "MythicPlus", api = "MythicPlusSpellData.lua defensive cooldown spell IDs (one per class)", status = S.NEEDS_LIVE, confidence = "Low",
       citation = "Compiled from general knowledge, explicitly documented as a living list", expected = "Each listed spell ID actually corresponds to that class's well-known defensive cooldown on the current client." },
@@ -232,8 +237,26 @@ local REGISTRY =
       expected = "At least one of the registered tags fires when right-clicking a real party member in a live client." },
     { id = "ctxmenu.createCheckbox", module = "PlayerJournal", api = "ElementDescription:CreateCheckbox(text, isSelectedFunc, setSelectedFunc)", status = S.WIKI, confidence = "Medium",
       citation = "Warcraft Wiki's own Blizzard Menu implementation guide (shown with an identical 3-argument example, a reputation-panel checkbox)", expected = "A checkbox menu entry reflecting IsFavorite's current value, toggling it on click." },
-    { id = "tooltip.postCall", module = "PlayerJournal", api = "TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, callback) + tooltip:GetUnit()", status = S.WIKI, confidence = "High",
+    { id = "ctxmenu.contextDataUnitSecretValue", module = "PlayerJournal", api = "ResolvePlayerKey's contextData.unit, passed to UnitExists()/UnitFullName() from inside a Menu.ModifyMenu callback (Core/UI/PlayerJournalContextMenu.lua)", status = S.NEEDS_LIVE, confidence = "Medium",
+      citation = "Secret Value Audit -- structurally identical to tooltip.getUnitSecretValue and pj.tooltipDataGuid, both CONFIRMED broken by real in-game errors: a unit-identifying value obtained from inside a Blizzard secure UI callback (there, TooltipDataProcessor's postcall; here, Menu.ModifyMenu's own callback), passed straight to a normal Unit* API. Not yet independently confirmed for this specific callback -- flagged from the pattern, not asserted as proven -- but the same policy that broke both tooltip attempts plausibly applies here too. Read is now wrapped in AC.SecretValueGuard:TryRead (Core/Security/SecretValueGuard.lua), so this is no longer an open crash risk while awaiting live confirmation.",
+      expected = "If this does throw the same \"Secret values are only allowed during untainted execution\" class of error on a real right-click, SecretValueGuard already contains it: the submenu simply doesn't add (no identity resolved), logged at Debug level, no visible Lua error. A human watching /ac dev -> Checklist (or Debug logging) can confirm whether that skip is actually happening on a real right-click, which settles this entry either way without needing another live crash first." },
+    { id = "tooltip.postCall", module = "PlayerJournal", api = "TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Unit, callback) -- the registration itself", status = S.WIKI, confidence = "High",
       citation = "Confirmed via real published addon source (the current, standard tooltip-extension technique, superseding the legacy OnTooltipSetUnit script hook)." },
+    { id = "tooltip.getUnitSecretValue", module = "PlayerJournal", api = "tooltip:GetUnit()'s returned unit token, passed to UnitIsPlayer()/UnitFullName() from inside a postcall", status = S.INCORRECT, confidence = "High",
+      citation = "Confirmed by a real, repeated in-game Lua error (Stabilization pass): \"bad argument #1 to UnitIsPlayer() ... Secret values are only allowed during untainted execution.\" The unit token GetUnit() returns from inside a TooltipDataProcessor postcall is a secret/opaque value in this WoW client, not a plain unit string -- passing it to any normal Unit* API throws.",
+      expected = "N/A -- this pattern no longer works from a postcall hook. Removed from Core/UI/PlayerJournalTooltip.lua, replaced by the postcall's own `data.guid` field + GetPlayerInfoByGUID (see pj.tooltipDataGuid below)." },
+    { id = "pj.tooltipDataGuid", module = "PlayerJournal", api = "TooltipDataProcessor.AddTooltipPostCall's second (data) argument's guid field, for Enum.TooltipDataType.Unit, indexed/used directly", status = S.INCORRECT, confidence = "High",
+      citation = "Confirmed by a second real, repeated in-game Lua error (Stabilization pass, second round): \"attempt to index local 'guid' (a secret string value, while execution tainted by AzerothCompanion).\" data.guid IS present, but it is ALSO a secret/opaque value from inside a postcall -- the same blanket policy that broke tooltip:GetUnit(), not a narrower issue specific to that one field.",
+      expected = "N/A -- no unit-identifying value reachable from inside a TooltipDataProcessor postcall (unit token or guid) is readable by addon code. Removed from Core/UI/PlayerJournalTooltip.lua entirely, replaced by an architecture that resolves identity outside the callback (see pj.knownUnitsCache below) and never reads guid/unit token again." },
+    { id = "pj.knownUnitsCache", module = "PlayerJournal", api = "Identity resolved via GROUP_ROSTER_UPDATE/UPDATE_MOUSEOVER_UNIT/PLAYER_TARGET_CHANGED/PLAYER_FOCUS_CHANGED + UnitFullName/UnitGUID on player/party1-4/target/focus/mouseover, cached by display name", status = S.WIKI, confidence = "High",
+      citation = "Same trusted UnitFullName/UnitGUID-on-a-plain-token pattern already verified by pj.rosterUnitAccessors, generalized to a few more always-legal global tokens -- these are ordinary events and ordinary unit tokens, never a value that originated from inside a secure UI callback, so nothing here is reachable by the secret-value restriction that broke the two entries above.",
+      expected = "KnownUnits correctly maps a player's tooltip-displayed name (and name-realm form) to their playerKey whenever they are the player, a current party member, current target/focus, or the current mouseover unit." },
+    { id = "pj.tooltipLineTextSafe", module = "PlayerJournal", api = "TooltipDataProcessor postcall data.lines[1].leftText (the tooltip's own rendered name line)", status = S.NEEDS_LIVE, confidence = "Medium",
+      citation = "Reasoned, not yet independently confirmed: reading/modifying data.lines is TooltipDataProcessor's own stated, documented, addon-facing purpose (unlike the supplementary guid field that proved secret), and a Unit tooltip's first line has long been the plain unit name by convention. Given this addon has now been wrong twice reasoning about which tooltip-adjacent value is safe, this is deliberately flagged rather than asserted with the same confidence as pj.knownUnitsCache. Secret Value Audit -- elevated priority: this postcall fires for EVERY unit tooltip, including NPCs (Enum.TooltipDataType.Unit is not player-scoped), so it is exercised far more heavily in NPC-dense content like Mythic+ dungeons than in open-world play, and reports of live errors while hovering NPCs in a dungeon are consistent with this specific read failing for non-player tooltips even if it holds for player tooltips.",
+      expected = "data.lines[1].leftText is a plain, non-secret string equal to the unit's displayed name (with class-color escape codes only, stripped by StripTooltipColorCodes), for players AND NPCs alike. The read is now wrapped in AC.SecretValueGuard:TryRead (Core/Security/SecretValueGuard.lua), so a wrong assumption here degrades to silently skipping that one tooltip's enhancement (Debug-logged) rather than a visible Lua error -- confirm via Debug logging or /ac dev -> Checklist whether skips are actually occurring, particularly while hovering NPCs. If this does prove unreliable, the documented escalation (see Core/UI/PlayerJournalTooltip.lua's own header) is to stop reading GameTooltip's content at all, not to parse it more cleverly." },
+    { id = "presentation.unverifiedGlyphs", module = "Presentation", api = "Presentation.CHECK_GLYPH / CROSS_GLYPH / WARNING_GLYPH (\"✓\"/\"✗\"/\"⚠\") and DashboardFormat.BULLET (\"•\")", status = S.NEEDS_LIVE, confidence = "Medium",
+      citation = "UI Polish Pass -- raised by precedent, not yet independently confirmed: DashboardFormat.STAR_FILLED/STAR_EMPTY (\"★\"/\"☆\", Miscellaneous Symbols block) were just confirmed live to render as missing-character boxes, the second Unicode block found broken after the Geometric Shapes disclosure/trend glyphs (▶/▼/▲) earlier. These four remaining glyphs are different Unicode blocks again (Dingbats for check/cross, Miscellaneous Symbols for warning, General Punctuation for the bullet) and were not reported broken by this pass's own visual audit, so left as-is rather than guess-changed -- but given this addon has now been wrong three separate times about which Unicode blocks Blizzard's client font (FRIZQT__.TTF) covers, asserting these four are safe without the same live confirmation would repeat the mistake.",
+      expected = "Each glyph renders as its intended character, not a missing-character box, in a live client. If any prove broken, the priority-star precedent (retired entirely rather than patched a second time -- see Format.lua's own header) is the model to follow: prefer a readable label/color over a fourth guess at a luckier Unicode codepoint, not another glyph swap." },
 }
 
 -------------------------------------------------------------------------------
@@ -277,8 +300,8 @@ local CHECKLIST =
     -- Player Journal & Community Notes -------------------------------------------
     { id = "PlayerJournalRun", labelKey = "Developer.ChecklistPlayerJournalRun", relatedIds = { "pj.rosterUnitAccessors", "pj.eventOrderingDefer", "pj.unitDiedCombatLog" } },
     { id = "PlayerJournalLeave", labelKey = "Developer.ChecklistPlayerJournalLeave", relatedIds = { "pj.rosterLeaveDetection" } },
-    { id = "PlayerJournalContextMenu", labelKey = "Developer.ChecklistPlayerJournalContextMenu", relatedIds = { "ctxmenu.modifyMenu", "ctxmenu.unitMenuTags", "ctxmenu.createCheckbox" } },
-    { id = "PlayerJournalTooltip", labelKey = "Developer.ChecklistPlayerJournalTooltip", relatedIds = { "tooltip.postCall" } },
+    { id = "PlayerJournalContextMenu", labelKey = "Developer.ChecklistPlayerJournalContextMenu", relatedIds = { "ctxmenu.modifyMenu", "ctxmenu.unitMenuTags", "ctxmenu.createCheckbox", "ctxmenu.contextDataUnitSecretValue" } },
+    { id = "PlayerJournalTooltip", labelKey = "Developer.ChecklistPlayerJournalTooltip", relatedIds = { "tooltip.postCall", "pj.knownUnitsCache", "pj.tooltipLineTextSafe" } },
 }
 
 -------------------------------------------------------------------------------

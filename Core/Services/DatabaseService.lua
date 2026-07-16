@@ -66,6 +66,25 @@ DatabaseService.Defaults =
             CodeOfConductAccepted = false,
             TrustedSources = {},
         },
+
+        -- Developer Runtime capability data (distinct from
+        -- profile.DeveloperRuntime.<Capability>'s settings, which stay
+        -- per-profile) -- account-wide for the same reason as
+        -- VerificationLog/ChecklistLog above: whether this addon's own
+        -- code throws is a fact about the account running it, not about
+        -- which character is logged in. Nested here (not a flat top-level
+        -- Global key) so future capabilities named in
+        -- GameplayModuleArchitecture.md (Warning Capture, Performance
+        -- Metrics, ...) have a natural, consistent home alongside
+        -- ErrorCapture rather than each claiming their own Global key.
+        DeveloperRuntime =
+        {
+            ErrorCapture =
+            {
+                SchemaVersion = 1,
+                Errors = {},
+            },
+        },
     },
 
     Profiles =

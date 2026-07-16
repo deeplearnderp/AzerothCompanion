@@ -25,7 +25,8 @@
 -- classID/subClassID, via Enum.ItemClass.Consumable and
 -- Enum.ItemConsumableSubclass) already tells us "this is a potion" /
 -- "this is a flask" without needing to know which specific seasonal
--- item it is. That check lives in MythicPlusModule directly (see
+-- item it is. That check lives in the shared AC.ItemClassification
+-- (Core/Utility/ItemClassification.lua, called from MythicPlusModule:
 -- ClassifyConsumableItem) because it needs no per-season maintenance --
 -- a hardcoded item-ID list would go stale every season as Blizzard
 -- rotates the current potion/flask, which is exactly the kind of

@@ -24,19 +24,34 @@ local Format = AC.DashboardFormat
 -- MythicPlus, Storage, Weekly): a pooled list of rows, or a single dimmed
 -- empty-state line when there's nothing to show. Reuses
 -- BuildRecommendationRow's row shape since insight records and
--- recommendation records have the same title/description/priority/
--- category shape. showStars additionally renders a priority star rating
--- and, when a recommendation supplies them, reason/expected benefit/
--- estimated time lines -- callers showing Insights pass showStars =
--- false, since an observation isn't something to rate.
+-- recommendation records have the same title/description/priority shape.
+-- `isRecommendation` additionally enables dismiss/inspect behavior and a
+-- "Why?" hint -- callers showing Insights pass isRecommendation = false,
+-- since an observation isn't something to dismiss or inspect the scoring
+-- of.
+--
+-- Recommendations Information Architecture Pass -- a row shows exactly
+-- four things now: Title, Description (the one thing this recommendation
+-- is telling the player), Priority, and Why? -- answering "what should I
+-- do / is it important / where do I go if I want more" in one glance, per
+-- this addon's own design goal for this page. Reason/Expected Benefit/
+-- Estimated Time/Supporting Evidence/Category/Confidence used to also
+-- render here, turning every row into a small wall of metadata that
+-- competed with the recommendation itself for attention -- all of them
+-- were already fully rendered by the same Why? this row still offers
+-- (RecommendationInspector.lua at the time, now Recommendation Details --
+-- see Navigation UX Sprint), so removing them from the row is
+-- not a loss of information, only of premature exposure. See
+-- docs/GameplayModuleArchitecture.md's "Recommendations Information
+-- Architecture" section for the full audit and reasoning.
 -------------------------------------------------------------------------------
 
-function Dashboard:LayoutItemRows(scrollChild, pool, items, yOffset, contentWidth, emptyTextKey, rowGap, showStars)
+function Dashboard:LayoutItemRows(scrollChild, pool, items, yOffset, contentWidth, emptyTextKey, rowGap, isRecommendation)
 
     -- Companion Intelligence vNext -- only real recommendation lists
-    -- (showStars = true) can carry a dismissible `id`; Insight lists never
-    -- do, so this filter is a no-op for them.
-    if showStars then
+    -- (isRecommendation = true) can carry a dismissible `id`; Insight lists
+    -- never do, so this filter is a no-op for them.
+    if isRecommendation then
         items = self:FilterDismissedRecommendations(items)
     end
 
@@ -68,37 +83,18 @@ function Dashboard:LayoutItemRows(scrollChild, pool, items, yOffset, contentWidt
         row:SetWidth(contentWidth)
         row.TitleText:SetWidth(contentWidth - Layout.ROW_INDENT)
         row.DescriptionText:SetWidth(contentWidth - Layout.ROW_INDENT)
-        row.DetailsText:SetWidth(contentWidth - Layout.ROW_INDENT)
 
         row:ClearAllPoints()
         row:SetPoint("TOPLEFT", 0, yOffset)
         row:Show()
 
         row.TitleText:ClearAllPoints()
-
-        local starsHeight = 0
-
-        if showStars then
-
-            row.StarsText:SetText(Format.RenderStars(item.priority))
-            row.StarsText:SetPoint("TOPLEFT", Layout.ROW_INDENT, 0)
-            row.StarsText:Show()
-
-            row.TitleText:SetPoint("TOPLEFT", row.StarsText, "BOTTOMLEFT", 0, -2)
-
-            starsHeight = (row.StarsText:GetStringHeight() or 12) + 2
-
-        else
-
-            row.StarsText:Hide()
-            row.TitleText:SetPoint("TOPLEFT", Layout.ROW_INDENT, 0)
-
-        end
+        row.TitleText:SetPoint("TOPLEFT", Layout.ROW_INDENT, 0)
 
         -- Dismiss (Companion Intelligence vNext) -- only for real
         -- recommendations with a stable id, only while the history
         -- service exists to record the click.
-        if showStars and item.id and AC.RecommendationHistoryService then
+        if isRecommendation and item.id and AC.RecommendationHistoryService then
 
             row.DismissButton:ClearAllPoints()
             row.DismissButton:SetPoint("TOPRIGHT", row, "TOPRIGHT", 0, 0)
@@ -130,85 +126,28 @@ function Dashboard:LayoutItemRows(scrollChild, pool, items, yOffset, contentWidt
         local titleHeight = row.TitleText:GetStringHeight() or 14
         local descriptionHeight = row.DescriptionText:GetStringHeight() or 12
 
-        local detailLines = {}
-
-        if item.reason and item.reason ~= "" then
-            table.insert(detailLines, AC.L:Format("Dashboard.RecommendationReasonFormat", item.reason))
-        end
-
-        if item.expectedBenefit and item.expectedBenefit ~= "" then
-            table.insert(detailLines, AC.L:Format("Dashboard.RecommendationBenefitFormat", item.expectedBenefit))
-        end
-
-        if item.estimatedTime and item.estimatedTime ~= "" then
-            table.insert(detailLines, AC.L:Format("Dashboard.RecommendationTimeFormat", item.estimatedTime))
-        end
-
-        -- Supporting Evidence -- one bullet per fact the recommendation
-        -- was actually built from (RecommendationEngine's
-        -- supportingEvidence list). Insights never set this field, so it
-        -- naturally only ever appears here on the Recommendations page.
-        if item.supportingEvidence and #item.supportingEvidence > 0 then
-
-            for _, evidence in ipairs(item.supportingEvidence) do
-                table.insert(detailLines, AC.L:Format("Dashboard.EvidenceLineFormat", evidence.label or "", evidence.value or ""))
-            end
-
-        end
-
-        local detailsHeight = 0
-
-        if #detailLines > 0 then
-
-            row.DetailsText:SetText(table.concat(detailLines, "\n"))
-            row.DetailsText:Show()
-            detailsHeight = (row.DetailsText:GetStringHeight() or 0) + 4
-
-        else
-
-            row.DetailsText:SetText("")
-            row.DetailsText:Hide()
-
-        end
-
         row.MetaText:ClearAllPoints()
+        row.MetaText:SetPoint("TOPLEFT", row.DescriptionText, "BOTTOMLEFT", 0, -4)
 
-        if #detailLines > 0 then
-            row.MetaText:SetPoint("TOPLEFT", row.DetailsText, "BOTTOMLEFT", 0, -4)
-        else
-            row.MetaText:SetPoint("TOPLEFT", row.DescriptionText, "BOTTOMLEFT", 0, -4)
-        end
+        -- Priority is the one fact this row needs to answer "is it
+        -- important" at a glance -- Category/Confidence/Reason/Expected
+        -- Benefit/Estimated Time/Supporting Evidence all used to render
+        -- here too and now live in the Why? inspector only (see this
+        -- function's own header). Renders as a label (High/Medium/Low),
+        -- not a raw 0-100 score -- the same readable-at-a-glance treatment
+        -- DashboardCard's Detail Sections use (Format.GetPriorityLabel).
+        local priorityLabel = item.priority and Format.GetPriorityLabel(item.priority) or AC.L:Get("Common.Unknown")
+        local metaText = AC.L:Format("Dashboard.RecommendationMetaFormat", priorityLabel)
 
-        -- Confidence (Companion Intelligence V3) -- only recommendations
-        -- carry this field (Insights never do, same "optional field this
-        -- row type doesn't set" pattern as supportingEvidence above), so
-        -- this automatically only ever appears on real recommendation
-        -- rows, on every page that renders them through this shared
-        -- function -- no per-page/Home-specific code needed for it to
-        -- show up everywhere at once.
-        local metaText
-
-        if item.confidence then
-
-            metaText = AC.L:Format("Dashboard.RecommendationMetaWithConfidenceFormat",
-                tostring(item.priority or AC.L:Get("Common.Unknown")),
-                item.category or AC.L:Get("Common.Unknown"),
-                AC.L:Get("Dashboard.Confidence" .. item.confidence))
-
-        else
-
-            metaText = AC.L:Format("Dashboard.RecommendationMetaFormat",
-                tostring(item.priority or AC.L:Get("Common.Unknown")),
-                item.category or AC.L:Get("Common.Unknown"))
-
-        end
-
-        -- Recommendation Inspector -- a "Click for Why?" hint appended to
-        -- the same meta line, and the whole row made clickable/hoverable,
-        -- only for real recommendation rows (showStars = true). Insight
-        -- rows have no score/confidence/supportingEvidence to inspect, so
-        -- they stay inert, exactly as before this feature.
-        if showStars then
+        -- Recommendation Details -- a "Why?" hint appended to the same
+        -- meta line, and the whole row made clickable/hoverable, only for
+        -- real recommendation rows (isRecommendation = true). Insight rows
+        -- have nothing to inspect, so they stay inert, exactly as before.
+        -- Navigation UX Sprint -- was AC.RecommendationInspector:Show(item)
+        -- (a standalone popup); now navigates to the real
+        -- RecommendationDetails Dashboard page, same as every other
+        -- click-through on this page.
+        if isRecommendation then
 
             metaText = metaText .. "   " .. AC.L:Get("Dashboard.ClickForWhy")
 
@@ -224,8 +163,8 @@ function Dashboard:LayoutItemRows(scrollChild, pool, items, yOffset, contentWidt
 
             row:SetScript("OnMouseUp", function(self, button)
 
-                if button == "LeftButton" and AC.RecommendationInspector then
-                    AC.RecommendationInspector:Show(item)
+                if button == "LeftButton" then
+                    AC.Dashboard:ShowRecommendationDetails(item)
                 end
 
             end)
@@ -244,9 +183,22 @@ function Dashboard:LayoutItemRows(scrollChild, pool, items, yOffset, contentWidt
 
         local metaHeight = row.MetaText:GetStringHeight() or 12
 
-        local rowHeight = starsHeight + titleHeight + 4 + descriptionHeight + 4 + detailsHeight + metaHeight
+        local rowHeight = titleHeight + 4 + descriptionHeight + 4 + metaHeight
 
         row:SetHeight(rowHeight)
+
+        -- Row Separator -- shown in the gap below every row except the
+        -- last (a trailing hairline right before the empty space at the
+        -- bottom of the list reads as a stray mark, not a separator).
+        row.Divider:ClearAllPoints()
+        row.Divider:SetPoint("TOPLEFT", row, "BOTTOMLEFT", Layout.ROW_INDENT, -(rowGap / 2))
+        row.Divider:SetPoint("TOPRIGHT", row, "BOTTOMRIGHT", 0, -(rowGap / 2))
+
+        if index < #items then
+            row.Divider:Show()
+        else
+            row.Divider:Hide()
+        end
 
         yOffset = yOffset - rowHeight - rowGap
 
@@ -265,7 +217,7 @@ end
 --
 -- A minimal pooled list of one line per item, using a caller-supplied
 -- formatLine(item) to turn each real item into display text --
--- deliberately simpler than LayoutItemRows above (no stars/reason/
+-- deliberately simpler than LayoutItemRows above (no priority/reason/
 -- expand), for a list that's just "a name and when it happened," not
 -- something to rate or act on. Extracted from what used to be
 -- Achievements' (now Accomplishments') own page-local LayoutRecentAchievements
@@ -338,7 +290,7 @@ end
 -- construction a one-time cost is the better trade.
 -------------------------------------------------------------------------------
 
-function Dashboard:AppendDynamicSection(page, poolKey, titleKey, yOffset, items, emptyTextKey, showStars)
+function Dashboard:AppendDynamicSection(page, poolKey, titleKey, yOffset, items, emptyTextKey, isRecommendation)
 
     local scrollChild = page.ScrollChild
     local contentWidth = page.ContentWidth or Layout.PAGE_CONTENT_WIDTH_FULL
@@ -351,7 +303,7 @@ function Dashboard:AppendDynamicSection(page, poolKey, titleKey, yOffset, items,
     -- A tighter row gap than the standalone Recommendations page uses --
     -- here this is one compact section among several on the page, not
     -- the main content.
-    yOffset = self:LayoutItemRows(scrollChild, page.Pools[poolKey], items, yOffset, contentWidth, emptyTextKey, 12, showStars)
+    yOffset = self:LayoutItemRows(scrollChild, page.Pools[poolKey], items, yOffset, contentWidth, emptyTextKey, 12, isRecommendation)
 
     return self:EndSection(yOffset)
 
@@ -372,6 +324,20 @@ function Dashboard:BuildRecommendationRow(scrollChild)
 
     local row = CreateFrame("Frame", nil, scrollChild)
 
+    -- Row Separator (Navigation Audit, UI Polish Pass) -- a static hairline
+    -- in the gap below this row, same color/alpha as every other divider
+    -- in this codebase. Anchored to the row's own BOTTOM and extending
+    -- into that gap (WoW does not clip a frame's children to its own
+    -- bounds, the same fact Home's own ScrollFrame comment already relies
+    -- on) rather than a page-specific hack -- every caller of
+    -- LayoutItemRows below (the standalone Recommendations page AND every
+    -- other page's dynamic Recommendations/Insights mini-section) gets
+    -- clearer card-to-card separation for free.
+    local divider = row:CreateTexture(nil, "ARTWORK")
+    divider:SetColorTexture(1, 1, 1, 0.10)
+    divider:SetHeight(Layout.DIVIDER_HEIGHT)
+    row.Divider = divider
+
     -- Hover feedback for the Recommendation Inspector (see LayoutItemRows
     -- below) -- transparent normally, a faint highlight on mouseover.
     -- Insight rows never enable mouse, so this texture simply never
@@ -381,13 +347,6 @@ function Dashboard:BuildRecommendationRow(scrollChild)
     background:SetColorTexture(1, 1, 1, 0)
 
     row.Background = background
-
-    -- Only shown/positioned when the caller renders Recommendations
-    -- (showStars = true in LayoutItemRows) -- hidden and out of the
-    -- layout entirely for Insights.
-    local starsText = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    starsText:SetJustifyH("LEFT")
-    Format.SetHighlightColor(starsText)
 
     local titleText = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     titleText:SetPoint("TOPLEFT", Layout.ROW_INDENT, 0)
@@ -402,14 +361,6 @@ function Dashboard:BuildRecommendationRow(scrollChild)
     -- Presentation System v2 -- was a hardcoded (0.85,0.85,0.85); migrated
     -- to the real "dim" token (0.7,0.7,0.7).
     descriptionText:SetTextColor(unpack(AC.Presentation.GetSemanticColor("dim")))
-
-    -- Optional reason/expected benefit/estimated time lines -- only shown
-    -- when a recommendation actually supplies them.
-    local detailsText = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    detailsText:SetPoint("TOPLEFT", descriptionText, "BOTTOMLEFT", 0, -4)
-    detailsText:SetJustifyH("LEFT")
-    detailsText:SetWordWrap(true)
-    detailsText:SetSpacing(2)
 
     local metaText = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     metaText:SetPoint("TOPLEFT", Layout.ROW_INDENT, 0)
@@ -440,10 +391,8 @@ function Dashboard:BuildRecommendationRow(scrollChild)
 
     row.DismissButton = dismissButton
 
-    row.StarsText = starsText
     row.TitleText = titleText
     row.DescriptionText = descriptionText
-    row.DetailsText = detailsText
     row.MetaText = metaText
 
     return row
@@ -811,7 +760,7 @@ end
 -- The shared expand/collapse mechanic behind every accordion-style row
 -- list on the Dashboard: pooling, a single-expanded-item-at-a-time
 -- toggle, dynamic row height, detail show/hide, and (Accordion Polish
--- Pass) a Blizzard-style disclosure indicator (row.DisclosureIcon, a
+-- Pass) an ASCII ">"/"v" disclosure indicator (row.DisclosureIcon, a
 -- pooled FontString the engine itself creates/updates every row --
 -- callers never touch it, so it's automatic for every current and future
 -- caller). Deliberately generic on the collapsed row's own visuals AND
@@ -1047,38 +996,50 @@ end
 -- discipline SetAccordionDetailField itself already went through.
 -- Takes an already-resolved string (not a whole record) so it stays
 -- generic over both callers' different field names.
-function Dashboard:SetAccordionDetailDescription(row, text, yOffset, width)
+--
+-- Optional cacheKey (Developer Panel Errors tab addition): defaults to
+-- "Description" -- reconstructing the exact row.DescriptionText field
+-- name both existing callers (Accomplishments/Journey, one description
+-- block per row) already rely on, so this is fully backward compatible.
+-- A caller needing more than one wrapped body-text block per row (Errors:
+-- full message AND stack trace) passes a distinct cacheKey per block
+-- instead of the two blocks clobbering the same field.
+function Dashboard:SetAccordionDetailDescription(row, text, yOffset, width, cacheKey)
+
+    local fieldKey = (cacheKey or "Description") .. "Text"
 
     if not text or text == "" then
-        self:HideAccordionDetailDescription(row)
+        self:HideAccordionDetailDescription(row, cacheKey)
         return yOffset
     end
 
-    if not row.DescriptionText then
+    if not row[fieldKey] then
 
         local descriptionText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         descriptionText:SetJustifyH("LEFT")
         descriptionText:SetWordWrap(true)
-        row.DescriptionText = descriptionText
+        row[fieldKey] = descriptionText
 
     end
 
     yOffset = yOffset - 4
 
-    row.DescriptionText:ClearAllPoints()
-    row.DescriptionText:SetPoint("TOPLEFT", Layout.ACCORDION_DETAIL_INDENT, yOffset)
-    row.DescriptionText:SetWidth(width - Layout.ACCORDION_DETAIL_INDENT)
-    row.DescriptionText:SetText(text)
-    row.DescriptionText:Show()
+    row[fieldKey]:ClearAllPoints()
+    row[fieldKey]:SetPoint("TOPLEFT", Layout.ACCORDION_DETAIL_INDENT, yOffset)
+    row[fieldKey]:SetWidth(width - Layout.ACCORDION_DETAIL_INDENT)
+    row[fieldKey]:SetText(text)
+    row[fieldKey]:Show()
 
-    return yOffset - (row.DescriptionText:GetStringHeight() or 0)
+    return yOffset - (row[fieldKey]:GetStringHeight() or 0)
 
 end
 
-function Dashboard:HideAccordionDetailDescription(row)
+function Dashboard:HideAccordionDetailDescription(row, cacheKey)
 
-    if row.DescriptionText then
-        row.DescriptionText:Hide()
+    local fieldKey = (cacheKey or "Description") .. "Text"
+
+    if row[fieldKey] then
+        row[fieldKey]:Hide()
     end
 
 end

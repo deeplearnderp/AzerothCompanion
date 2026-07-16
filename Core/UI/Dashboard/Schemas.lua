@@ -124,7 +124,16 @@ DashboardSchemas.INVENTORY_SECTIONS =
         fields =
         {
             { key = "hearthstone", label = "Inventory.Hearthstone" },
+        },
+    },
+    {
+        title = "Inventory.SectionEquipmentHealth",
+        fields =
+        {
+            { key = "overallDurability", label = "Inventory.OverallDurability" },
+            { key = "worstDurability", label = "Inventory.WorstItemDurability" },
             { key = "repairStatus", label = "Inventory.RepairStatus" },
+            { key = "repairCost", label = "Inventory.RepairCost" },
         },
     },
     {

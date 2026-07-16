@@ -2,11 +2,15 @@
 -- Azeroth Companion
 -- Developer Panel
 --
--- The permanent developer-tooling surface for Azeroth Companion: six tabs
--- (Overview, Modules, Events, Live API, Checklist, History) inside one
--- standalone window (BaseWindow, same tier as DiagnosticsWindow/
--- SettingsWindow), only ever shown from /ac dev once Developer Mode is
--- enabled.
+-- The permanent developer-tooling surface for Azeroth Companion: eight tabs
+-- (Overview, Modules, Events, Errors, Secret Values, Live API, Checklist,
+-- History) inside one standalone window (BaseWindow, same tier as
+-- DiagnosticsWindow/SettingsWindow), only ever shown from /ac dev once
+-- Developer Mode is enabled. This comment previously said "seven tabs" and
+-- didn't mention Secret Values at all -- proof, not just a guess, that
+-- WINDOW_WIDTH below was never revisited when that tab was added, which is
+-- exactly the bug that caused the tab bar to overflow the window (see
+-- TAB_BAR_REQUIRED_WIDTH's own comment).
 --
 -- Presentation only, exactly like the Dashboard: every value shown here is
 -- read through an existing public getter (CharacterModule:GetProfile(),
@@ -39,33 +43,84 @@ local DeveloperPanel = {}
 AC.DeveloperPanel = DeveloperPanel
 
 -------------------------------------------------------------------------------
+-- Tabs
+--
+-- Declared before Layout Constants (below) rather than after, because
+-- WINDOW_WIDTH is now derived from #TABS -- see TAB_BAR_REQUIRED_WIDTH's
+-- own comment for why a hand-picked literal is exactly what caused the
+-- tab bar to overflow the window twice.
+-------------------------------------------------------------------------------
+
+local TABS = { "Overview", "Modules", "Events", "Errors", "SecretValues", "LiveAPI", "Checklist", "History" }
+
+-------------------------------------------------------------------------------
 -- Layout Constants
 -------------------------------------------------------------------------------
 
-local WINDOW_WIDTH = 760
-local WINDOW_HEIGHT = 620
 local CONTENT_PADDING = 16
 local SCROLLBAR_RESERVE = 24
+
+-- Tab bar geometry -- named here so the width formula below and the tab
+-- button loop in Initialize() both read from the same numbers, instead of
+-- Initialize() hardcoding 100/4 inline and WINDOW_WIDTH being a separately
+-- hand-computed literal with no structural link to them.
+local TAB_BUTTON_WIDTH = 100
+local TAB_BUTTON_GAP = 4
+
+-- 40px -- deliberately more generous than the ~20px margin the previous
+-- (also hand-computed) 864px width assumed, since that value was verified
+-- live to still be insufficient and the exact missing pixel amount isn't
+-- something this static analysis can pin down without the live client.
+local TAB_BAR_RIGHT_MARGIN = 40
+
+-- Derived, not hand-picked: whatever WINDOW_WIDTH used to be (760, then
+-- 864), both were independent literals with no relationship to the tab
+-- bar's actual required width, which is exactly why the window went stale
+-- not once but twice as tabs were added (Secret Values, then this pass's
+-- own investigation) without anyone re-deriving it by hand. This formula
+-- uses the exact same CONTENT_PADDING/TAB_BUTTON_WIDTH/TAB_BUTTON_GAP the
+-- tab loop in Initialize() lays out with, so the window is guaranteed at
+-- least wide enough for however many tabs TABS actually holds -- adding or
+-- removing a tab changes #TABS and this recomputes automatically, no
+-- second constant to remember to update.
+local TAB_BAR_REQUIRED_WIDTH = CONTENT_PADDING + (#TABS * TAB_BUTTON_WIDTH) + ((#TABS - 1) * TAB_BUTTON_GAP) + TAB_BAR_RIGHT_MARGIN
+
+local WINDOW_WIDTH = TAB_BAR_REQUIRED_WIDTH
+local WINDOW_HEIGHT = 620
 local CONTENT_WIDTH = WINDOW_WIDTH - (CONTENT_PADDING * 2) - SCROLLBAR_RESERVE
 local TAB_BAR_HEIGHT = 26
 local FOOTER_HEIGHT = 68
 local ROW_HEIGHT = 16
 
-local TABS = { "Overview", "Modules", "Events", "LiveAPI", "Checklist", "History" }
+-- Header layout -- this is the one window in the addon with its own
+-- persistent toolbar row (QoL buttons) in addition to BaseWindow's shared
+-- title, so it's the one place that needs to reserve room below the title
+-- rather than just starting content at a fixed offset. TITLE_TOP_OFFSET
+-- matches BaseWindow:Create's own title anchor (-12) -- not a new,
+-- independently-guessed number -- and the title's actual rendered height
+-- is measured at Initialize() time rather than assumed, so this stays
+-- correct if the title text or font ever changes. TOOLBAR_ROW_HEIGHT
+-- matches the QoL/tab buttons' own real height (20-22px); TOOLBAR_GAP is
+-- the one small breathing-room constant this file adds.
+local TITLE_TOP_OFFSET = 12
+local TOOLBAR_ROW_HEIGHT = 22
+local TOOLBAR_GAP = 8
 
 local TAB_LABEL_KEY =
 {
     Overview = "Developer.TabOverview",
     Modules = "Developer.TabModules",
     Events = "Developer.TabEvents",
+    Errors = "Developer.TabErrors",
+    SecretValues = "Developer.TabSecretValues",
     LiveAPI = "Developer.TabLiveAPI",
     Checklist = "Developer.TabChecklist",
     History = "Developer.TabHistory",
 }
 
 -------------------------------------------------------------------------------
--- Module Routing (mirrors RecommendationInspector's own map -- the module
--- name -> display name convention used addon-wide for dev/diagnostic UI).
+-- Module Routing (mirrors Pages/RecommendationDetails.lua's own map -- the
+-- module name -> display name convention used addon-wide for dev/diagnostic UI).
 -------------------------------------------------------------------------------
 
 local MODULE_DISPLAY_KEY =
@@ -90,12 +145,21 @@ end
 -------------------------------------------------------------------------------
 -- Generic Row Helpers
 --
--- A minimal pooled label-list, shared by every tab -- each tab owns one
--- pool (self.Pools[tabName]) of plain FontStrings, laid out top-to-bottom.
--- Deliberately simpler than Dashboard's own Rows.lua primitives (no
--- stars/hero/grid shapes needed here, just dense text) -- reusing those
--- would mean fighting their player-facing spacing/typography for a
--- developer tool that wants density instead.
+-- A minimal pooled label-list, shared by every simple-text tab -- each tab
+-- owns one pool (self.Pools[tabName]) of plain FontStrings, laid out
+-- top-to-bottom. Deliberately simpler than Dashboard's own Rows.lua
+-- primitives (no stars/hero/grid shapes needed here, just dense text) --
+-- reusing those would mean fighting their player-facing spacing/typography
+-- for a developer tool that wants density instead.
+--
+-- The Errors tab is the one deliberate exception: it needs real
+-- expand/collapse behavior, which this file has no primitive of its own
+-- for, so it calls AC.Dashboard:LayoutAccordionRows directly (the same
+-- shared engine Accomplishments/Journey/MythicPlus already call directly,
+-- not through a page-specific wrapper) rather than maintain a second
+-- accordion implementation. It still writes into this file's own
+-- self.Pools table (poolKey "Errors"), so HideOtherTabs' existing generic
+-- loop already covers it with no special-casing -- see BuildErrorsTab.
 -------------------------------------------------------------------------------
 
 function DeveloperPanel:GetPool(tabName)
@@ -175,9 +239,22 @@ function DeveloperPanel:HideOtherTabs(activeTab)
         local owner = POOL_TAB_OWNER[poolKey] or poolKey
 
         if owner ~= activeTab then
+
             for _, row in ipairs(pool) do
                 row:Hide()
             end
+
+            -- Errors tab addition: LayoutAccordionRows' own empty-state
+            -- line (Dashboard:ShowEmptyLine) caches itself on pool.EmptyText
+            -- -- a string key ipairs() above never reaches, so it needs its
+            -- own explicit hide or it would linger on screen over whatever
+            -- tab is switched to next. No existing DeveloperPanel tab
+            -- exercised this cached-empty-state convention before Errors,
+            -- so this gap was real but previously unreachable.
+            if pool.EmptyText then
+                pool.EmptyText:Hide()
+            end
+
         end
 
     end
@@ -224,6 +301,38 @@ function DeveloperPanel:HideOtherTabs(activeTab)
         self.EventsClearButton:Hide()
     end
 
+    -- Errors tab's toolbar (status line + Clear Errors button) lives
+    -- outside self.Pools, same reasoning as EventsClearButton above -- the
+    -- accordion rows themselves are IN self.Pools (poolKey "Errors") and
+    -- already covered by the generic loop at the top of this function.
+    if self.ErrorsStatusText and activeTab ~= "Errors" then
+        self.ErrorsStatusText:Hide()
+    end
+
+    if self.ErrorsClearButton and activeTab ~= "Errors" then
+        self.ErrorsClearButton:Hide()
+    end
+
+    if self.ErrorsTestButton and activeTab ~= "Errors" then
+        self.ErrorsTestButton:Hide()
+    end
+
+    if self.ErrorsExportButton and activeTab ~= "Errors" then
+        self.ErrorsExportButton:Hide()
+    end
+
+    -- Secret Values tab's toolbar (status line + Clear Events button) --
+    -- same reasoning as the Errors tab's own toolbar above; its accordion
+    -- rows live in self.Pools (poolKey "SecretValues") and are already
+    -- covered by the generic loop at the top of this function.
+    if self.SecretValuesStatusText and activeTab ~= "SecretValues" then
+        self.SecretValuesStatusText:Hide()
+    end
+
+    if self.SecretValuesClearButton and activeTab ~= "SecretValues" then
+        self.SecretValuesClearButton:Hide()
+    end
+
 end
 
 -------------------------------------------------------------------------------
@@ -237,6 +346,20 @@ function DeveloperPanel:Initialize()
     BaseWindow:AddCloseButton(self.Frame, self)
 
     -----------------------------------------------------------------------
+    -- Header Layout
+    --
+    -- Measures the title's own real rendered height (already SetText'd by
+    -- BaseWindow:Create above) rather than assuming a fixed number, so the
+    -- QoL toolbar row and tab bar are placed with a guaranteed, correct
+    -- gap below it regardless of title text/font -- fixing the title
+    -- being visually overlapped by the QoL row's buttons.
+    -----------------------------------------------------------------------
+
+    local titleBottom = -(TITLE_TOP_OFFSET + (self.Frame.Title:GetStringHeight() or 20))
+    local qolTop = titleBottom - TOOLBAR_GAP
+    local tabTop = qolTop - TOOLBAR_ROW_HEIGHT - TOOLBAR_GAP
+
+    -----------------------------------------------------------------------
     -- Tab Bar
     -----------------------------------------------------------------------
 
@@ -247,12 +370,12 @@ function DeveloperPanel:Initialize()
     for _, tabName in ipairs(TABS) do
 
         local button = CreateFrame("Button", nil, self.Frame, "UIPanelButtonTemplate")
-        button:SetSize(100, 22)
+        button:SetSize(TAB_BUTTON_WIDTH, 22)
 
         if previousTab then
-            button:SetPoint("LEFT", previousTab, "RIGHT", 4, 0)
+            button:SetPoint("LEFT", previousTab, "RIGHT", TAB_BUTTON_GAP, 0)
         else
-            button:SetPoint("TOPLEFT", CONTENT_PADDING, -40)
+            button:SetPoint("TOPLEFT", CONTENT_PADDING, tabTop)
         end
 
         button:SetText(AC.L:Get(TAB_LABEL_KEY[tabName]))
@@ -271,7 +394,7 @@ function DeveloperPanel:Initialize()
     -----------------------------------------------------------------------
 
     local scrollFrame = CreateFrame("ScrollFrame", nil, self.Frame, "UIPanelScrollFrameTemplate")
-    scrollFrame:SetPoint("TOPLEFT", CONTENT_PADDING, -40 - TAB_BAR_HEIGHT)
+    scrollFrame:SetPoint("TOPLEFT", CONTENT_PADDING, tabTop - TAB_BAR_HEIGHT)
     scrollFrame:SetPoint("BOTTOMRIGHT", -CONTENT_PADDING, FOOTER_HEIGHT)
 
     local scrollChild = CreateFrame("Frame", nil, scrollFrame)
@@ -295,7 +418,62 @@ function DeveloperPanel:Initialize()
 
     self.CurrentTab = "Overview"
 
-    self:BuildQoLRow()
+    self:BuildQoLRow(qolTop)
+
+    -- Stabilization pass -- real gap fixed: DEVELOPER_RUNTIME_UPDATED was
+    -- being fired by DeveloperRuntime/ErrorCapture (its own doc comment
+    -- already said "the Developer Panel is the intended listener"), but
+    -- nothing here ever actually registered for it. A captured error
+    -- while the Errors tab was already open had no way to make the tab
+    -- refresh itself -- only navigating away and back forced a fresh
+    -- BuildErrorsTab() call. Registered unconditionally (a framework
+    -- event, zero real-Blizzard-event registration cost either way,
+    -- matching how PROFILE_CHANGED/NOTIFICATION_CHANGED are already
+    -- listened for elsewhere in this codebase regardless of any
+    -- enable/disable state).
+    AC.Events:Register("DEVELOPER_RUNTIME_UPDATED", self, "OnDeveloperRuntimeUpdated")
+
+end
+
+-------------------------------------------------------------------------------
+-- Developer Runtime Integration
+--
+-- Refreshes the Errors tab live while it's the active tab and this
+-- window is shown -- if the tab isn't showing (different tab active, or
+-- the whole window hidden), there's nothing to redraw; the next ShowTab
+-- call reads AC.DeveloperRuntime's current data fresh anyway.
+-------------------------------------------------------------------------------
+
+-- Capability name -> the one tab it refreshes, and the pool-of-record used
+-- to double check the tab is really showing that data before rebuilding --
+-- generalized here once a second capability (SecretValueEvents) needed the
+-- exact same live-refresh behavior ErrorCapture already had, rather than a
+-- second near-identical if/elseif block.
+local CAPABILITY_TAB =
+{
+    ErrorCapture = "Errors",
+    SecretValueEvents = "SecretValues",
+}
+
+function DeveloperPanel:OnDeveloperRuntimeUpdated(capabilityName)
+
+    local tabName = CAPABILITY_TAB[capabilityName]
+
+    if not tabName then
+        return
+    end
+
+    if self.Frame and self.Frame:IsShown() and self.CurrentTab == tabName then
+
+        if AC.Logger then
+            AC.Logger:Debug(("Developer Panel: %s tab refreshed via DEVELOPER_RUNTIME_UPDATED."):format(tabName), "Framework")
+        end
+
+        self:ShowTab(tabName)
+
+    elseif AC.Logger then
+        AC.Logger:Debug(("Developer Panel: DEVELOPER_RUNTIME_UPDATED received for %s, %s tab not currently visible -- no immediate refresh needed."):format(capabilityName, tabName), "Framework")
+    end
 
 end
 
@@ -393,14 +571,17 @@ end
 -- Refresh / Toggle Tracing, always visible regardless of active tab.
 -------------------------------------------------------------------------------
 
-function DeveloperPanel:BuildQoLRow()
+function DeveloperPanel:BuildQoLRow(topY)
 
     -- A row of always-visible action buttons, right-aligned above the tab
-    -- bar so it never competes for space with the tabs themselves.
+    -- bar so it never competes for space with the tabs themselves. topY is
+    -- computed once in Initialize() from the title's own real measured
+    -- height, not a hardcoded offset here -- see Initialize()'s Header
+    -- Layout section for why.
 
     local clearNotifications = CreateFrame("Button", nil, self.Frame, "UIPanelButtonTemplate")
     clearNotifications:SetSize(140, 20)
-    clearNotifications:SetPoint("TOPRIGHT", -CONTENT_PADDING, -14)
+    clearNotifications:SetPoint("TOPRIGHT", -CONTENT_PADDING, topY)
     clearNotifications:SetText(AC.L:Get("Developer.ClearNotifications"))
 
     clearNotifications:SetScript("OnClick", function()
@@ -885,6 +1066,700 @@ function DeveloperPanel:BuildEventsTab()
 
     self.CurrentTabData = data
     self.CurrentTabSummaryLines = lines
+
+    return (-yOffset) + 16
+
+end
+
+-------------------------------------------------------------------------------
+-- Errors Tab
+--
+-- Presents AC.DeveloperRuntime's "ErrorCapture" capability -- the primary
+-- interface for captured runtime errors, and (per Developer Runtime's own
+-- capability-host architecture) the intended home for future capabilities'
+-- own tabs (Warning Capture, Performance Metrics, Memory Usage, Event
+-- Statistics, Verification Results) alongside it. Presentation only:
+-- ErrorCapture remains the single source of truth, read here through its
+-- own public GetErrors()/ClearErrors()/GetSettings()/IsInstalled() --
+-- no caching, no polling, no second copy of its data.
+--
+-- Reuses AC.Dashboard's shared accordion engine directly
+-- (LayoutAccordionRows/SetAccordionDetailField/SetAccordionDetailDescription),
+-- the same primitives Accomplishments/Journey/MythicPlus already call
+-- directly -- not a second accordion implementation (see the Generic Row
+-- Helpers header above for why this is the one exception to this file's
+-- own simpler LayoutLines pattern).
+--
+-- Timestamps shown as-is (firstSeen/lastSeen are session-relative
+-- HH:MM:SS.mmm clock strings, ErrorCapture's own existing format, not
+-- changed here) -- not reformatted into a calendar date this addon
+-- doesn't actually have for these entries.
+--
+-- Extension point, deliberately not built: ErrorCapture does not capture
+-- local variables at the crash site today, so no "Locals" section is
+-- rendered here. Adding one later is a new SetAccordionDetailField/
+-- SetAccordionDetailDescription call inside BuildErrorDetail below, once
+-- ErrorCapture's own data model actually carries that field -- not
+-- invented as placeholder data now.
+--
+-- MESSAGE_PREVIEW_LENGTH/TruncateMessage and AddDetailHeader/HideDetailHeader
+-- right below are deliberately generic (not Error-specific despite living
+-- in this section first) -- the Secret Values Tab further below reuses
+-- all four directly rather than keeping a second copy, per this file's own
+-- "reuse shared infrastructure, don't duplicate" discipline.
+-------------------------------------------------------------------------------
+
+local MESSAGE_PREVIEW_LENGTH = 100
+
+local function TruncateMessage(message)
+
+    message = tostring(message or "")
+
+    if #message <= MESSAGE_PREVIEW_LENGTH then
+        return message
+    end
+
+    return message:sub(1, MESSAGE_PREVIEW_LENGTH) .. "..."
+
+end
+
+-- Error History persistence -- ErrorCapture now stores firstSeen/lastSeen
+-- as absolute epoch seconds (time()), not a pre-formatted string, so every
+-- presentation surface (collapsed row, detail view, summary line, Copy/
+-- Export output) needs to format it the same way. One helper, not five
+-- independent AC.Presentation.FormatDate calls, so there's exactly one
+-- rule for "what does an error timestamp look like."
+local function FormatErrorTimestamp(epoch)
+    return epoch and AC.Presentation.FormatDate(epoch, "shortTime") or AC.L:Get("Common.Unknown")
+end
+
+function DeveloperPanel:BuildErrorRow(scrollChild)
+
+    local row = CreateFrame("Button", nil, scrollChild)
+    row:EnableMouse(true)
+
+    local background = row:CreateTexture(nil, "BACKGROUND")
+    background:SetAllPoints()
+    background:SetColorTexture(1, 1, 1, 0)
+
+    row.Background = background
+
+    row:SetScript("OnEnter", function(self_)
+        self_.Background:SetColorTexture(1, 1, 1, 0.06)
+    end)
+
+    row:SetScript("OnLeave", function(self_)
+        self_.Background:SetColorTexture(1, 1, 1, 0)
+    end)
+
+    local messageText = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    messageText:SetJustifyH("LEFT")
+    row.MessageText = messageText
+
+    local locationText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    locationText:SetJustifyH("LEFT")
+    locationText:SetTextColor(unpack(AC.Presentation.GetSemanticColor("dim")))
+    row.LocationText = locationText
+
+    local metaText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    metaText:SetJustifyH("LEFT")
+    metaText:SetTextColor(unpack(AC.Presentation.GetSemanticColor("dim")))
+    row.MetaText = metaText
+
+    return row
+
+end
+
+-- Collapsed preview is a fixed 3-line layout (message preview / location /
+-- occurrences+lastSeen) rather than word-wrapping the full message -- a
+-- predictable, scannable row height for a log-style list, matching why
+-- the requirement lists "Full error message" as an EXPANDED-only field.
+function DeveloperPanel:LayoutErrorCollapsed(row, record, width)
+
+    local baseX = AC.DashboardLayout.ACCORDION_DISCLOSURE_WIDTH
+    local rowWidth = width - baseX
+
+    row.MessageText:ClearAllPoints()
+    row.MessageText:SetPoint("TOPLEFT", baseX, 0)
+    row.MessageText:SetWidth(rowWidth)
+    row.MessageText:SetText(TruncateMessage(record.message))
+
+    row.LocationText:ClearAllPoints()
+    row.LocationText:SetPoint("TOPLEFT", row.MessageText, "BOTTOMLEFT", 0, -2)
+    row.LocationText:SetWidth(rowWidth)
+    row.LocationText:SetText(record.location or AC.L:Get("Common.Unknown"))
+
+    row.MetaText:ClearAllPoints()
+    row.MetaText:SetPoint("TOPLEFT", row.LocationText, "BOTTOMLEFT", 0, -2)
+    row.MetaText:SetWidth(rowWidth)
+    row.MetaText:SetText(AC.L:Format("Developer.ErrorMetaFormat", record.occurrenceCount or 1, FormatErrorTimestamp(record.lastSeen)))
+
+    return (row.MessageText:GetStringHeight() or 14) + (row.LocationText:GetStringHeight() or 12) + (row.MetaText:GetStringHeight() or 12) + 4
+
+end
+
+local function AddDetailHeader(row, cacheKey, labelKey, yOffset)
+
+    local fieldKey = cacheKey .. "Header"
+
+    if not row[fieldKey] then
+
+        local header = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        header:SetJustifyH("LEFT")
+        header:SetTextColor(unpack(AC.Presentation.GetSemanticColor("dim")))
+        row[fieldKey] = header
+
+    end
+
+    row[fieldKey]:ClearAllPoints()
+    row[fieldKey]:SetPoint("TOPLEFT", AC.DashboardLayout.ACCORDION_DETAIL_INDENT, yOffset)
+    row[fieldKey]:SetText(AC.L:Get(labelKey))
+    row[fieldKey]:Show()
+
+    return yOffset - AC.DashboardLayout.ROW_HEIGHT
+
+end
+
+local function HideDetailHeader(row, cacheKey)
+
+    local fieldKey = cacheKey .. "Header"
+
+    if row[fieldKey] then
+        row[fieldKey]:Hide()
+    end
+
+end
+
+function DeveloperPanel:BuildErrorDetail(row, record, width, detailYOffset)
+
+    local yOffset = detailYOffset
+
+    yOffset = AddDetailHeader(row, "FullMessage", "Developer.ErrorFieldMessage", yOffset)
+    yOffset = AC.Dashboard:SetAccordionDetailDescription(row, record.message, yOffset, width, "FullMessage")
+
+    yOffset = yOffset - 6
+
+    yOffset = AC.Dashboard:SetAccordionDetailField(row, "ErrorSignature", "Developer.ErrorFieldSignature", record.key or AC.L:Get("Common.Unknown"), yOffset, width)
+
+    local originText = record.origin or AC.L:Get("Common.Unknown")
+
+    if record.origin == "Third Party" and record.thirdPartyAddon then
+        originText = AC.L:Format("Developer.ErrorFieldOriginThirdPartyFormat", record.thirdPartyAddon)
+    end
+
+    yOffset = AC.Dashboard:SetAccordionDetailField(row, "ErrorOrigin", "Developer.ErrorFieldOrigin", originText, yOffset, width)
+    yOffset = AC.Dashboard:SetAccordionDetailField(row, "ErrorFirstSeen", "Developer.ErrorFieldFirstSeen", FormatErrorTimestamp(record.firstSeen), yOffset, width)
+    yOffset = AC.Dashboard:SetAccordionDetailField(row, "ErrorLastSeen", "Developer.ErrorFieldLastSeen", FormatErrorTimestamp(record.lastSeen), yOffset, width)
+    yOffset = AC.Dashboard:SetAccordionDetailField(row, "ErrorOccurrences", "Developer.ErrorFieldOccurrences", tostring(record.occurrenceCount or 1), yOffset, width)
+
+    yOffset = yOffset - 6
+
+    yOffset = AddDetailHeader(row, "StackTrace", "Developer.ErrorFieldStackTrace", yOffset)
+    yOffset = AC.Dashboard:SetAccordionDetailDescription(row, record.stackTrace or AC.L:Get("Developer.ErrorNoStackTrace"), yOffset, width, "StackTrace")
+
+    return detailYOffset - yOffset
+
+end
+
+function DeveloperPanel:HideErrorDetail(row)
+
+    HideDetailHeader(row, "FullMessage")
+    AC.Dashboard:HideAccordionDetailDescription(row, "FullMessage")
+
+    AC.Dashboard:HideAccordionDetailField(row, "ErrorSignature")
+    AC.Dashboard:HideAccordionDetailField(row, "ErrorOrigin")
+    AC.Dashboard:HideAccordionDetailField(row, "ErrorFirstSeen")
+    AC.Dashboard:HideAccordionDetailField(row, "ErrorLastSeen")
+    AC.Dashboard:HideAccordionDetailField(row, "ErrorOccurrences")
+
+    HideDetailHeader(row, "StackTrace")
+    AC.Dashboard:HideAccordionDetailDescription(row, "StackTrace")
+
+end
+
+function DeveloperPanel:BuildErrorsToolbar()
+
+    if self.ErrorsStatusText then
+        return
+    end
+
+    local statusText = self.ScrollChild:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    statusText:SetJustifyH("LEFT")
+    statusText:SetPoint("TOPLEFT", 0, -4)
+    self.ErrorsStatusText = statusText
+
+    local clearButton = CreateFrame("Button", nil, self.ScrollChild, "UIPanelButtonTemplate")
+    clearButton:SetSize(110, 20)
+    clearButton:SetPoint("TOPRIGHT", 0, -4)
+    clearButton:SetText(AC.L:Get("Developer.ClearErrors"))
+
+    clearButton:SetScript("OnClick", function()
+
+        local errorCapture = AC.DeveloperRuntime and AC.DeveloperRuntime:GetCapability("ErrorCapture")
+
+        if errorCapture then
+            errorCapture:ClearErrors()
+        end
+
+        DeveloperPanel:ShowTab("Errors")
+
+    end)
+
+    self.ErrorsClearButton = clearButton
+
+    -- Generate Test Error -- calls the exact same entry point as
+    -- /ac dev testerror (AC.SlashCommandManager:HandleDev), never a
+    -- second copy of the test-error logic. Whatever that command does
+    -- (currently: throw a real, unwrapped error()) is exactly what this
+    -- button does too, by construction, not by keeping two paths in sync.
+    local testButton = CreateFrame("Button", nil, self.ScrollChild, "UIPanelButtonTemplate")
+    testButton:SetSize(150, 20)
+    testButton:SetPoint("RIGHT", clearButton, "LEFT", -6, 0)
+    testButton:SetText(AC.L:Get("Developer.GenerateTestError"))
+
+    testButton:SetScript("OnClick", function()
+        AC.SlashCommandManager:HandleDev("testerror")
+    end)
+
+    self.ErrorsTestButton = testButton
+
+    -- Export All Errors -- see ExportAllErrors below for what this reuses.
+    local exportButton = CreateFrame("Button", nil, self.ScrollChild, "UIPanelButtonTemplate")
+    exportButton:SetSize(140, 20)
+    exportButton:SetPoint("RIGHT", testButton, "LEFT", -6, 0)
+    exportButton:SetText(AC.L:Get("Developer.ExportAllErrors"))
+
+    exportButton:SetScript("OnClick", function()
+        self:ExportAllErrors()
+    end)
+
+    self.ErrorsExportButton = exportButton
+
+end
+
+function DeveloperPanel:BuildErrorsTab()
+
+    self:BuildErrorsToolbar()
+
+    local errorCapture = AC.DeveloperRuntime and AC.DeveloperRuntime:GetCapability("ErrorCapture")
+
+    if not errorCapture and AC.Logger then
+        AC.Logger:Warn("Developer Panel: ErrorCapture capability unavailable -- Errors tab has nothing to read from. This should not happen; check Core/Runtime/ErrorCapture.lua registered correctly.")
+    end
+
+    local errors = errorCapture and errorCapture:GetErrors() or {}
+
+    -- Capture (the persisted setting's intent, GetSettings().CaptureLuaErrors)
+    -- and Installed (IsInstalled()'s ground truth) are shown separately --
+    -- deliberately not collapsed into one boolean, since a real mismatch
+    -- between them (setting says on, hook isn't actually installed) is
+    -- exactly the kind of thing this status line exists to surface.
+    local capturing = errorCapture ~= nil and errorCapture:GetSettings().CaptureLuaErrors
+    local installed = errorCapture ~= nil and errorCapture:IsInstalled()
+    local statusR, statusG, statusB = unpack(AC.Presentation.GetSemanticColor(installed and "success" or "dim"))
+
+    self.ErrorsStatusText:SetText(AC.L:Format("Developer.ErrorsStatusFormat",
+        capturing and AC.L:Get("Developer.CaptureOn") or AC.L:Get("Developer.CaptureOff"),
+        installed and AC.L:Get("Developer.InstalledYes") or AC.L:Get("Developer.InstalledNo"),
+        #errors))
+    self.ErrorsStatusText:SetTextColor(statusR, statusG, statusB)
+    self.ErrorsStatusText:Show()
+
+    self.ErrorsClearButton:Show()
+    self.ErrorsTestButton:Show()
+    self.ErrorsExportButton:Show()
+
+    -- Newest first -- a separate array, never reordering ErrorCapture's
+    -- own (first-seen-ordered) storage.
+    local records = {}
+
+    for i = #errors, 1, -1 do
+        table.insert(records, errors[i])
+    end
+
+    local yOffset = AC.Dashboard:LayoutAccordionRows(self, "Errors", self.ScrollChild, -34, CONTENT_WIDTH, records,
+    {
+        expandedField = "ExpandedErrorKey",
+        getRecordID = function(record) return record.key end,
+        rowGap = AC.DashboardLayout.ACCORDION_ROW_GAP,
+        emptyTextKey = "Developer.NoErrorsCaptured",
+
+        buildRow = function(sc)
+            return self:BuildErrorRow(sc)
+        end,
+
+        layoutCollapsed = function(row, record, width)
+            return self:LayoutErrorCollapsed(row, record, width)
+        end,
+
+        buildDetail = function(row, record, width, detailYOffset)
+            return self:BuildErrorDetail(row, record, width, detailYOffset)
+        end,
+
+        hideDetail = function(row)
+            self:HideErrorDetail(row)
+        end,
+
+        onToggle = function(recordID)
+
+            -- Deliberately not the `cond and nil or recordID` idiom -- it
+            -- silently breaks when the "true" branch's value is nil,
+            -- which is exactly this case (collapsing sets it to nil), so
+            -- it always fell through to recordID and could never close
+            -- an already-expanded row.
+            if self.ExpandedErrorKey == recordID then
+                self.ExpandedErrorKey = nil
+            else
+                self.ExpandedErrorKey = recordID
+            end
+
+            self:ShowTab("Errors")
+
+        end,
+    })
+
+    local summaryLines = {}
+
+    for _, record in ipairs(records) do
+
+        table.insert(summaryLines, string.format("[%dx] %s -- %s (last seen %s)",
+            record.occurrenceCount or 1, TruncateMessage(record.message), record.location or AC.L:Get("Common.Unknown"), FormatErrorTimestamp(record.lastSeen)))
+
+    end
+
+    self.CurrentTabData = self:BuildErrorExportData(records)
+    self.CurrentTabSummaryLines = summaryLines
+
+    return (-yOffset) + 16
+
+end
+
+-- The one place a stored error record becomes the field-subset shape any
+-- export format serializes -- shared by BuildErrorsTab (Copy JSON/Text/
+-- Summary, whichever tab is active) and ExportAllErrors below, so there is
+-- exactly one mapping to maintain, not two.
+function DeveloperPanel:BuildErrorExportData(records)
+
+    local data = {}
+
+    for _, record in ipairs(records) do
+
+        table.insert(data,
+        {
+            message = record.message,
+            location = record.location,
+            module = record.module,
+            origin = record.origin,
+            thirdPartyAddon = record.thirdPartyAddon,
+            functionName = record.functionName,
+            lineNumber = record.lineNumber,
+            occurrenceCount = record.occurrenceCount,
+            firstSeen = FormatErrorTimestamp(record.firstSeen),
+            lastSeen = FormatErrorTimestamp(record.lastSeen),
+            signature = record.key,
+        })
+
+    end
+
+    return data
+
+end
+
+-- Export All Errors -- every currently stored error, regardless of which
+-- tab is active, as one plain-text report. Reuses BuildErrorExportData for
+-- the exact same per-error shape Copy JSON/Text/Summary already produce,
+-- and AC.DeveloperModeService:ToIndentedText for the exact same serializer
+-- "Copy Text" already uses -- no new export format, no new mechanism. The
+-- indented, one-field-per-line shape it already produces is plain text
+-- with no color codes or WoW escape sequences, so it pastes cleanly into
+-- GitHub Issues, Discord, a chat client, or a plain text editor as-is.
+function DeveloperPanel:ExportAllErrors()
+
+    local errorCapture = AC.DeveloperRuntime and AC.DeveloperRuntime:GetCapability("ErrorCapture")
+    local errors = errorCapture and errorCapture:GetErrors() or {}
+
+    -- Newest first, same convention BuildErrorsTab uses -- a separate
+    -- array, never reordering ErrorCapture's own storage.
+    local records = {}
+
+    for i = #errors, 1, -1 do
+        table.insert(records, errors[i])
+    end
+
+    local data = self:BuildErrorExportData(records)
+    local text = AC.DeveloperModeService:ToIndentedText(data)
+
+    self.CopyBox:SetText(text or "")
+    self.CopyBox:SetFocus()
+    self.CopyBox:HighlightText()
+
+end
+
+-------------------------------------------------------------------------------
+-- Secret Values Tab
+--
+-- Diagnostics Hardening Pass -- presents AC.DeveloperRuntime's
+-- "SecretValueEvents" capability, the diagnostic record of every event
+-- AC.SecretValueGuard:TryRead has recorded: a Blizzard secure-callback read
+-- (TooltipDataProcessor, Menu.ModifyMenu, and any future callback of the
+-- same family) that was blocked as a secret value, or that failed for some
+-- other reason while attempting one. Deliberately a separate tab, not rows
+-- merged into the Errors tab -- these are a different kind of event
+-- (expected, designed-for boundary behavior in the common case, not a
+-- crash) even though a CALLBACK_EXCEPTION/UNKNOWN_EXCEPTION entry here will
+-- also appear in the Errors tab (SecretValueGuard re-throws those after
+-- recording -- see its own header for why real bugs are never hidden here).
+-- The two tabs are complementary, not duplicates: this one adds the
+-- secure-callback context (which boundary, which classification) the
+-- Errors tab has no dedicated field for.
+--
+-- Row/detail/toolbar shape is a deliberate mirror of the Errors tab
+-- immediately above -- same accordion engine (AC.Dashboard:LayoutAccordionRows),
+-- same collapsed-row/detail-field primitives, and direct reuse of
+-- TruncateMessage/AddDetailHeader/HideDetailHeader (already generalized
+-- above, not Error-specific) rather than a second copy of any of it.
+-------------------------------------------------------------------------------
+
+local SECRET_VALUE_STATUS_COLOR =
+{
+    SECRET_VALUE_BLOCKED = "dim",       -- the expected, designed-for outcome -- not alarming.
+    CALLBACK_EXCEPTION = "critical",    -- a real bug, re-thrown by SecretValueGuard -- also visible in the Errors tab.
+    UNKNOWN_EXCEPTION = "critical",     -- likewise a real bug/unexpected failure shape.
+}
+
+local function SecretValueStatusColor(status)
+
+    return SECRET_VALUE_STATUS_COLOR[status] or "dim"
+
+end
+
+function DeveloperPanel:BuildSecretValueRow(scrollChild)
+
+    local row = CreateFrame("Button", nil, scrollChild)
+    row:EnableMouse(true)
+
+    local background = row:CreateTexture(nil, "BACKGROUND")
+    background:SetAllPoints()
+    background:SetColorTexture(1, 1, 1, 0)
+
+    row.Background = background
+
+    row:SetScript("OnEnter", function(self_)
+        self_.Background:SetColorTexture(1, 1, 1, 0.06)
+    end)
+
+    row:SetScript("OnLeave", function(self_)
+        self_.Background:SetColorTexture(1, 1, 1, 0)
+    end)
+
+    local contextText = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    contextText:SetJustifyH("LEFT")
+    row.ContextText = contextText
+
+    local messageText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    messageText:SetJustifyH("LEFT")
+    messageText:SetTextColor(unpack(AC.Presentation.GetSemanticColor("dim")))
+    row.MessageText = messageText
+
+    local metaText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    metaText:SetJustifyH("LEFT")
+    metaText:SetTextColor(unpack(AC.Presentation.GetSemanticColor("dim")))
+    row.MetaText = metaText
+
+    return row
+
+end
+
+-- Collapsed preview: Context+Status (colored by severity) / Message preview
+-- / Occurrences+Last Seen -- the same fixed 3-line shape LayoutErrorCollapsed
+-- already uses, covering this tab's own "Context, Count, Last Seen, Status,
+-- Message" column requirement as stacked lines rather than a literal grid,
+-- consistent with how this file already renders every other log-style list.
+function DeveloperPanel:LayoutSecretValueCollapsed(row, record, width)
+
+    local baseX = AC.DashboardLayout.ACCORDION_DISCLOSURE_WIDTH
+    local rowWidth = width - baseX
+
+    row.ContextText:ClearAllPoints()
+    row.ContextText:SetPoint("TOPLEFT", baseX, 0)
+    row.ContextText:SetWidth(rowWidth)
+    row.ContextText:SetText(AC.L:Format("Developer.SecretValueContextFormat", record.context or AC.L:Get("Common.Unknown"), record.status or AC.L:Get("Common.Unknown")))
+    row.ContextText:SetTextColor(unpack(AC.Presentation.GetSemanticColor(SecretValueStatusColor(record.status))))
+
+    row.MessageText:ClearAllPoints()
+    row.MessageText:SetPoint("TOPLEFT", row.ContextText, "BOTTOMLEFT", 0, -2)
+    row.MessageText:SetWidth(rowWidth)
+    row.MessageText:SetText(TruncateMessage(record.message))
+
+    row.MetaText:ClearAllPoints()
+    row.MetaText:SetPoint("TOPLEFT", row.MessageText, "BOTTOMLEFT", 0, -2)
+    row.MetaText:SetWidth(rowWidth)
+    row.MetaText:SetText(AC.L:Format("Developer.SecretValueMetaFormat", record.occurrenceCount or 1, record.lastSeen or AC.L:Get("Common.Unknown")))
+
+    return (row.ContextText:GetStringHeight() or 14) + (row.MessageText:GetStringHeight() or 12) + (row.MetaText:GetStringHeight() or 12) + 4
+
+end
+
+function DeveloperPanel:BuildSecretValueDetail(row, record, width, detailYOffset)
+
+    local yOffset = detailYOffset
+
+    yOffset = AddDetailHeader(row, "SecretValueFullMessage", "Developer.SecretValueFieldMessage", yOffset)
+    yOffset = AC.Dashboard:SetAccordionDetailDescription(row, record.message, yOffset, width, "SecretValueFullMessage")
+
+    yOffset = yOffset - 6
+
+    yOffset = AC.Dashboard:SetAccordionDetailField(row, "SecretValueSource", "Developer.SecretValueFieldSource", record.source or AC.L:Get("Common.Unknown"), yOffset, width)
+    yOffset = AC.Dashboard:SetAccordionDetailField(row, "SecretValueStatus", "Developer.SecretValueFieldStatus", record.status or AC.L:Get("Common.Unknown"), yOffset, width)
+    yOffset = AC.Dashboard:SetAccordionDetailField(row, "SecretValueFirstSeen", "Developer.SecretValueFieldFirstSeen", record.firstSeen or AC.L:Get("Common.Unknown"), yOffset, width)
+    yOffset = AC.Dashboard:SetAccordionDetailField(row, "SecretValueLastSeen", "Developer.SecretValueFieldLastSeen", record.lastSeen or AC.L:Get("Common.Unknown"), yOffset, width)
+    yOffset = AC.Dashboard:SetAccordionDetailField(row, "SecretValueOccurrences", "Developer.SecretValueFieldOccurrences", tostring(record.occurrenceCount or 1), yOffset, width)
+
+    yOffset = yOffset - 6
+
+    yOffset = AddDetailHeader(row, "SecretValueStackTrace", "Developer.SecretValueFieldStackTrace", yOffset)
+    yOffset = AC.Dashboard:SetAccordionDetailDescription(row, record.stack or AC.L:Get("Developer.SecretValueNoStackTrace"), yOffset, width, "SecretValueStackTrace")
+
+    return detailYOffset - yOffset
+
+end
+
+function DeveloperPanel:HideSecretValueDetail(row)
+
+    HideDetailHeader(row, "SecretValueFullMessage")
+    AC.Dashboard:HideAccordionDetailDescription(row, "SecretValueFullMessage")
+
+    AC.Dashboard:HideAccordionDetailField(row, "SecretValueSource")
+    AC.Dashboard:HideAccordionDetailField(row, "SecretValueStatus")
+    AC.Dashboard:HideAccordionDetailField(row, "SecretValueFirstSeen")
+    AC.Dashboard:HideAccordionDetailField(row, "SecretValueLastSeen")
+    AC.Dashboard:HideAccordionDetailField(row, "SecretValueOccurrences")
+
+    HideDetailHeader(row, "SecretValueStackTrace")
+    AC.Dashboard:HideAccordionDetailDescription(row, "SecretValueStackTrace")
+
+end
+
+function DeveloperPanel:BuildSecretValuesToolbar()
+
+    if self.SecretValuesStatusText then
+        return
+    end
+
+    local statusText = self.ScrollChild:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    statusText:SetJustifyH("LEFT")
+    statusText:SetPoint("TOPLEFT", 0, -4)
+    self.SecretValuesStatusText = statusText
+
+    local clearButton = CreateFrame("Button", nil, self.ScrollChild, "UIPanelButtonTemplate")
+    clearButton:SetSize(110, 20)
+    clearButton:SetPoint("TOPRIGHT", 0, -4)
+    clearButton:SetText(AC.L:Get("Developer.ClearSecretValues"))
+
+    clearButton:SetScript("OnClick", function()
+
+        local secretValueEvents = AC.DeveloperRuntime and AC.DeveloperRuntime:GetCapability("SecretValueEvents")
+
+        if secretValueEvents then
+            secretValueEvents:ClearEvents()
+        end
+
+        DeveloperPanel:ShowTab("SecretValues")
+
+    end)
+
+    self.SecretValuesClearButton = clearButton
+
+end
+
+function DeveloperPanel:BuildSecretValuesTab()
+
+    self:BuildSecretValuesToolbar()
+
+    local secretValueEvents = AC.DeveloperRuntime and AC.DeveloperRuntime:GetCapability("SecretValueEvents")
+
+    if not secretValueEvents and AC.Logger then
+        AC.Logger:Warn("Developer Panel: SecretValueEvents capability unavailable -- Secret Values tab has nothing to read from. This should not happen; check Core/Runtime/SecretValueEvents.lua registered correctly.")
+    end
+
+    local events = secretValueEvents and secretValueEvents:GetEvents() or {}
+
+    -- Recording (SecretValueEvents.Enabled, gated on Developer Mode via
+    -- Install/Remove) is shown separately from SecretValueGuard's own
+    -- pcall protection, which is never gated -- a player with Developer
+    -- Mode off is still fully protected from a crash, this line only says
+    -- whether events are currently being recorded for this tab to show.
+    local recording = secretValueEvents ~= nil and secretValueEvents.Enabled == true
+    local statusR, statusG, statusB = unpack(AC.Presentation.GetSemanticColor(recording and "success" or "dim"))
+
+    self.SecretValuesStatusText:SetText(AC.L:Format("Developer.SecretValuesStatusFormat",
+        recording and AC.L:Get("Developer.CaptureOn") or AC.L:Get("Developer.CaptureOff"), #events))
+    self.SecretValuesStatusText:SetTextColor(statusR, statusG, statusB)
+    self.SecretValuesStatusText:Show()
+
+    self.SecretValuesClearButton:Show()
+
+    -- Newest first -- a separate array, never reordering the capability's
+    -- own (first-seen-ordered) storage, same discipline the Errors tab
+    -- already established.
+    local records = {}
+
+    for i = #events, 1, -1 do
+        table.insert(records, events[i])
+    end
+
+    local yOffset = AC.Dashboard:LayoutAccordionRows(self, "SecretValues", self.ScrollChild, -34, CONTENT_WIDTH, records,
+    {
+        expandedField = "ExpandedSecretValueKey",
+        getRecordID = function(record) return record.key end,
+        rowGap = AC.DashboardLayout.ACCORDION_ROW_GAP,
+        emptyTextKey = "Developer.NoSecretValueEvents",
+
+        buildRow = function(sc)
+            return self:BuildSecretValueRow(sc)
+        end,
+
+        layoutCollapsed = function(row, record, width)
+            return self:LayoutSecretValueCollapsed(row, record, width)
+        end,
+
+        buildDetail = function(row, record, width, detailYOffset)
+            return self:BuildSecretValueDetail(row, record, width, detailYOffset)
+        end,
+
+        hideDetail = function(row)
+            self:HideSecretValueDetail(row)
+        end,
+
+        onToggle = function(recordID)
+            self.ExpandedSecretValueKey = (self.ExpandedSecretValueKey == recordID) and nil or recordID
+            self:ShowTab("SecretValues")
+        end,
+    })
+
+    local summaryLines = {}
+    local data = {}
+
+    for _, record in ipairs(records) do
+
+        table.insert(summaryLines, string.format("[%dx] %s -- %s: %s (last seen %s)",
+            record.occurrenceCount or 1, record.context or AC.L:Get("Common.Unknown"), record.status or AC.L:Get("Common.Unknown"), TruncateMessage(record.message), record.lastSeen or AC.L:Get("Common.Unknown")))
+
+        table.insert(data,
+        {
+            context = record.context,
+            source = record.source,
+            status = record.status,
+            message = record.message,
+            occurrenceCount = record.occurrenceCount,
+            firstSeen = record.firstSeen,
+            lastSeen = record.lastSeen,
+        })
+
+    end
+
+    self.CurrentTabData = data
+    self.CurrentTabSummaryLines = summaryLines
 
     return (-yOffset) + 16
 
@@ -1698,6 +2573,10 @@ function DeveloperPanel:ShowTab(tabName)
         contentHeight = self:BuildModulesTab()
     elseif tabName == "Events" then
         contentHeight = self:BuildEventsTab()
+    elseif tabName == "Errors" then
+        contentHeight = self:BuildErrorsTab()
+    elseif tabName == "SecretValues" then
+        contentHeight = self:BuildSecretValuesTab()
     elseif tabName == "LiveAPI" then
         contentHeight = self:BuildLiveAPITab()
     elseif tabName == "Checklist" then

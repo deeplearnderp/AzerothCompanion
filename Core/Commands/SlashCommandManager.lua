@@ -135,6 +135,10 @@ function SlashCommandManager:HandleDev(argument)
 
         AC.DeveloperModeService:SetEnabled(true)
 
+        if AC.DeveloperPanel then
+            AC.DeveloperPanel:Show()
+        end
+
     elseif argument == "off" then
 
         AC.DeveloperModeService:SetEnabled(false)
@@ -155,8 +159,39 @@ function SlashCommandManager:HandleDev(argument)
             AC.Logger:Warn("Developer Mode is off. Usage: /ac dev on|off")
         end
 
+    elseif argument == "testerror" then
+
+        -- Developer Test Harness -- deliberately a real, uncaught error()
+        -- call (not routed through any pcall of our own), so it reaches
+        -- the global error handler exactly the way a genuine bug would,
+        -- validating the real capture/aggregation/chaining pipeline
+        -- end-to-end rather than a simulation of it. Same source line
+        -- every time, so repeated invocations exercise occurrence-count
+        -- aggregation; any other real error encountered separately
+        -- exercises the "different error creates a new entry" path.
+        if not AC.DeveloperModeService:IsEnabled() then
+            AC.Logger:Warn("Developer Mode is off. Usage: /ac dev on|off")
+            return
+        end
+
+        error("Azeroth Companion Developer Runtime test error (/ac dev testerror).")
+
+    elseif argument == "clearerrors" then
+
+        if not AC.DeveloperModeService:IsEnabled() then
+            AC.Logger:Warn("Developer Mode is off. Usage: /ac dev on|off")
+            return
+        end
+
+        local errorCapture = AC.DeveloperRuntime and AC.DeveloperRuntime:GetCapability("ErrorCapture")
+
+        if errorCapture then
+            errorCapture:ClearErrors()
+            AC.Logger:Info("Developer Runtime: captured errors cleared.")
+        end
+
     else
-        AC.Logger:Warn("Usage: /ac dev on|off")
+        AC.Logger:Warn("Usage: /ac dev on|off|testerror|clearerrors")
     end
 
 end

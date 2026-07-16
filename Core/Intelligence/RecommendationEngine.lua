@@ -67,7 +67,9 @@
 -- of the module being read, or a merged candidate's own already-real
 -- `category`). This lets the Inspector group evidence by contributing
 -- module without duplicating this engine's own "which module did this
--- fact come from" knowledge -- see Core/UI/RecommendationInspector.lua.
+-- fact come from" knowledge -- see Core/UI/Dashboard/Pages/RecommendationDetails.lua
+-- (Navigation UX Sprint -- formerly Core/UI/RecommendationInspector.lua,
+-- a standalone popup; same grouping logic, now a Dashboard page).
 -------------------------------------------------------------------------------
 
 local AC = _G.AzerothCompanion
@@ -516,19 +518,29 @@ function RecommendationEngine:EvaluateInsight(insight)
         }
     end
 
-    -- Repairs Needed
+    -- Repairs Needed -- description varies by severity using the data
+    -- InventoryModule's own Insight already carried (brokenItems), rather
+    -- than recalculating anything here (No Duplicated Calculations).
     if title == "Repairs Needed" then
+
+        local data = insight.data or {}
+        local descriptionKey = "Recommendation.RepairYourGear.Description"
+
+        if (data.brokenItems or 0) > 0 then
+            descriptionKey = "Recommendation.RepairYourGear.DescriptionBroken"
+        end
+
         return
         {
             id = "RepairYourGear",
             title = AC.L:Get("Recommendation.RepairYourGear.Title"),
-            description = AC.L:Get("Recommendation.RepairYourGear.Description"),
+            description = AC.L:Get(descriptionKey),
             priority = priority + 5,
             category = "Inventory",
             timestamp = time(),
             expiresAt = 0,
             dismissible = false,
-            data = insight.data or {},
+            data = data,
         }
     end
 
@@ -708,17 +720,22 @@ function RecommendationEngine:EvaluateInsight(insight)
 
         end
 
-        -- Repair Status (V3) -- read directly from Inventory's own public
-        -- getter (the same one the Home Mythic+ card already reads),
-        -- since walking into a dungeon unrepaired is genuinely relevant
-        -- Mythic+ preparation even though Storage's restock analysis
-        -- doesn't track it.
+        -- Repair Status (Equipment Health feature) -- read directly from
+        -- InventoryModule's own GetEquipmentHealthSummary (the same
+        -- function the Dashboard's Inventory page and the standalone
+        -- "Repairs Needed" recommendation both read), since walking into a
+        -- dungeon unrepaired is genuinely relevant Mythic+ preparation even
+        -- though Storage's restock analysis doesn't track it. Reads the
+        -- summary once here rather than through GetImportantItemsSummary
+        -- (hearthstone-only now) -- No Duplicated Calculations.
         local inventoryModule = AC.Core and AC.Core:GetModule("Inventory")
-        local importantItems = inventoryModule and inventoryModule.GetImportantItemsSummary and inventoryModule:GetImportantItemsSummary()
+        local equipmentHealth = inventoryModule and inventoryModule.GetEquipmentHealthSummary and inventoryModule:GetEquipmentHealthSummary()
 
-        if importantItems and importantItems.needsRepair then
+        if equipmentHealth and equipmentHealth.needsRepair then
 
-            table.insert(supportingEvidence, { label = AC.L:Get("Evidence.RepairStatus"), value = AC.L:Get("Inventory.RepairsNeeded"), module = "Inventory" })
+            local repairEvidenceKey = (equipmentHealth.brokenItems or 0) > 0 and "Inventory.EquipmentBroken" or "Inventory.RepairsNeeded"
+
+            table.insert(supportingEvidence, { label = AC.L:Get("Evidence.RepairStatus"), value = AC.L:Get(repairEvidenceKey), module = "Inventory" })
             table.insert(sourceModules, "Inventory")
 
         end
@@ -734,7 +751,7 @@ function RecommendationEngine:EvaluateInsight(insight)
         if partyMatches and #partyMatches > 0 then
 
             -- Deliberately NOT added to sourceModules -- that list drives
-            -- RecommendationInspector's clickable "Contributing Modules"
+            -- Recommendation Details' clickable "Contributing Modules"
             -- buttons, each of which navigates to that module's own
             -- Dashboard page (MODULE_TO_PAGE). PlayerJournal has no
             -- Dashboard page (it's a standalone window), so a
@@ -747,7 +764,7 @@ function RecommendationEngine:EvaluateInsight(insight)
                 local value = AC.L:Format("Evidence.PlayerJournalRunsTogetherFormat", match.runsTogether or 0)
 
                 if match.isFavorite then
-                    value = AC.L:Get("Evidence.PlayerJournalFavoriteGlyph") .. " " .. value
+                    value = AC.DashboardFormat.STAR_FILLED .. " " .. value
                 end
 
                 table.insert(supportingEvidence, { label = match.name, value = value, module = "PlayerJournal" })

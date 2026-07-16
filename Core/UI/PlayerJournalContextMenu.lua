@@ -33,6 +33,20 @@ local AC = _G.AzerothCompanion
 -- tries the field names Blizzard's own documented unit-menu contextData
 -- commonly carries (`unit`, then `name`/`server` as a fallback), bails
 -- cleanly (no submenu added) rather than guessing at a player identity.
+--
+-- Secret Value Audit -- contextData.unit, read from inside a Menu.ModifyMenu
+-- callback, is structurally identical to the two already-CONFIRMED-broken
+-- PlayerJournal tooltip reads (tooltip:GetUnit(), the postcall's own
+-- data.guid field): a unit-identifying value Blizzard's own secure menu
+-- dispatch hands to this callback, which may be secret and throw the
+-- instant UnitExists/UnitFullName touch it. Previously flagged
+-- ctxmenu.contextDataUnitSecretValue (NEEDS_LIVE) but left unguarded while
+-- awaiting a human's confirmation; now routed through the same shared
+-- AC.SecretValueGuard:TryRead every secure-callback read in this addon
+-- uses, covering both the unit-token path and the name/server fallback in
+-- one attempt -- if either throws, this falls through to "no identity
+-- resolved," the same clean bail-out this function already used for a
+-- contextData shape it didn't recognize.
 -------------------------------------------------------------------------------
 
 local function ResolvePlayerKey(contextData)
@@ -41,14 +55,21 @@ local function ResolvePlayerKey(contextData)
         return nil
     end
 
-    local name, realm
+    local ok, identity = AC.SecretValueGuard:TryRead("ctxmenu.contextData", function()
 
-    if contextData.unit and UnitExists(contextData.unit) then
-        name, realm = UnitFullName(contextData.unit)
-    elseif contextData.name then
-        name = contextData.name
-        realm = contextData.server or contextData.realm
-    end
+        if contextData.unit and UnitExists(contextData.unit) then
+
+            local unitName, unitRealm = UnitFullName(contextData.unit)
+            return { name = unitName, realm = unitRealm }
+
+        elseif contextData.name then
+            return { name = contextData.name, realm = contextData.server or contextData.realm }
+        end
+
+    end)
+
+    local name = ok and identity and identity.name
+    local realm = ok and identity and identity.realm
 
     if not name or name == "" then
         return nil

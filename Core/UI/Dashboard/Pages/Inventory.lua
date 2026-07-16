@@ -57,26 +57,48 @@ function Dashboard:GetInventoryFieldValues()
 
         local importantItems = inventoryModule:GetImportantItemsSummary()
 
-        if importantItems then
+        if importantItems and importantItems.hasHearthstone ~= nil then
 
-            if importantItems.hasHearthstone ~= nil then
-
-                if importantItems.hasHearthstone then
-                    values.hearthstone = AC.L:Get("Inventory.HearthstoneInBags")
-                else
-                    values.hearthstone = AC.L:Get("Inventory.HearthstoneMissing")
-                end
-
+            if importantItems.hasHearthstone then
+                values.hearthstone = AC.L:Get("Inventory.HearthstoneInBags")
+            else
+                values.hearthstone = AC.L:Get("Inventory.HearthstoneMissing")
             end
 
-            if importantItems.needsRepair ~= nil then
+        end
 
-                if importantItems.needsRepair then
-                    values.repairStatus = AC.L:Get("Inventory.RepairsNeeded")
-                else
-                    values.repairStatus = AC.L:Get("Inventory.NoRepairsNeeded")
-                end
+    end
 
+    -----------------------------------------------------------------------
+    -- Equipment Health (Equipment Health feature) -- read directly from
+    -- InventoryModule's own summary, not through GetImportantItemsSummary
+    -- (that function is hearthstone-only now -- One Fact, One Home).
+    -- Wording/tier/color decisions all happen here, not in the module --
+    -- InventoryModule only ever hands back plain numbers/booleans.
+    -----------------------------------------------------------------------
+
+    if inventoryModule.GetEquipmentHealthSummary then
+
+        local equipmentHealth = inventoryModule:GetEquipmentHealthSummary()
+
+        if equipmentHealth then
+
+            if equipmentHealth.overallDurability then
+                values.overallDurability = AC.Presentation.FormatPercent(equipmentHealth.overallDurability, 0)
+            end
+
+            if equipmentHealth.worstDurability then
+                values.worstDurability = AC.Presentation.FormatPercent(equipmentHealth.worstDurability, 0)
+            end
+
+            local tierLabel, tierColor = AC.DashboardFormat.GetEquipmentHealthTier(equipmentHealth.worstDurability, equipmentHealth.brokenItems)
+            values.repairStatus = tierLabel
+            values.repairStatusColor = tierColor -- read by UpdateInventoryPage below; not a field key itself
+
+            if equipmentHealth.repairCost and equipmentHealth.repairCost > 0 then
+                values.repairCost = AC.Presentation.FormatMoney(equipmentHealth.repairCost)
+            else
+                values.repairCost = AC.L:Get("Inventory.RepairCostUnavailable")
             end
 
         end
@@ -121,6 +143,15 @@ function Dashboard:UpdateInventoryPage(frame)
 
     for key, fontString in pairs(page.Fields) do
         fontString:SetText(values[key] or unknown)
+    end
+
+    -- Equipment Health tier color (Equipment Health feature) -- the one
+    -- field on this page whose value carries severity meaning, the same
+    -- "label + color" treatment Priority/Confidence get on the
+    -- Recommendation card. Every other field here is a plain string/number
+    -- with no color decision to make.
+    if page.Fields.repairStatus and values.repairStatusColor then
+        page.Fields.repairStatus:SetTextColor(unpack(AC.Presentation.GetSemanticColor(values.repairStatusColor)))
     end
 
     -----------------------------------------------------------------------

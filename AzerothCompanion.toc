@@ -29,6 +29,8 @@ Localization/zhTW.lua
 Core/Core.lua
 
 Core/Presentation/Presentation.lua
+Core/Security/SecretValueGuard.lua
+Core/Utility/ItemClassification.lua
 
 Core/Managers/ServiceManager.lua
 Core/Managers/ModuleManager.lua
@@ -40,6 +42,9 @@ Core/Events/EventManager.lua
 Core/Services/NotificationService.lua
 Core/Diagnostics/DiagnosticsService.lua
 Core/Services/DeveloperModeService.lua
+Core/Runtime/DeveloperRuntime.lua
+Core/Runtime/ErrorCapture.lua
+Core/Runtime/SecretValueEvents.lua
 Core/Services/VerificationService.lua
 Core/Managers/WidgetManager.lua
 Core/Config/ConfigurationManager.lua
@@ -93,12 +98,12 @@ Core/UI/Dashboard/Pages/Recommendations.lua
 Core/UI/Dashboard/Pages/Progress.lua
 Core/UI/Dashboard/Pages/Statistics.lua
 Core/UI/Dashboard/Pages/Journey.lua
+Core/UI/Dashboard/Pages/RecommendationDetails.lua
 Core/UI/Dashboard/Home.lua
 Core/UI/Dashboard/Navigation.lua
 
 Core/UI/Dashboard/Notifications.lua
 
-Core/UI/RecommendationInspector.lua
 Core/UI/DeveloperPanel.lua
 
 Core/UI/PlayerJournal/PlayerJournalWindow.lua

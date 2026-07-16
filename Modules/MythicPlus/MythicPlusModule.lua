@@ -40,7 +40,6 @@ local GetMapUIInfo = C_ChallengeMode.GetMapUIInfo
 
 local UnitGUID = UnitGUID
 local CombatLogGetCurrentEventInfo = CombatLogGetCurrentEventInfo
-local GetItemInfoInstant = C_Item and C_Item.GetItemInfoInstant
 local GetBestMapForUnit = C_Map and C_Map.GetBestMapForUnit
 local GetPlayerMapPosition = C_Map and C_Map.GetPlayerMapPosition
 
@@ -146,58 +145,18 @@ end
 -------------------------------------------------------------------------------
 -- Consumable Classification
 --
--- Deliberately NOT a hardcoded item-ID list -- potions/flasks/food are
--- reseasoned by Blizzard constantly, and a per-item list would go stale
--- every season. Instead this reads the item's own classID/subClassID
--- (Enum.ItemClass.Consumable + Enum.ItemConsumableSubclass), which is
--- Blizzard's own stable taxonomy -- a brand new seasonal potion is
--- correctly classified "potion" the day it ships, no addon update
--- needed. The one exception is Healthstone (itemID 5512), a single,
--- extremely long-standing item ID rather than a distinct subclass.
---
--- Trade-off: Blizzard's own classification does not distinguish healing
--- vs. mana vs. combat potions -- they are all just subclass "Potion".
--- Reporting that distinction would require a maintained per-potion-name
--- list, reintroducing exactly the seasonal staleness this design avoids,
--- so this reports an aggregate "potion" count rather than guessing at a
--- finer split Blizzard doesn't structurally expose.
+-- Delegates to the shared AC.ItemClassification (Core/Utility/
+-- ItemClassification.lua) -- consolidated there during the Product Polish
+-- consumable classifier consolidation so this and StorageModule's rule
+-- matching read from exactly one implementation instead of two independently
+-- drifting copies. Kept as a method here (rather than removed) since this is
+-- this module's existing public interface -- callers elsewhere in this file
+-- (SnapshotConsumableCounts) are unaffected by where the logic actually lives.
 -------------------------------------------------------------------------------
 
 function MythicPlusModule:ClassifyConsumableItem(itemID)
 
-    if itemID == 5512 then
-        return "healthstone"
-    end
-
-    if not GetItemInfoInstant then
-        return nil
-    end
-
-    local _, _, _, _, _, classID, subClassID = GetItemInfoInstant(itemID)
-
-    local consumableClassID = (Enum.ItemClass and Enum.ItemClass.Consumable) or 0
-
-    if classID ~= consumableClassID then
-        return nil
-    end
-
-    local subclassEnum = Enum.ItemConsumableSubclass
-
-    if not subclassEnum then
-        return nil
-    end
-
-    if subClassID == subclassEnum.Potion then
-        return "potion"
-    elseif subClassID == subclassEnum.Flask then
-        return "flask"
-    elseif subClassID == subclassEnum.Food then
-        return "food"
-    elseif subClassID == subclassEnum.ItemEnhancement then
-        return "itemEnhancement"
-    end
-
-    return nil
+    return AC.ItemClassification:ClassifyConsumable(itemID)
 
 end
 

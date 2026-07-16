@@ -14,9 +14,10 @@
 -- rather than this file needing to know about them).
 --
 -- Show(playerKey) takes a stable id, not a live object -- a deliberate
--- divergence from RecommendationInspector:Show(recommendation), which
--- takes a live object specifically because Recommendations are rebuilt
--- from scratch every refresh with no stable identity. Player Journal
+-- divergence from Dashboard:ShowRecommendationDetails(recommendation)
+-- (Core/UI/Dashboard/Navigation.lua), which takes a live object
+-- specifically because Recommendations are rebuilt from scratch every
+-- refresh with no stable identity. Player Journal
 -- records are real persisted state with a stable identity ("Name-Realm"),
 -- so re-reading by id on every tab switch/refresh is both correct and
 -- simpler than threading a live table reference through every tab file.
@@ -298,7 +299,7 @@ function PlayerJournalWindow:RefreshIdentityHeader()
     AC.DashboardFormat.SetHighlightColor(self.IdentityText)
 
     local isFavorite = journalModule:IsFavorite(self.CurrentPlayerKey)
-    self.FavoriteButton:SetText(isFavorite and AC.L:Get("PlayerJournal.FavoriteOn") or AC.L:Get("PlayerJournal.FavoriteOff"))
+    self.FavoriteButton:SetText(isFavorite and AC.L:Format("PlayerJournal.FavoriteOn", AC.DashboardFormat.STAR_FILLED) or AC.L:Get("PlayerJournal.FavoriteOff"))
     self.FavoriteButton:Show()
 
 end
@@ -383,8 +384,8 @@ end
 -------------------------------------------------------------------------------
 -- Register
 --
--- Registered as a Module (same as DeveloperPanel/RecommendationInspector,
--- both also standalone windows under Core/UI/) so Initialize() runs
+-- Registered as a Module (same as DeveloperPanel, also a standalone
+-- window under Core/UI/) so Initialize() runs
 -- automatically during ModuleManager:InitializeModules() -- self.Frame
 -- always exists by the time anything calls Show()/Toggle(), no lazy-init
 -- guard needed.

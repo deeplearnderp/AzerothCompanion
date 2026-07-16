@@ -193,6 +193,18 @@ function Dashboard:UpdateMythicPlusPage(frame)
 
         -----------------------------------------------------------------------
         -- Season Statistics
+        --
+        -- Includes Fastest Run, folded in from the former standalone
+        -- "Personal Bests" section (Product Polish Phase 1). That
+        -- section's other two fields -- Highest Timed/Completed -- were
+        -- an exact duplicate (same label, same seasonStats value) of a
+        -- row this same grid already rendered, so they were dropped
+        -- rather than merged; nothing here changed what those two rows
+        -- show. Key Statistics' own Best Timed/Best Completed (above,
+        -- unconditional) are a separate case -- Best Completed reads
+        -- Blizzard's live GetBestOverallLevel(), not this addon-recorded
+        -- seasonStats, so it was left untouched rather than assumed
+        -- identical. See docs/GameplayModuleArchitecture.md Rule 16.
         -----------------------------------------------------------------------
 
         yOffset = self:BeginSection(scrollChild, "MythicPlus.SectionSeasonStatistics", yOffset)
@@ -207,6 +219,12 @@ function Dashboard:UpdateMythicPlusPage(frame)
                 page.StatsEmptyText:Hide()
             end
 
+            local fastestText = AC.L:Get("Common.Unknown")
+
+            if seasonStats.fastestRun then
+                fastestText = AC.L:Format("MythicPlus.FastestRunFormat", seasonStats.fastestRun.dungeonName or AC.L:Get("Common.Unknown"), seasonStats.fastestRun.level or 0, Format.FormatClock(seasonStats.fastestRun.time))
+            end
+
             local seasonGridStats =
             {
                 { label = "MythicPlus.StatRunsCompleted", value = tostring(seasonStats.runsCompleted) },
@@ -214,47 +232,11 @@ function Dashboard:UpdateMythicPlusPage(frame)
                 { label = "MythicPlus.StatFailedRuns", value = tostring(seasonStats.failedRuns) },
                 { label = "MythicPlus.StatSuccessRate", value = AC.Presentation.FormatPercent(seasonStats.successRate) },
                 { label = "MythicPlus.StatAverageKeyLevel", value = string.format("%.1f", seasonStats.averageKeyLevel) },
-                { label = "MythicPlus.StatHighestTimed", value = tostring(seasonStats.highestTimedLevel) },
-                { label = "MythicPlus.StatHighestCompleted", value = tostring(seasonStats.highestCompletedLevel) },
                 { label = "MythicPlus.StatRatingGained", value = string.format("%.1f", seasonStats.ratingGained) },
-            }
-
-            yOffset = self:LayoutStatisticsGrid(page, "SeasonStats", scrollChild, yOffset, width, seasonGridStats)
-
-        end
-
-        yOffset = self:EndSection(yOffset)
-
-        -----------------------------------------------------------------------
-        -- Personal Bests
-        -----------------------------------------------------------------------
-
-        yOffset = self:BeginSection(scrollChild, "MythicPlus.SectionPersonalBests", yOffset)
-
-        if seasonStats.runsCompleted == 0 then
-
-            yOffset = ShowEmptyLine("BestsEmptyText", yOffset, width, "MythicPlus.NoPersonalBests")
-
-        else
-
-            if page.BestsEmptyText then
-                page.BestsEmptyText:Hide()
-            end
-
-            local fastestText = AC.L:Get("Common.Unknown")
-
-            if seasonStats.fastestRun then
-                fastestText = AC.L:Format("MythicPlus.FastestRunFormat", seasonStats.fastestRun.dungeonName or AC.L:Get("Common.Unknown"), seasonStats.fastestRun.level or 0, Format.FormatClock(seasonStats.fastestRun.time))
-            end
-
-            local bestsGridStats =
-            {
-                { label = "MythicPlus.StatHighestTimed", value = tostring(seasonStats.highestTimedLevel) },
-                { label = "MythicPlus.StatHighestCompleted", value = tostring(seasonStats.highestCompletedLevel) },
                 { label = "MythicPlus.StatFastestRun", value = fastestText },
             }
 
-            yOffset = self:LayoutStatisticsGrid(page, "PersonalBests", scrollChild, yOffset, width, bestsGridStats)
+            yOffset = self:LayoutStatisticsGrid(page, "SeasonStats", scrollChild, yOffset, width, seasonGridStats)
 
         end
 

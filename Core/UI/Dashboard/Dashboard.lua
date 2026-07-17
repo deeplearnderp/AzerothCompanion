@@ -8,13 +8,15 @@
 -- every other feature gets its own Dashboard page over time.
 --
 -- The Dashboard never owns player data and never touches Blizzard APIs
--- directly for gameplay state. Every gameplay value shown here is read
--- through a gameplay module's public API -- it is purely presentation.
+-- directly for gameplay state. Gameplay facts are read through gameplay
+-- module public APIs; chronological activity presentation reads the public
+-- query API of ActivityHistoryService, the authoritative persisted stream
+-- those modules write. The Dashboard remains purely presentation.
 -- All visible text goes through AC.L:Get()/AC.L:Format() rather than
 -- literal strings, per the Localization system -- nothing in here reads a
 -- locale table directly.
 --
--- Adding a future module page (Delves, Raids, Professions, Collections,
+-- Adding a future module page (Raids, Professions, Collections,
 -- Reputation, Weekly Activities, ...) means, and should only ever mean:
 --   1. Add its schema to Schemas.lua, if it is a static-field page.
 --   2. Add its page name to DashboardLayout.VALID_PAGES (Layout.lua).
@@ -37,6 +39,7 @@
 --   Format.lua            -- number/duration/money/clock/star formatting
 --   Schemas.lua            -- static field-schema data for Profile/Inventory
 --   Dashboard.lua (this file) -- creates the Dashboard table + Initialize()
+--   ActivityPresentation.lua -- shared ActivityHistory record formatting
 --   Sections.lua            -- shared page-shell + section-building primitives
 --   Rows.lua                 -- shared dynamic list/hero/grid/history row builders
 --   Pages/*.lua                -- one file per page's Get*FieldValues/Update*Page
@@ -63,6 +66,25 @@ function Dashboard:Initialize()
     self.NavigationHistory = {}
 
     self.Frame = self:Create()
+
+    AC.Events:Register("DEVELOPER_MODE_CHANGED", self, "OnDeveloperModeChanged")
+    self:OnDeveloperModeChanged(AC.DeveloperModeService and AC.DeveloperModeService:IsEnabled())
+
+end
+
+function Dashboard:OnDeveloperModeChanged(enabled)
+
+    local button = self.Frame and self.Frame.DeveloperButton
+
+    if not button then
+        return
+    end
+
+    if enabled then
+        button:Show()
+    else
+        button:Hide()
+    end
 
 end
 

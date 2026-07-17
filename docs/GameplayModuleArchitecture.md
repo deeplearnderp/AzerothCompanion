@@ -63,6 +63,7 @@ Owns everything physically carried or equipped by the current character — bags
 
 #### Responsibilities
 - Bag contents and slot accounting (used/free/total slots, percentage full).
+- Authoritative, read-only bag snapshots (`GetInventorySnapshot`) with an in-session snapshot identity and timestamp. Aggregate consumers read this API; they never rescan bag containers.
 - Equipped item slots (equipped/empty count, average equipped item level).
 - Important-item presence checks (hearthstone item possession — distinct from Character's "which hearthstone is set" fact). The item ID itself (`AC.HEARTHSTONE_ITEM_ID = 6948`, defined once in `InventoryModule.lua`) is the one shared identifier `StorageProfiles.lua`'s built-in "Keep 1 Hearthstone" preset rules also reference, rather than each file hardcoding the literal independently (v1.0 Polish Sprint — previously duplicated in 4 places across both files).
 - Repair status (only when a merchant is open — this is a genuine Blizzard-imposed constraint, not a design choice).
@@ -174,10 +175,10 @@ Owns Mythic+ keystone state, dungeon score, best runs, active-run state, weekly 
 - Insight generation for Mythic+ events, including several derived from recorded history rather than live state alone (see Insight responsibilities below).
 
 #### Blizzard APIs owned
-`C_ChallengeMode`: `GetActiveKeystoneInfo`, `GetSlottedKeystoneInfo`, `HasSlottedKeystone`, `GetOverallDungeonScore`, `GetMapUIInfo`, `GetDeathCount`, `GetMapScoreInfo`, `GetCompletionInfo`, `IsChallengeModeActive`, `GetAffixInfo` (affix display resolution). `C_MythicPlus`: `GetOwnedKeystoneChallengeMapID`, `GetOwnedKeystoneLevel`, `GetCurrentAffixes`, `GetCurrentSeason`, `RequestMapInfo`. `GetExpansionLevel` (envelope metadata only). `UNIT_SPELLCAST_SUCCEEDED`, `PLAYER_DEAD`, `ENCOUNTER_START`/`ENCOUNTER_END`, and a narrowly-filtered `COMBAT_LOG_EVENT_UNFILTERED` — all registered only between `CHALLENGE_MODE_START` and the run ending (see "Long-Term Performance Tracking"). `C_Item.GetItemInfoInstant`, `C_Map.GetBestMapForUnit`/`GetPlayerMapPosition` (player's own position on their own death only).
+`C_ChallengeMode`: `GetActiveKeystoneInfo`, `GetSlottedKeystoneInfo`, `HasSlottedKeystone`, `GetOverallDungeonScore`, `GetMapUIInfo`, `GetDeathCount`, `GetMapScoreInfo`, `GetChallengeCompletionInfo`, `IsChallengeModeActive`, `GetAffixInfo` (affix display resolution). `C_MythicPlus`: `GetOwnedKeystoneChallengeMapID`, `GetOwnedKeystoneLevel`, `GetCurrentAffixes`, `GetCurrentSeason`, `RequestMapInfo`. `GetExpansionLevel` (envelope metadata only). `UNIT_SPELLCAST_SUCCEEDED`, `PLAYER_DEAD`, `ENCOUNTER_START`/`ENCOUNTER_END`, and a narrowly-filtered `COMBAT_LOG_EVENT_UNFILTERED` — all registered only between `CHALLENGE_MODE_START` and the run ending (see "Long-Term Performance Tracking"). `C_Item.GetItemInfoInstant`, `C_Map.GetBestMapForUnit`/`GetPlayerMapPosition` (player's own position on their own death only).
 
 #### Dashboard responsibilities
-Home page Mythic+ card ("Current Keystone" in the daily-briefing layout — current season, active run or owned keystone/dungeon name/level, rating, best level) plus the Home page's "Recent Activity" card (most recent completed run, read via `GetRecentRuns(1)`). Mythic+ page — the flagship page: Hero section, Key Statistics grid, Recent Runs history table (expandable rows), Season Statistics grid, Personal Bests grid, Performance Trends grid, Consumables grid, Recommendations, Insights. Recent Runs' expandable rows are `Dashboard:LayoutHistoryRows` (`Rows.lua`), a thin wrapper over the same `LayoutAccordionRows` engine Accomplishments/Journey use (section 1.3's "Accordion Polish Pass") — its columns gained a shared disclosure icon and shifted right 14px to make room, an intentional shared-improvement exception to this page otherwise staying pixel-identical.
+Home page Mythic+ card ("Current Keystone" in the daily-briefing layout — current season, active run or owned keystone/dungeon name/level, rating, best level) routes to the dedicated competitive-analysis Mythic+ page: Hero, Key Statistics, Recent Runs history, Season Statistics, Performance Trends, Consumables, Recommendations, and Insights. The separate Dungeons page may reference an active Mythic+ run only as authoritative "current dungeon" context; it does not display Mythic+ completion history or competitive analysis. Recent Runs' expandable rows remain `Dashboard:LayoutHistoryRows` (`Rows.lua`), a thin wrapper over the same `LayoutAccordionRows` engine Accomplishments/Journey use (section 1.3's "Accordion Polish Pass").
 
 #### Insight responsibilities
 Live-state insights: "No Keystone", "Keystone Ready" (an owned keystone with no run currently active — the trigger for RecommendationEngine's cross-module "Complete Your Keystone", see 1.6), "Personal Best", "Rating Increased", "Current Run Active". History-backed insights (each gated on enough recorded samples to be meaningful, not fired from one or two runs): "Recent Timed Rate", "Season Success Rate", "Weakest Dungeon" (lowest timed rate among dungeons run at least twice this season), "Dungeon Average Deaths" (for the currently-owned dungeon), "Deaths Today", "Success Rate Improving" (earlier vs. later half of the season's recorded runs), "Consumables Reminder" (low flask/food usage rate among *tracked* runs only — untracked older runs are excluded rather than assumed to mean "none used").
@@ -195,7 +196,7 @@ Feeds RecommendationEngine via Insight → Recommendation mappings, now consider
 
 #### Long-Term Performance Tracking
 
-**Data flow:** `CHALLENGE_MODE_START` → `MythicPlusModule` resets per-run scratch state (`self.RunTracking`) and registers a small set of run-scoped listeners → those listeners accumulate interrupts/defensive-cooldown-uses/deaths(+location, boss-vs-trash)/consumable-item snapshots while the run is in progress → `CHALLENGE_MODE_COMPLETED_REWARDS` builds the completed-run record and calls `RecordCompletedRun()`, which appends one record to `ActivityHistoryService` (Module = `"MythicPlus"`) and unregisters the run-scoped listeners → `GetRecentRuns()`/`GetSeasonStatistics()` read that history back → `GetInsights()` derives history-backed Insights from it → `RecommendationEngine`'s existing generic Insight → Recommendation mappings turn some of those into Recommendations, unchanged in structure from before this feature → the Dashboard reads all of the above through public APIs only.
+**Data flow:** `CHALLENGE_MODE_START` → `MythicPlusModule` resets per-run scratch state (`self.RunTracking`) and registers a small set of run-scoped listeners → those listeners accumulate interrupts/defensive-cooldown-uses/deaths(+location, boss-vs-trash)/consumable-item snapshots while the run is in progress → `CHALLENGE_MODE_COMPLETED` reads `C_ChallengeMode.GetChallengeCompletionInfo()`, builds the completed-run record, and calls `RecordCompletedRun()`, which appends one record to `ActivityHistoryService` (Module = `"MythicPlus"`) and unregisters the run-scoped listeners → `GetRecentRuns()`/`GetSeasonStatistics()` read that history back → `GetInsights()` derives history-backed Insights from it → `RecommendationEngine`'s existing generic Insight → Recommendation mappings turn some of those into Recommendations, unchanged in structure from before this feature → the Dashboard reads all of the above through public APIs only.
 
 **History ownership:** MythicPlusModule is the only writer to its own `Module = "MythicPlus"` records. `ActivityHistoryService` owns storage, indexing, retrieval, and pruning; it never inspects or generates statistics from the `Data` payload — that stays MythicPlusModule's exclusive concern, keeping `RecommendationEngine`/`InsightEngine` fully generic (see below).
 
@@ -229,8 +230,8 @@ This audit covers the fields named in the Phase 2 task: Run History, Seasonal St
 |---|---|---|---|
 | Best Runs | `C_ChallengeMode.GetMapScoreInfo()` — per-dungeon `mapChallengeModeID`, `level`, `dungeonScore` (already collected). | Per-run metadata beyond the current best (duration, affixes used, date) — Blizzard's own return is a single "best" snapshot per dungeon, not a run log. | None needed for current scope; if per-run metadata is ever exposed by a future API, extend `RefreshBestRuns()` in place — same module, same function. |
 | Affixes — **Implemented** | `C_ChallengeMode.GetAffixInfo(affixID)` *(confirmed namespace, resolves an affix ID already collected in `weeklyAffixIDs`/`currentAffixIDs` into name/description/icon)*. Affix IDs active during a completed run are now captured into that run's recorded `Data.affixIDs`. | A "why was this affix chosen" or historical affix-rotation API. | Done: `MythicPlusModule:GetAffixDisplayInfo(affixID)`, memoized, wraps `GetAffixInfo` so the Dashboard shows affix names/icons without calling `C_ChallengeMode` directly (Rule 2). |
-| Run History — **Implemented** | `C_ChallengeMode.GetCompletionInfo()` (already collected as `lastCompletedRun`) — only the single most recent completion; Blizzard keeps no client-queryable log of past runs. | A Blizzard-provided multi-run history API (still doesn't exist). | Done: `MythicPlusModule:RecordCompletedRun()` publishes each completed run to `ActivityHistoryService` (the previously-scaffolded integration point) as it happens; `GetRecentRuns()` reads it back newest-first. No new Blizzard API was needed, as predicted. |
-| Rating History — **Implemented** | `GetOverallDungeonScore()` (current snapshot only) plus `oldOverallDungeonScore`/`newOverallDungeonScore` from `GetCompletionInfo()` on each completion (already collected as `oldScore`/`newScore`). | A Blizzard-provided historical rating-over-time API (still doesn't exist). | Done: the rating delta per completed run (`Data.scoreChange`) is captured in the same ActivityHistoryService record as the run itself, and `GetSeasonStatistics()` sums it into `ratingGained`. |
+| Run History — **Implemented** | `C_ChallengeMode.GetChallengeCompletionInfo()` (collected as `lastCompletedRun`) — only the single most recent completion; Blizzard keeps no client-queryable log of past runs. | A Blizzard-provided multi-run history API (still doesn't exist). | Done: `MythicPlusModule:RecordCompletedRun()` publishes each completed run to `ActivityHistoryService` (the previously-scaffolded integration point) as it happens; `GetRecentRuns()` reads it back newest-first. No new Blizzard API was needed, as predicted. |
+| Rating History — **Implemented** | `GetOverallDungeonScore()` (current snapshot only) plus `oldOverallDungeonScore`/`newOverallDungeonScore` from `GetChallengeCompletionInfo()` on each completion (collected as `oldScore`/`newScore`). | A Blizzard-provided historical rating-over-time API (still doesn't exist). | Done: the rating delta per completed run (`Data.scoreChange`) is captured in the same ActivityHistoryService record as the run itself, and `GetSeasonStatistics()` sums it into `ratingGained`. |
 | Seasonal / Dungeon Statistics — **Implemented** | `GetMapScoreInfo()` per-dungeon score/level (already collected, used for Best Runs). Season-scoped aggregates (runs completed, timed/failed, success rate, average key level, highest timed/completed, rating gained) are now derived from recorded ActivityHistoryService runs, not from an undocumented Blizzard aggregate. | A Blizzard-provided "season statistics" API distinct from the per-dungeon best-run table (still doesn't exist — this was correctly not assumed). | Done: `MythicPlusModule:GetSeasonStatistics()` aggregates recorded runs whose `Data.season` matches the current season. Confirms the original recommendation — this was a presentation/aggregation exercise over already-collectible data (once recording existed), not a new Blizzard API. |
 | Great Vault Progress — **Implemented (Weekly module, Section 1.5)** | `C_WeeklyRewards` *(see Section 1.5 — field shapes now confirmed against Blizzard's own FrameXML source; only the whole-dungeons-per-slot progress-counting assumption still needs a live client)*. | N/A — this is a resolved ownership question, not a data gap. | Not added to MythicPlus. Per Rule 1 and Rule 14, Great Vault reads Blizzard's own pre-aggregated `C_WeeklyRewards` data directly through the now-implemented Weekly module (Section 1.5) and is never re-derived from MythicPlus run data; MythicPlus did not gain vault-tracking logic as a side effect of this feature. |
 
@@ -296,7 +297,7 @@ score = priority                                   (the triggering Insight's own
 Every term is optional and additive; a branch that supplies no `scoreFactors` gets `score == priority`, identical to V1 behavior. This keeps scoring generic enough for a future module (Delves, Raids, Professions, ...) that won't have vault/gear data at all — it contributes 0 to every term it doesn't supply, never a guessed value (Part 7).
 
 #### Home page (Part 5/8)
-The Home page is now ordered as a daily briefing rather than a flat card stack: a real-time-of-day greeting, the single highest-scored recommendation (with stars/reason/benefit/time, the same fields the Recommendations page shows), Current Character, Current Keystone, Vault Progress, then Recent Activity (the single most recent completed Mythic+ run) as a trailing history fact. Inventory, Achievements, and Storage (added in 1.7) remain on Home, moved to the bottom rather than removed — this window has no separate sidebar navigation (see Dashboard.lua's own file header), so their cards are still each page's only entry point.
+The Home page is ordered as a daily briefing rather than a flat card stack: a real-time-of-day greeting, the single highest-scored recommendation, Character, Mythic+, Vault Progress, then Dungeons as a compact chronological summary of recorded general-dungeon and Delve activity. The Mythic+ card opens the dedicated `MythicPlus` page; the Dungeons card opens `Dungeons`. Inventory, Accomplishments, and existing auxiliary destinations remain available because this window has no separate sidebar navigation (see `Core/UI/Dashboard/Dashboard.lua`).
 
 #### Future Extension Points
 - **A dedicated "Why?" view** — `supportingEvidence` already carries everything such a view would need; today it renders inline as bullet lines under a recommendation instead of behind a separate expandable/modal view. Building that view is additive (a new UI reading an already-existing field), not a data-model change.
@@ -370,12 +371,15 @@ An intelligent preparation system, not a bag/bank addon: owns bank, reagent bank
 Section 2.3 ("Warband", planned) originally reserved "the Warband Bank... its gold balance, tabs, and (when accessible) contents" for a dedicated future module. That reservation is now narrowed: Storage owns Warband Bank **item contents** (read for restock/preparation purposes, exactly like the character bank and reagent bank), decided explicitly before implementation because no Warband module exists yet to conflict with. If a Warband module is ever built, its scope is the bank's own gold balance and tab-purchase administration only — not item contents, which stay Storage's concern. This also corrects Section 1.2 (Inventory)'s previous, unjustified assignment of "reagent bank" to the planned Currency module.
 
 #### Responsibilities
-- Bank, reagent bank, and (where accessible) Warband Bank item contents — an in-memory cache scoped to bank-side locations only, scanned while the bank is open, never persisted (the same "cache, don't persist" treatment InventoryModule already gives bags).
+- Bank, reagent bank, and (where accessible) Warband Bank item contents — transactional, in-memory per-source snapshots scanned only while that source is viewable, never persisted. Character and Warband snapshots retain independent identity/timestamps/freshness so scanning one cannot erase the other; the movement cache remains scoped to containers readable by the current interaction.
+- Scan-state public API (`GetScanStatus`, `GetLastScan`, `GetStorageSources`, `GetSnapshot`, `IsStorageAvailable`, `GetRefreshReason`) — keeps unavailable, never scanned, stale, failed, and successfully empty storage distinct for presentation callers.
+- Aggregate-storage public API (`GetAggregateStorage`, `GetItemsByCategory`, `GetCategorySummary`) — composes InventoryModule's authoritative bag snapshot with StorageModule's character/Warband bank snapshots into one presentation-neutral item model. Source ownership, availability, freshness, and per-source snapshot identity remain attached to every normalized record; missing Blizzard item metadata remains unknown rather than inferred.
+- Aggregate-search public API (`GetSearchFilters`, `SearchItems`) — performs case-insensitive partial-name matching, category/source/owner/quality filtering, result grouping, and deterministic ordering over `GetAggregateStorage`. Search never scans containers, persists queries, or asks presentation callers to understand source-specific records.
 - Storage profiles: a small set of built-in presets (Mythic+, Raid, Questing, Custom) — see "Built-in presets, not a rule editor" below.
 - Rule-based matching against Item/Category/Quality/Expansion/User-Group targets (Blizzard's own classID/subClassID taxonomy for Category, resolved through the shared `AC.ItemClassification` — see "Consumable classification" above). Profession-based targeting is explicitly NOT implemented — see "Explicitly NOT responsible for" below.
 - Restock analysis: missing items, excess items, recommended withdrawals, recommended deposits, and a deterministic readiness percentage (`readinessPercent` — average, across Maintain/Keep rules, of how close bags alone are to each rule's target, capped per-rule at 100%) — computed live from InventoryModule + this module's own bank cache, never cached/stale.
 - A live-computed shopping list (the "missing" side of restock analysis).
-- Activity preparation status (`GetPreparationStatus`) — a real ready/not-ready signal plus the readiness percentage above, consumed by RecommendationEngine as supporting evidence (see 1.6) and by the Dashboard (Home cards, Storage page) directly, never computed by either of them.
+- Activity preparation status (`GetPreparationStatus`) — a real ready/not-ready signal plus the readiness percentage above, consumed by existing RecommendationEngine/Dashboard callers. Snapshot-aware presentation uses `GetStorageReadiness`, which refuses to label stale or unavailable storage as ready.
 - **Execute — real item movement, implemented with explicit guardrails** (Technical Debt & Completion sprint; see "Execute" below for the full detail).
 - Insight generation for restock gaps only ("Storage Missing Items", "Storage Excess Items") — bag-fullness insights ("Bags Almost Full"/"Bags Filling Up") remain exclusively InventoryModule's, per Rule 1; Storage does not duplicate them even though Part 5's own brief named "inventory 94% full" as an example.
 
@@ -388,12 +392,12 @@ Implemented in the Technical Debt & Completion sprint, reversing the original "A
 - **The player must explicitly confirm every execution** via a Blizzard `StaticPopupDialogs` confirmation showing the exact counts about to move — nothing here ever runs automatically or silently.
 
 #### Blizzard APIs owned
-`C_Bank.FetchPurchasedBankTabIDs`/`CanUseBank` (bank tab enumeration, character and account/Warband), `C_Container.GetContainerNumSlots`/`GetContainerItemInfo`/`PickupContainerItem` (bank-side and, for Execute, bag-side moves — bag *scanning* itself remains Inventory's), `C_Item.GetItemInfoInstant`/`GetItemInfo` (classID/subClassID/expacID, for Category/Expansion rule matching), `BANKFRAME_OPENED`/`CLOSED` and `PLAYER_INTERACTION_MANAGER_FRAME_SHOW`/`HIDE` (bank-open detection), `InCombatLockdown`/`CursorHasItem`/`ClearCursor` (Execute safety), `StaticPopupDialogs`/`StaticPopup_Show` (Execute confirmation, owned by Dashboard.lua's presentation layer, not this module).
+`C_Bank.FetchViewableBankTypes`/`FetchPurchasedBankTabIDs` (authoritative source and tab enumeration for character and account/Warband banks), `C_Container.GetContainerNumSlots`/`GetContainerItemInfo`/`PickupContainerItem` (bank-side and, for Execute, bag-side moves — bag *scanning* itself remains Inventory's), `C_Item.GetItemInfoInstant`/`GetItemInfo` (classID/subClassID/expacID, for Category/Expansion rule matching), `BANKFRAME_OPENED`/`CLOSED` and `PLAYER_INTERACTION_MANAGER_FRAME_SHOW`/`HIDE` with `Banker`/`AccountBanker` interaction types (bank-open detection), `InCombatLockdown`/`CursorHasItem`/`ClearCursor` (Execute safety), `StaticPopupDialogs`/`StaticPopup_Show` (Execute confirmation, owned by `Core/UI/Dashboard/Pages/Storage.lua`, not this module).
 
-**VERIFICATION STATUS (Blizzard API Verification Workflow pass):** Bank tab enumeration (`C_Bank.FetchPurchasedBankTabIDs`/`CanUseBank`, `Enum.BankType` = `{Character=0, Guild=1, Account=2}`) and `C_Container.PickupContainerItem` are both confirmed real via Warcraft Wiki (Bank APIs added 11.0.0; `PickupContainerItem` available through "Midnight" 12.1.0, `AllowedWhenUntainted`) — existing code already matches, no changes needed. The legacy reagent-bank container ID path (`Enum.BagIndex.Reagentbank`/`Bank`) is confirmed harmless-but-vestigial: reagent bank was removed as a separate system in Patch 11.2.0, folded into the same unified bank-tab system the primary `FetchPurchasedBankTabIDs` path already covers. The bag-item "favorite" field is confirmed **broken**, not merely unverified: `info.isFavorite` is read from `C_Container.GetContainerItemInfo`'s return, but Warcraft Wiki's documented `ContainerItemInfo` structure has no such field — it is always `false`/`nil` in practice, and (separately confirmed) nothing in this codebase consumes it even when populated. This is deliberately left as an honest, documented gap rather than a fabricated fix — see the inline comment at the `isFavorite` read site in `ScanBank()` — and is now real follow-up work (find the correct API and wire up a real rule, or remove the dead field), not an open verification question. **Still Needs Live Verification:** the Banker interaction-type check (`Enum.PlayerInteractionType.Banker`) and `PLAYER_INTERACTION_MANAGER_FRAME_SHOW`/`HIDE`'s exact payload shape (not researched this pass), and the actual pickup-then-place Execute round-trip against a real bank/bag. `InCombatLockdown`/`CursorHasItem`/`ClearCursor`/`StaticPopupDialogs` remain long-standing, stable APIs with materially higher confidence than the rest of this list. `GetItemInfoInstant`'s classID/subClassID return-position offset is still copied from `MythicPlusModule:ClassifyConsumableItem`'s existing convention for consistency between the two files; not independently re-verified this pass. See `docs/DEVELOPMENT_BACKLOG.md`'s Critical section for the full citation list and the Live Verification Checklist.
+**VERIFICATION STATUS (Blizzard API Verification Workflow pass):** Current Blizzard-generated Bank API documentation confirms `C_Bank.FetchViewableBankTypes` and `FetchPurchasedBankTabIDs`; the former identifies the sources exposed by the active interaction and the latter returns their owned tab IDs. `C_Container.PickupContainerItem` is confirmed real via Warcraft Wiki (available through "Midnight" 12.1.0, `AllowedWhenUntainted`). The legacy reagent-bank container ID path (`Enum.BagIndex.Reagentbank`/`Bank`) remains harmless-but-vestigial. The bag-item "favorite" field is confirmed **broken**, not merely unverified: `ContainerItemInfo` has no documented `isFavorite` field, and nothing in this codebase consumes it. **Still Needs Live Verification:** regular Character Bank and summoned Warband Bank interaction timing (`Banker`/`AccountBanker` with `PLAYER_INTERACTION_MANAGER_FRAME_SHOW`/`HIDE`), the per-source snapshot/freshness transitions, and the actual pickup-then-place Execute round-trip. See `docs/DEVELOPMENT_BACKLOG.md` and the Developer Checklist for the live scenarios.
 
 #### Dashboard responsibilities
-Home page Storage card (active profile name, ready/not-ready status, readiness-percentage bar) and Mythic+ card (readiness-percentage bar sourced from Storage's "MythicPlus" preset — a cross-module read, see 1.6/Rule 6). Storage page: Inventory Summary, Storage Health, Current Profile (display only — switching profiles is a Settings > Storage dropdown, not a page control, per "do not overload the page"), Restock Status (now with an Execute button, confirmation-gated), Shopping List, Recommendations, Insights.
+Home page Storage card (active profile name, ready/not-ready status, readiness-percentage bar) and Mythic+ card (readiness-percentage bar sourced from Storage's "MythicPlus" preset — a cross-module read, see 1.6/Rule 6). The Dashboard Storage page remains a summary and launcher. The dedicated Inventory Manager is presentation-only: its Overview consumes the scan/readiness APIs above, Categories consumes `GetCategorySummary`, and Search consumes `GetSearchFilters`/`SearchItems`; neither window scans containers, classifies items, or implements storage queries.
 
 #### Insight responsibilities
 "Storage Missing Items", "Storage Excess Items" — both gated on an active profile existing and its analysis actually finding a gap.
@@ -591,7 +595,7 @@ Not a new gameplay system — an extension of the Blizzard API Verification Work
 
 **Still Needs Live Verification (all three now specific, reproducible, and tracked in `VerificationService`'s registry — see the Developer Panel's Checklist tab for the exact in-game scenario for each):**
 - `ach.categoryEnumeration` — `GetCategoryNumAchievements`'s `includeAll` parameter semantics aren't documented on Warcraft Wiki; `true` is passed on a reasonable but unconfirmed assumption.
-- `storage.bankerInteraction` — `Enum.PlayerInteractionType.Banker` and the `PLAYER_INTERACTION_MANAGER_FRAME_SHOW`/`HIDE` payload shape were not researched this pass; lowest-confidence entry in the registry.
+- `storage.bankerInteraction` — `Enum.PlayerInteractionType.Banker` / `AccountBanker` are documented, while the exact `PLAYER_INTERACTION_MANAGER_FRAME_SHOW`/`HIDE` payload timing still requires a live Character Bank and Warband Bank check.
 - `mp.eventOrdering` — the relative firing order of the 7 registered Challenge-Mode/Mythic-Plus events during a real run remains unconfirmed; confirming an event exists is not the same as confirming when it fires.
 
 ---
@@ -610,7 +614,7 @@ Section 1.4's own Future Extension Points entry on "Party composition" explicitl
 
 **Player key:** `"Name-Realm"`, dash-separated — deliberately the opposite format from `DatabaseService:GetCharacterKey()`'s `"Realm.Name"`, so a companion's key can never be visually confused with one of your own character keys.
 
-**Run-tracking event flow:** `CHALLENGE_MODE_START` snapshots the party roster (self excluded); `GROUP_ROSTER_UPDATE` runs a grace-period leave check (a roster member missing for 5 seconds, with the run still active, is marked left-early — an addon-side heuristic, not a documented Blizzard behavior, flagged `pj.rosterLeaveDetection`); a run-scoped, pcall-registered `COMBAT_LOG_EVENT_UNFILTERED` tallies `UNIT_DIED`/`SPELL_INTERRUPT` for roster GUIDs only (mirroring `MythicPlusModule`'s own defensive-registration and player-only-filtering precedent, just applied to roster members too); `CHALLENGE_MODE_COMPLETED_REWARDS` snapshots this module's own state, then defers the actual finalization one frame via `C_Timer.After(0, ...)`.
+**Run-tracking event flow:** `CHALLENGE_MODE_START` snapshots the party roster (self excluded); `GROUP_ROSTER_UPDATE` runs a grace-period leave check (a roster member missing for 5 seconds, with the run still active, is marked left-early — an addon-side heuristic, not a documented Blizzard behavior, flagged `pj.rosterLeaveDetection`); a run-scoped, pcall-registered `COMBAT_LOG_EVENT_UNFILTERED` tallies `UNIT_DIED`/`SPELL_INTERRUPT` for roster GUIDs only (mirroring `MythicPlusModule`'s own defensive-registration and player-only-filtering precedent, just applied to roster members too); `CHALLENGE_MODE_COMPLETED` snapshots this module's own state, then defers the actual finalization one frame via `C_Timer.After(0, ...)`.
 
 **Why the one-frame defer:** confirmed by reading `Core/Events/EventManager.lua`'s own `DispatchBlizzard` — listeners for the same event fire in registration order, itself a function of `.toc`/`ModuleManager.Order` load order. Relying on "`MythicPlusModule`'s handler happens to run first" would be exactly the kind of silent, breakable coupling this document already warns against elsewhere. A timer (even 0-delay) only ever fires on `OnUpdate`, strictly after the current frame's event-dispatch loop fully completes — so by the time `FinalizeCompletedRunForRoster` runs, `MythicPlusModule:RecordCompletedRun()` has already appended its `ActivityHistoryService` record regardless of registration order. Correct by inspection of this addon's own code; flagged `pj.eventOrderingDefer` since it hasn't been watched happen in a real client.
 
@@ -626,7 +630,7 @@ Disabled by default. Fully local this version — no sync backend, no server, no
 
 #### PlayerJournalWindow (`Core/UI/PlayerJournal/`)
 
-A spine (`PlayerJournalWindow.lua`) plus one file per tab under `Tabs/` — the same split `Dashboard.lua` uses for `Pages/*.lua`, not `DeveloperPanel.lua`'s single-file-many-methods shape, since Personal/Community Notes need real editable widgets (multi-line `EditBox` via `InputScrollFrameTemplate`, tag toggle grids, `StaticPopupDialogs` wiring) — Dashboard-page-scale complexity, not read-only-fact-dump scale. Seven tabs: Overview, History, Statistics, Personal Notes (also hosts the Personal Tags toggle grid — no dedicated Tags tab exists in the window's own 7-tab list, and tags are subjective/personal data like notes), Community Notes, Timeline, Search.
+A spine (`PlayerJournalWindow.lua`) plus one file per tab under `Tabs/` — the same spine-and-pages split used under `Core/UI/Dashboard/`, not `DeveloperPanel.lua`'s single-file-many-methods shape, since Personal/Community Notes need real editable widgets (multi-line `EditBox` via `InputScrollFrameTemplate`, tag toggle grids, `StaticPopupDialogs` wiring) — Dashboard-page-scale complexity, not read-only-fact-dump scale. Seven tabs: Overview, History, Statistics, Personal Notes (also hosts the Personal Tags toggle grid — no dedicated Tags tab exists in the window's own 7-tab list, and tags are subjective/personal data like notes), Community Notes, Timeline, Search.
 
 `Show(playerKey)` takes a stable id, not a live object — a deliberate divergence from `RecommendationInspector:Show(recommendation)`, which takes a live object specifically because Recommendations are rebuilt from scratch every refresh with no stable identity. Journal records have a real stable identity (`"Name-Realm"`), so re-reading by id on every tab switch/refresh is both correct and simpler.
 
@@ -949,28 +953,28 @@ Great Vault PvP-activity thresholds (Weekly module reads Blizzard's own aggregat
 
 ---
 
-### 2.8 Delves
+### 2.8 Delves *(implemented after its dedicated API audit; retained here for historical ordering)*
 
 #### Purpose
-Owns Delve progress, companion state, and related weekly content.
+Owns authoritative Delve completion detection, active-Delve state, and tracked Delve completion statistics.
 
 #### Intended ownership
-A dedicated module — **pending its own API audit**. This domain has the least verified grounding of any planned module; do not begin implementation without first completing a dedicated audit of the same rigor as the Warband investigation.
+`DelvesModule`, independent from MythicPlusModule. It writes completed Delve records through `ActivityHistoryService` and exposes active/tracked facts through public getters; the Dashboard composes those facts without taking ownership.
 
 #### Candidate Blizzard API namespaces
-Unconfirmed this cycle — likely spans quest-log APIs and a dedicated currency, neither confirmed.
+`SCENARIO_COMPLETED`, `C_DelvesUI.HasActiveDelve()`, `C_ScenarioInfo.GetScenarioInfo()`, and `C_DelvesUI.GetActiveDelveTier()`. A reported tier of zero remains unknown rather than being inferred.
 
 #### Example Dashboard information
-TBD — pending audit.
+The `Dungeons` page shows active Delve state, recent tracked Delves, tracked completion count, and highest tracked tier alongside an honest empty Dungeon Overview prepared for future general-dungeon owners. Mythic+ analysis remains on the separate `MythicPlus` page.
 
 #### Possible Insights
-TBD — pending audit.
+None currently produced.
 
 #### Possible Recommendations
-TBD — pending audit.
+None currently produced.
 
 #### Out of Scope
-Nothing can be scoped out yet without first scoping in what this module actually owns.
+Companion progression, Delve currencies, Bountiful Delve discovery, weekly reward interpretation, and fabricated seasonal statistics. Each requires its own authoritative API and ownership audit before inclusion.
 
 ---
 
@@ -979,7 +983,7 @@ Nothing can be scoped out yet without first scoping in what this module actually
 These rules govern every module, existing or planned. They are not suggestions — a change that violates one of these needs to revisit the architecture first, per the project's stated philosophy, not route around it.
 
 1. **Gameplay data has exactly one owner.** If two modules could plausibly own the same fact, that is a signal to stop and resolve the ambiguity (see Section 5, Decision Tree) before writing code — not to pick one arbitrarily or split it across both. (This is a data-ownership rule — which *module* computes a fact. For the presentation-layer sibling of this same discipline — which *screen* is the one place a player reads it — see Rule 16, One Fact, One Home.)
-2. **The Dashboard never gathers gameplay data directly.** It never calls a Blizzard API itself. Every value shown anywhere in the Dashboard traces back to a gameplay module's public API.
+2. **The Dashboard never gathers gameplay data directly.** It never calls a Blizzard API or reads SavedVariables itself. Gameplay facts come from gameplay-module public APIs; cross-module chronological presentation may read `ActivityHistoryService`'s public query API because that service is the authoritative persisted stream written by those modules. This does not transfer gameplay ownership to the Dashboard or the service.
 3. **Modules never read Dashboard state.** Data flows one direction: module → Dashboard. A module's behavior must never depend on whether the Dashboard is open, which page is active, or any other presentation-layer state.
 4. **Modules expose public APIs; the Dashboard consumes them.** A module's internal tables (its `Profile`/`Session`/cache structures) are never read directly by the Dashboard or by any other module — only through explicit `Get*`/`Is*` accessor functions.
 5. **Insights are generated by modules, not by the Dashboard or by each other.** Each module's `GetInsights()` is the only place that module's raw state becomes a player-facing "something noteworthy happened" signal.
@@ -1010,7 +1014,9 @@ Rules 1–15 above govern data and module boundaries: which module owns a fact, 
     - **Home** — "What do I need to know right now?"
     - **Inventory** — "What gear improvements should I make?"
     - **Accomplishments** (the module referred to as "Achievements" in earlier design conversations — see Section 1.3) — "What progress am I making?"
-    - **Mythic+** — "How am I performing this season?"
+    - **Dungeons** — "What dungeon content am I running?" Composes general dungeon activity and Delves; may reference an active Mythic+ run as current context but does not duplicate Mythic+ history or analysis.
+    - **Activity Log** — "What recorded activities have I completed over time?" Presents ActivityHistoryService's canonical chronological stream without taking ownership of gameplay facts or persistence.
+    - **Mythic+** — "How am I performing in competitive dungeon content this season?"
     - **Recommendation Inspector** — "Why did the addon make this recommendation?"
     - **Developer Panel** — "How did the addon reach this internal state?"
 
@@ -1054,12 +1060,13 @@ Rules 1–15 above govern data and module boundaries: which module owns a fact, 
 | Player Journal (companion identity/stats/notes/tags/timeline) | PlayerJournal | Player Journal Window *(standalone, not a Dashboard page)* | PlayerJournal | PlayerJournal *(+ read as display-only cross-module evidence by RecommendationEngine's "Complete Your Keystone" — see 1.12)* |
 | Community Notes | Community | Player Journal Window (Community Notes tab) | — | — |
 | Recommendation History (shown/completed/dismissed counts, score history) | RecommendationHistoryService | Statistics, Recommendation Inspector | — | — *(presentation-layer state about recommendations, not gameplay data itself — see 1.12)* |
+| Recorded Activity History | ActivityHistoryService *(persistence/indexing only; gameplay modules own record contents)* | Activity Log; owner-page summaries where appropriate | — | — |
 | Session Notes (this-session runs/achievements/vault gains) | SessionNotesService | Home ("Today's Companion Notes") | — | — |
 | Professions (recipes, cooldowns) | Professions *(planned)* | Professions *(planned)* | Professions *(planned)* | Professions *(planned)* |
 | Collections (transmog/mounts/pets/toys) | Collections *(planned)* | Collections *(planned)* | Collections *(planned)* | — *(weak fit)* |
 | Raids (lockouts, attendance) | Raids *(planned, pending audit)* | TBD | TBD | TBD |
 | PvP (rating, honor, season) | PvP *(planned, pending audit)* | TBD | TBD | TBD |
-| Delves | Delves *(planned, pending audit)* | TBD | TBD | TBD |
+| Delves | Delves | Dungeons | — | — |
 
 ---
 
@@ -1113,7 +1120,7 @@ Does an existing module already own this gameplay domain?
 ## 6. Version Roadmap
 
 ### Version 1 (current)
-- Existing modules: Character, Inventory, Achievements, MythicPlus, Weekly, Storage.
+- Existing modules: Character, Inventory, Achievements, MythicPlus, Delves, Weekly, Storage.
 - Framework: Dashboard, Insight Engine, Recommendation Engine (V2 — see 1.6), Localization, Settings (Save/Cancel), ActivityHistoryService.
 - Focus: polish and stabilization of what exists, not new gameplay domains.
 
@@ -1130,7 +1137,7 @@ Does an existing module already own this gameplay domain?
 | 7 | Collections | Real but lower-urgency value (completionist browsing, not actionable weekly content); moderate effort. |
 | 8 | Raids | Requires its own dedicated API audit before design work can even begin — scheduled after the fully-scoped modules above are done. |
 | 9 | PvP | Same audit prerequisite as Raids. |
-| 10 | Delves | Least-verified domain in this document; requires the most upfront audit work of any planned module, so it's scheduled last. |
+| 10 | ~~Delves~~ — **Done.** Implemented after a dedicated Retail completion-pipeline audit: deterministic `SCENARIO_COMPLETED` recording, active-state getters, and tracked history/statistics. |
 
 No module on this list is authorized for implementation until its own dedicated API audit (matching the Warband investigation's rigor) confirms the real function names, return shapes, event-vs-poll behavior, and any special UI-state requirements — this document describes *where things belong*, not a green light to build them.
 
@@ -1161,7 +1168,7 @@ In priority order, highest-value-for-effort first:
 3. **Storage partial-stack splitting during Execute** (`C_Container.SplitContainerItem`) — would let Execute move exact amounts instead of whole stacks; deliberately not introduced this pass to avoid adding a second unverified item-movement API before the first one has been spot-checked in-game.
 4. **Inventory: Recent Loot / Interesting Items / Vendor Suggestions** — still genuinely blocked, not a scoping choice: no itemized loot log, no "interesting item" classification heuristic, and no vendor-junk-value data exists anywhere in this addon yet. Would need new data collection, not just new UI.
 5. **Profile: Warband Overview** — blocked on the (still narrowly-scoped, still unbuilt) Warband module; see 1.7's ownership resolution and 2.3.
-6. **Reputation, Currency, Warband, Professions, Collections, Raids, PvP, Delves** — all still-planned modules per Section 2, unchanged by this sprint. Each needs its own dedicated Blizzard API audit before implementation begins, per Rule 15.
+6. **Reputation, Currency, Warband, Professions, Collections, Raids, PvP** — all still-planned modules per Section 2, unchanged by this sprint. Each needs its own dedicated Blizzard API audit before implementation begins, per Rule 15.
 
 None of the above is blocked by indecision — each has a concrete, stated reason (needs an unaudited API, is pure-but-large UI work, needs new data collection, or is waiting on a sibling module) rather than "postponed because it was postponed."
 

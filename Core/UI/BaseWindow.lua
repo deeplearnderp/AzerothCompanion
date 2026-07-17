@@ -34,23 +34,14 @@ function BaseWindow:Create(name, title, width, height)
     --
     -- Presentation System v2 -- these exact values are now also the named
     -- AC.Presentation.WINDOW_BACKDROP preset (Core/Presentation/Presentation.lua),
-    -- so every other window sharing this same "top-level window" treatment
-    -- (as opposed to an inner panel -- see PANEL_BACKDROP, SettingsWindow.lua)
-    -- can reference the same values by name instead of retyping them.
+    -- so every window sharing this top-level treatment can reference the same
+    -- values by name instead of retyping them. Inner surfaces use the shared
+    -- CARD_BACKDROP instead.
     ---------------------------------------------------------------------------
 
     local backdrop = AC.Presentation.WINDOW_BACKDROP
 
-    frame:SetBackdrop(
-    {
-        bgFile = backdrop.bgFile,
-        edgeFile = backdrop.edgeFile,
-        edgeSize = backdrop.edgeSize,
-        insets = backdrop.insets,
-    })
-
-    frame:SetBackdropColor(unpack(backdrop.bgColor))
-    frame:SetBackdropBorderColor(unpack(backdrop.borderColor))
+    AC.Presentation.ApplyBackdrop(frame, backdrop)
 
     ---------------------------------------------------------------------------
     -- Title

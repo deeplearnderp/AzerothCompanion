@@ -86,12 +86,15 @@ Core/UI/Dashboard/Layout.lua
 Core/UI/Dashboard/Format.lua
 Core/UI/Dashboard/Schemas.lua
 Core/UI/Dashboard/Dashboard.lua
+Core/UI/Dashboard/ActivityPresentation.lua
 Core/UI/Dashboard/Sections.lua
 Core/UI/Dashboard/Rows.lua
 Core/UI/Dashboard/Pages/Profile.lua
 Core/UI/Dashboard/Pages/Inventory.lua
 Core/UI/Dashboard/Pages/Accomplishments.lua
 Core/UI/Dashboard/Pages/MythicPlus.lua
+Core/UI/Dashboard/Pages/Dungeons.lua
+Core/UI/Dashboard/Pages/ActivityLog.lua
 Core/UI/Dashboard/Pages/Storage.lua
 Core/UI/Dashboard/Pages/Weekly.lua
 Core/UI/Dashboard/Pages/Recommendations.lua
@@ -103,6 +106,8 @@ Core/UI/Dashboard/Home.lua
 Core/UI/Dashboard/Navigation.lua
 
 Core/UI/Dashboard/Notifications.lua
+
+Core/UI/InventoryManager.lua
 
 Core/UI/DeveloperPanel.lua
 
@@ -127,6 +132,7 @@ Modules/Accomplishments/AccomplishmentsModule.lua
 Modules/Weekly/WeeklyModule.lua
 Modules/MythicPlus/MythicPlusSpellData.lua
 Modules/MythicPlus/MythicPlusModule.lua
+Modules/Delves/DelvesModule.lua
 Modules/Storage/StorageProfiles.lua
 Modules/Storage/StorageModule.lua
 Modules/PlayerJournal/PlayerJournalTags.lua

@@ -174,7 +174,8 @@ function Presentation.FormatItemLevel(value)
 end
 
 -------------------------------------------------------------------------------
--- Dates -- the actual bug fix. Every style ALWAYS includes a 4-digit year.
+-- Dates -- every date-bearing style includes a 4-digit year. The time-only
+-- style is reserved for rows already grouped beneath a full date heading.
 --
 -- "shortTime"'s double space before %H:%M matches the exact convention
 -- RecommendationInspector.lua's own already-correct date call sites
@@ -187,6 +188,7 @@ local DATE_STYLES =
 {
     short = "%b %d, %Y",
     shortTime = "%b %d, %Y  %H:%M",
+    time = "%H:%M",
 }
 
 function Presentation.FormatDate(timestamp, style)
@@ -280,12 +282,11 @@ end
 -- what is conceptually the same "bordered dark panel" treatment -- including
 -- SettingsWindow's own two side-by-side panels (navigationHost/contentHost)
 -- disagreeing with EACH OTHER. Two presets, not one: a window-level
--- treatment (BaseWindow's own long-standing values, unchanged) and a
--- lighter-bordered inner-panel treatment (SettingsWindow.navigationHost's
--- own values, which contentHost now also adopts -- a real, visible fix,
--- not a renamed duplicate). DashboardCard's own backdrop (hover/emphasized
--- states, smaller edgeSize) is deliberately NOT unified here -- see
--- Core/UI/Widgets/DashboardCard.lua's own header for why.
+-- treatment (BaseWindow's own long-standing values, unchanged) and the card
+-- treatment that now defines Dashboard, Settings, and Developer content
+-- surfaces. Keeping both here makes their differences intentional and
+-- theme-ready instead of scattering nearly-identical backdrop tables across
+-- individual windows.
 -------------------------------------------------------------------------------
 
 Presentation.WINDOW_BACKDROP =
@@ -298,29 +299,65 @@ Presentation.WINDOW_BACKDROP =
     borderColor = { 1, 1, 1, 0.55 },
 }
 
-Presentation.PANEL_BACKDROP =
+Presentation.CARD_BACKDROP =
 {
     bgFile = "Interface\\Buttons\\WHITE8x8",
     edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-    edgeSize = 10,
-    insets = { left = 2, right = 2, top = 2, bottom = 2 },
-    bgColor = { 0.10, 0.10, 0.10, 0.90 },
-    borderColor = { 1, 1, 1, 0.25 },
+    edgeSize = 12,
+    insets = { left = 3, right = 3, top = 3, bottom = 3 },
+    bgColor = { 0.15, 0.15, 0.15, 0.85 },
+    borderColor = { 1, 1, 1, 0.28 },
+    emphasizedBorderAlpha = 0.5,
+    hoverBackgroundDelta = 0.05,
+    hoverBorderAlphaDelta = 0.2,
 }
 
+function Presentation.ApplyBackdrop(frame, backdrop)
+
+    if not frame or not backdrop then
+        return
+    end
+
+    frame:SetBackdrop(
+    {
+        bgFile = backdrop.bgFile,
+        edgeFile = backdrop.edgeFile,
+        edgeSize = backdrop.edgeSize,
+        insets = backdrop.insets,
+    })
+
+    frame:SetBackdropColor(unpack(backdrop.bgColor))
+    frame:SetBackdropBorderColor(unpack(backdrop.borderColor))
+
+end
+
+function Presentation.GetCardBorderColor(emphasized)
+
+    if emphasized then
+        return Presentation.HIGHLIGHT_COLOR[1], Presentation.HIGHLIGHT_COLOR[2], Presentation.HIGHLIGHT_COLOR[3], Presentation.CARD_BACKDROP.emphasizedBorderAlpha
+    end
+
+    return unpack(Presentation.CARD_BACKDROP.borderColor)
+
+end
+
+function Presentation.ApplyCardBackdrop(frame, emphasized)
+
+    Presentation.ApplyBackdrop(frame, Presentation.CARD_BACKDROP)
+    frame:SetBackdropBorderColor(Presentation.GetCardBorderColor(emphasized))
+
+end
+
 -------------------------------------------------------------------------------
--- Dashboard Background (Shared Decorative Background)
+-- Application Window Background
 --
--- Dashboard-specific only -- WINDOW_BACKDROP above is untouched and stays
--- shared by every OTHER BaseWindow (Developer Panel, Settings,
--- Diagnostics, PlayerJournal, RecommendationInspector); this pass does not
--- touch backdrop alpha at all, per explicit instruction -- see Home.lua's
--- own comment at the Dashboard:Create() call site. Centralized here, not
--- inline in Home.lua, so a future Appearance/Theme system has exactly one
--- place to read/override these two values from -- deliberately not a
--- ThemeService yet, just the values one would need to own.
+-- The single decorative identity shared by Dashboard, Settings, and Developer.
+-- ApplyWindowBackground uses texture-coordinate cropping rather than stretching
+-- the portrait artwork or sizing it beyond a wide window's bounds. The same
+-- helper therefore works for Dashboard's narrow frame and the much wider
+-- internal-tool windows without duplicate aspect-ratio math.
 --
--- DASHBOARD_BACKGROUND_TEXTURE keeps the .png extension -- final call,
+-- WINDOW_BACKGROUND_TEXTURE keeps the .png extension -- final call,
 -- made per explicit delegation ("use the format appropriate for the
 -- client"). Reasoning: extension-less paths only resolve implicitly for
 -- Blizzard's own MPQ/BLP-archived art; a loose file an addon ships itself
@@ -330,26 +367,99 @@ Presentation.PANEL_BACKDROP =
 -- a one-line check (drop the extension here) if the background doesn't
 -- appear in-game.
 --
--- DASHBOARD_BACKGROUND_ASPECT_RATIO (width / height) -- Background Polish
--- pass: the artwork at DASHBOARD_BACKGROUND_TEXTURE is now confirmed
+-- WINDOW_BACKGROUND_ASPECT_RATIO (width / height) -- the artwork is confirmed
 -- 957x1643px (read directly from the PNG header), giving 957/1643 =
--- 0.5825 -- corrected from this constant's previous value of 1.5, a
--- landscape-image placeholder left over from before a portrait asset
--- existed. That stale value was the actual cause of this pass's reported
--- "busy center, corners not quite right" symptom: Home.lua's cover-fit
--- math trusted it over the real file, computing a background region far
--- wider than the frame (1080x720 instead of ~420x720), which showed only
--- the map's center strip inside the window while the true edges (and
--- this constant's own decorative corners) rendered outside the frame's
--- bounds entirely, unclipped (nothing in this codebase calls
--- SetClipsChildren). At the corrected ratio the region comes out to
--- ~420x721 -- effectively edge-to-edge with negligible overflow, matching
--- what the artwork was actually composed for.
+-- 0.5825. This is centralized presentation metadata, not window layout.
 -------------------------------------------------------------------------------
 
-Presentation.DASHBOARD_BACKGROUND_TEXTURE = "Interface\\AddOns\\AzerothCompanion\\Images\\background1.png"
-Presentation.DASHBOARD_BACKGROUND_ALPHA = 0.15
-Presentation.DASHBOARD_BACKGROUND_ASPECT_RATIO = 957 / 1643
+Presentation.WINDOW_BACKGROUND_TEXTURE = "Interface\\AddOns\\AzerothCompanion\\Images\\background1.png"
+Presentation.WINDOW_BACKGROUND_ALPHA = 0.15
+Presentation.WINDOW_BACKGROUND_ASPECT_RATIO = 957 / 1643
+
+-- Backward-compatible names for any developer tooling that inspected the
+-- original Dashboard-specific constants directly.
+Presentation.DASHBOARD_BACKGROUND_TEXTURE = Presentation.WINDOW_BACKGROUND_TEXTURE
+Presentation.DASHBOARD_BACKGROUND_ALPHA = Presentation.WINDOW_BACKGROUND_ALPHA
+Presentation.DASHBOARD_BACKGROUND_ASPECT_RATIO = Presentation.WINDOW_BACKGROUND_ASPECT_RATIO
+
+function Presentation.ApplyWindowBackground(frame)
+
+    if not frame then
+        return nil
+    end
+
+    local background = frame.AzerothCompanionWindowBackground
+
+    if not background then
+
+        background = frame:CreateTexture(nil, "ARTWORK", nil, -7)
+        background:SetAllPoints(frame)
+
+        frame.AzerothCompanionWindowBackground = background
+        frame.Background = background
+
+    end
+
+    local function UpdateCrop(width, height)
+
+        width = tonumber(width) or frame:GetWidth() or 1
+        height = tonumber(height) or frame:GetHeight() or 1
+
+        if width <= 0 or height <= 0 then
+            return
+        end
+
+        local frameAspectRatio = width / height
+        local artworkAspectRatio = Presentation.WINDOW_BACKGROUND_ASPECT_RATIO
+
+        if frameAspectRatio > artworkAspectRatio then
+
+            local visibleHeight = artworkAspectRatio / frameAspectRatio
+            local verticalCrop = (1 - visibleHeight) / 2
+
+            background:SetTexCoord(0, 1, verticalCrop, 1 - verticalCrop)
+
+        else
+
+            local visibleWidth = frameAspectRatio / artworkAspectRatio
+            local horizontalCrop = (1 - visibleWidth) / 2
+
+            background:SetTexCoord(horizontalCrop, 1 - horizontalCrop, 0, 1)
+
+        end
+
+    end
+
+    background:SetTexture(Presentation.WINDOW_BACKGROUND_TEXTURE)
+    background:SetAlpha(Presentation.WINDOW_BACKGROUND_ALPHA)
+
+    if not frame.AzerothCompanionWindowBackgroundHooked then
+
+        frame:HookScript("OnSizeChanged", function(_, width, height)
+            UpdateCrop(width, height)
+        end)
+
+        frame.AzerothCompanionWindowBackgroundHooked = true
+
+    end
+
+    UpdateCrop(frame:GetWidth(), frame:GetHeight())
+
+    return background
+
+end
+
+function Presentation.StyleWindowTitle(title)
+
+    if not title then
+        return
+    end
+
+    title:SetTextColor(unpack(Presentation.HIGHLIGHT_COLOR))
+    title:SetShadowColor(0, 0, 0, 0.9)
+    title:SetShadowOffset(1, -1)
+
+end
 
 -------------------------------------------------------------------------------
 -- Status Glyphs (raw, uncolored)

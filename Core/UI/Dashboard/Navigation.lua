@@ -64,6 +64,10 @@ function Dashboard:ShowPage(pageName)
         self:UpdateInventoryPage(frame)
     elseif pageName == "Accomplishments" then
         self:UpdateAccomplishmentsPage(frame)
+    elseif pageName == "Dungeons" then
+        self:UpdateDungeonsPage(frame)
+    elseif pageName == "ActivityLog" then
+        self:UpdateActivityLogPage(frame)
     elseif pageName == "MythicPlus" then
         self:UpdateMythicPlusPage(frame)
     elseif pageName == "Storage" then

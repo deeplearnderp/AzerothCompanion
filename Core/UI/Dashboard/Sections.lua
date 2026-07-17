@@ -473,9 +473,8 @@ end
 
 -- Accordion Polish Pass -- pooled on scrollChild (same "cache on the
 -- object that owns it" idiom ShowEmptyLine's container[cacheKey] already
--- uses below), keyed by titleKey, which is already a stable, page-unique
--- string at every call site -- no signature change, zero call-site
--- changes anywhere. Root-cause fix for section headers occasionally
+-- uses below), keyed by titleKey, which is a stable, page-unique cache key
+-- at every call site. Root-cause fix for section headers occasionally
 -- clipping the following section: every dynamic page's Layout_ re-runs
 -- this on every refresh (and, on accordion pages, on every single row
 -- click), and this used to CreateFontString a brand-new, never-hidden
@@ -483,7 +482,10 @@ end
 -- froze at stale Y positions and could visually intrude into a section
 -- that had since become shorter or longer. Pooling means each call now
 -- repositions the SAME header instead of stacking a new one on top.
-function Dashboard:BeginSection(scrollChild, titleKey, yOffset)
+-- `titleText` is optional prepared display text for runtime group labels
+-- such as Activity Log dates; fixed sections continue resolving titleKey
+-- through localization exactly as before.
+function Dashboard:BeginSection(scrollChild, titleKey, yOffset, titleText)
 
     if scrollChild then
 
@@ -502,7 +504,7 @@ function Dashboard:BeginSection(scrollChild, titleKey, yOffset)
 
         header:ClearAllPoints()
         header:SetPoint("TOPLEFT", 0, yOffset)
-        header:SetText(AC.L:Get(titleKey))
+        header:SetText(titleText or AC.L:Get(titleKey))
         header:Show()
 
     end

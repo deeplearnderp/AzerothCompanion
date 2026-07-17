@@ -88,10 +88,6 @@ function Dashboard:UpdateStatisticsPage(frame)
         return a.completed > b.completed
     end)
 
-    local function ShowEmptyLine(cacheKey, yOffset, width, textKey)
-        return self:ShowEmptyLine(page, scrollChild, cacheKey, yOffset, width, textKey)
-    end
-
     local function Layout_(width)
 
         page.ContentWidth = width
@@ -117,19 +113,11 @@ function Dashboard:UpdateStatisticsPage(frame)
         -- Overview
         -----------------------------------------------------------------------
 
-        yOffset = self:BeginSection(scrollChild, "Statistics.SectionOverview", yOffset)
+        local overviewStats = {}
 
-        if not hasAnyHistory then
+        if hasAnyHistory then
 
-            yOffset = ShowEmptyLine("OverviewEmptyText", yOffset, width, "Statistics.NoHistoryYet")
-
-        else
-
-            if page.OverviewEmptyText then
-                page.OverviewEmptyText:Hide()
-            end
-
-            local overviewStats =
+            overviewStats =
             {
                 { label = "Statistics.StatTotalGenerated", value = tostring(totalGenerated) },
                 { label = "Statistics.StatTotalCompleted", value = tostring(totalCompleted) },
@@ -139,26 +127,17 @@ function Dashboard:UpdateStatisticsPage(frame)
                 { label = "Statistics.StatMostUsefulCategory", value = mostUsefulCategory or AC.L:Get("Common.Unknown") },
             }
 
-            yOffset = self:LayoutStatisticsGrid(page, "Overview", scrollChild, yOffset, width, overviewStats)
-
         end
 
-        yOffset = self:EndSection(yOffset)
+        yOffset = self:AppendStatisticsSection(page, "Overview", "Statistics.SectionOverview", yOffset, overviewStats, "Statistics.NoHistoryYet")
 
         -----------------------------------------------------------------------
         -- Per-Category Breakdown
         -----------------------------------------------------------------------
 
-        yOffset = self:BeginSection(scrollChild, "Statistics.SectionCategoryBreakdown", yOffset)
-
-        page.Pools = page.Pools or {}
-        page.Pools.CategoryBreakdown = page.Pools.CategoryBreakdown or {}
-
-        yOffset = self:LayoutTextLines(scrollChild, page.Pools.CategoryBreakdown, categoryList, yOffset, width, "Statistics.NoCategoryData", function(entry)
+        yOffset = self:AppendTextSection(page, "CategoryBreakdown", "Statistics.SectionCategoryBreakdown", yOffset, categoryList, "Statistics.NoCategoryData", function(entry)
             return AC.L:Format("Statistics.CategoryLineFormat", entry.category, entry.completed, entry.generated)
         end)
-
-        yOffset = self:EndSection(yOffset)
 
         return (-yOffset) + Layout.PAGE_BOTTOM_PADDING
 

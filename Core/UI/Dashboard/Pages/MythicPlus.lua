@@ -2,8 +2,8 @@
 -- Azeroth Companion
 -- Dashboard Page: MythicPlus (the flagship page)
 --
--- The only place the Dashboard reads Mythic+ data. Everything here comes
--- from MythicPlusModule's public API (GetProfile/GetBestOverallLevel/
+-- The competitive Mythic+ page. Everything here
+-- comes from MythicPlusModule's public API (GetProfile/GetBestOverallLevel/
 -- GetRecentRuns/GetSeasonStatistics) plus RecommendationEngine/
 -- InsightEngine filtered to the "MythicPlus" category. Unlike the static
 -- pages, this page is rebuilt fresh on every show/refresh rather than
@@ -42,11 +42,12 @@ function Dashboard:UpdateMythicPlusPage(frame)
 
     local recentRuns = mythicPlusModule:GetRecentRuns(10)
     local seasonStats = mythicPlusModule:GetSeasonStatistics()
+    local bestLevel = (mythicPlusModule.GetBestOverallLevel and mythicPlusModule:GetBestOverallLevel()) or 0
 
     local recommendations, insights = self:GetCategorizedRecommendationsAndInsights("MythicPlus")
 
     -- Detail lines for an expanded Recent Runs row -- only fields
-    -- Blizzard's GetCompletionInfo()/this module's own live state
+    -- Blizzard's GetChallengeCompletionInfo()/this module's own live state
     -- actually captured at record time (see MythicPlusModule:
     -- RecordCompletedRun). "Party" and "Loot" are not collected anywhere
     -- in this addon and are omitted rather than fabricated.
@@ -146,7 +147,6 @@ function Dashboard:UpdateMythicPlusPage(frame)
         -- Key Statistics
         -----------------------------------------------------------------------
 
-        local bestLevel = (mythicPlusModule.GetBestOverallLevel and mythicPlusModule:GetBestOverallLevel()) or 0
         local bestTimed = seasonStats.highestTimedLevel or 0
 
         local keyStats =
@@ -207,17 +207,9 @@ function Dashboard:UpdateMythicPlusPage(frame)
         -- identical. See docs/GameplayModuleArchitecture.md Rule 16.
         -----------------------------------------------------------------------
 
-        yOffset = self:BeginSection(scrollChild, "MythicPlus.SectionSeasonStatistics", yOffset)
+        local seasonGridStats = {}
 
-        if seasonStats.runsCompleted == 0 then
-
-            yOffset = ShowEmptyLine("StatsEmptyText", yOffset, width, "MythicPlus.NoSeasonStatistics")
-
-        else
-
-            if page.StatsEmptyText then
-                page.StatsEmptyText:Hide()
-            end
+        if seasonStats.runsCompleted ~= 0 then
 
             local fastestText = AC.L:Get("Common.Unknown")
 
@@ -225,7 +217,7 @@ function Dashboard:UpdateMythicPlusPage(frame)
                 fastestText = AC.L:Format("MythicPlus.FastestRunFormat", seasonStats.fastestRun.dungeonName or AC.L:Get("Common.Unknown"), seasonStats.fastestRun.level or 0, Format.FormatClock(seasonStats.fastestRun.time))
             end
 
-            local seasonGridStats =
+            seasonGridStats =
             {
                 { label = "MythicPlus.StatRunsCompleted", value = tostring(seasonStats.runsCompleted) },
                 { label = "MythicPlus.StatTimedRuns", value = tostring(seasonStats.timedRuns) },
@@ -236,39 +228,27 @@ function Dashboard:UpdateMythicPlusPage(frame)
                 { label = "MythicPlus.StatFastestRun", value = fastestText },
             }
 
-            yOffset = self:LayoutStatisticsGrid(page, "SeasonStats", scrollChild, yOffset, width, seasonGridStats)
-
         end
 
-        yOffset = self:EndSection(yOffset)
+        yOffset = self:AppendStatisticsSection(page, "SeasonStats", "MythicPlus.SectionSeasonStatistics", yOffset, seasonGridStats, "MythicPlus.NoSeasonStatistics")
 
         -----------------------------------------------------------------------
         -- Performance Trends
         -----------------------------------------------------------------------
 
-        yOffset = self:BeginSection(scrollChild, "MythicPlus.SectionPerformanceTrends", yOffset)
+        local trendGridStats = {}
 
-        if seasonStats.runsCompleted == 0 then
+        if seasonStats.runsCompleted ~= 0 then
 
-            yOffset = ShowEmptyLine("TrendsEmptyText", yOffset, width, "MythicPlus.NoPerformanceTrends")
-
-        else
-
-            if page.TrendsEmptyText then
-                page.TrendsEmptyText:Hide()
-            end
-
-            local trendGridStats =
+            trendGridStats =
             {
                 { label = "MythicPlus.StatAverageDeaths", value = string.format("%.1f", seasonStats.averageDeaths) },
                 { label = "MythicPlus.StatAverageCompletionTime", value = Format.FormatClock(seasonStats.averageCompletionTime) },
             }
 
-            yOffset = self:LayoutStatisticsGrid(page, "PerformanceTrends", scrollChild, yOffset, width, trendGridStats)
-
         end
 
-        yOffset = self:EndSection(yOffset)
+        yOffset = self:AppendStatisticsSection(page, "PerformanceTrends", "MythicPlus.SectionPerformanceTrends", yOffset, trendGridStats, "MythicPlus.NoPerformanceTrends")
 
         -----------------------------------------------------------------------
         -- Consumables

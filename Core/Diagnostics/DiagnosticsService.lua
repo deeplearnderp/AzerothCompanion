@@ -62,19 +62,13 @@ end
 -- Traced Events
 --
 -- The Part 6 event list plus every event MythicPlusModule currently
--- registers (CHALLENGE_MODE_START/RESET/COMPLETED_REWARDS/KEYSTONE_SLOTTED/
+-- registers (CHALLENGE_MODE_START/RESET/COMPLETED/KEYSTONE_SLOTTED/
 -- DEATH_COUNT_UPDATED/MAPS_UPDATE, MYTHIC_PLUS_CURRENT_AFFIX_UPDATE).
---
--- Note (updated, Blizzard API Verification Workflow pass): both
--- "CHALLENGE_MODE_COMPLETED" and "CHALLENGE_MODE_COMPLETED_REWARDS" are now
--- confirmed as real, distinct Blizzard events (Blizzard Interface Source /
--- Warcraft Wiki). This still traces only CHALLENGE_MODE_COMPLETED_REWARDS,
--- since that is the event MythicPlusModule actually registers and consumes
--- (added Patch 11.2.0; payload: mapID, medal, timeMS, money, rewards) --
--- per "prefer matching Blizzard's own implementation," there is no reason
--- to also trace an event nothing in this addon listens for. Registration
--- below is still pcall-wrapped as a safety net for any future addition to
--- this list.
+-- CHALLENGE_MODE_COMPLETED is the authoritative Retail completion event
+-- registered and consumed by MythicPlusModule. Diagnostics traces that same
+-- event so its snapshots observe the live completion pipeline directly.
+-- Registration below remains pcall-wrapped as a safety net for any future
+-- addition to this list.
 -------------------------------------------------------------------------------
 
 local TRACED_EVENTS =
@@ -88,7 +82,7 @@ local TRACED_EVENTS =
     "PLAYER_EQUIPMENT_CHANGED",
     "CHALLENGE_MODE_START",
     "CHALLENGE_MODE_RESET",
-    "CHALLENGE_MODE_COMPLETED_REWARDS",
+    "CHALLENGE_MODE_COMPLETED",
     "CHALLENGE_MODE_KEYSTONE_SLOTTED",
     "CHALLENGE_MODE_DEATH_COUNT_UPDATED",
     "CHALLENGE_MODE_MAPS_UPDATE",

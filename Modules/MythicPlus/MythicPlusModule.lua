@@ -28,7 +28,7 @@ local GetActiveKeystoneInfo = C_ChallengeMode.GetActiveKeystoneInfo
 local IsChallengeModeActive = C_ChallengeMode.IsChallengeModeActive
 local GetDeathCount = C_ChallengeMode.GetDeathCount
 local GetMapScoreInfo = C_ChallengeMode.GetMapScoreInfo
-local GetCompletionInfo = C_ChallengeMode.GetCompletionInfo
+local GetChallengeCompletionInfo = C_ChallengeMode.GetChallengeCompletionInfo
 
 local GetOwnedKeystoneChallengeMapID = C_MythicPlus and C_MythicPlus.GetOwnedKeystoneChallengeMapID
 local GetOwnedKeystoneLevel = C_MythicPlus and C_MythicPlus.GetOwnedKeystoneLevel
@@ -367,12 +367,9 @@ end
 -- CHALLENGE_MODE_MAPS_UPDATE, and MYTHIC_PLUS_CURRENT_AFFIX_UPDATE are all
 -- confirmed directly from Blizzard's own FrameXML source (Blizzard Interface
 -- Source, Blizzard_ChallengesUI/Mainline/Blizzard_ChallengesUI.lua). Also
--- separately confirmed via Warcraft Wiki. CHALLENGE_MODE_COMPLETED_REWARDS
--- is confirmed via Warcraft Wiki (added Patch 11.2.0; payload: mapID, medal,
--- timeMS, money, rewards) -- this is the correct completion event to use,
--- distinct from the older CHALLENGE_MODE_COMPLETED (see
--- Core/Diagnostics/DiagnosticsService.lua for the historical note on that
--- distinction). CHALLENGE_MODE_DEATH_COUNT_UPDATED is confirmed via its own
+-- separately confirmed via Warcraft Wiki. CHALLENGE_MODE_COMPLETED is
+-- confirmed directly from Blizzard's Retail FrameXML completion banner.
+-- CHALLENGE_MODE_DEATH_COUNT_UPDATED is confirmed via its own
 -- dedicated Warcraft Wiki page (not seen in the one Blizzard FrameXML file
 -- checked directly, but that only means that particular Blizzard addon
 -- doesn't consume it -- the event itself is real). No API in this
@@ -384,7 +381,7 @@ function MythicPlusModule:Enable()
     AC.Events:Register("PLAYER_ENTERING_WORLD", self)
     AC.Events:Register("CHALLENGE_MODE_START", self)
     AC.Events:Register("CHALLENGE_MODE_RESET", self)
-    AC.Events:Register("CHALLENGE_MODE_COMPLETED_REWARDS", self)
+    AC.Events:Register("CHALLENGE_MODE_COMPLETED", self)
     AC.Events:Register("CHALLENGE_MODE_KEYSTONE_SLOTTED", self)
     AC.Events:Register("CHALLENGE_MODE_DEATH_COUNT_UPDATED", self)
     AC.Events:Register("CHALLENGE_MODE_MAPS_UPDATE", self)
@@ -552,28 +549,27 @@ function MythicPlusModule:OnChallengeModeReset()
 
 end
 
-function MythicPlusModule:OnChallengeModeCompletedRewards(mapID)
-
+function MythicPlusModule:OnChallengeModeCompleted()
     if not self:IsModuleEnabled() then
         return
     end
 
-    local completionInfo = GetCompletionInfo and GetCompletionInfo()
+    local completionInfo = GetChallengeCompletionInfo()
 
     if completionInfo then
-
-        local dungeonID = completionInfo.mapChallengeModeID or mapID or 0
+        local dungeonID = completionInfo.mapChallengeModeID or 0
+        local completionTimeSeconds = (completionInfo.time or 0) / 1000
 
         -- Captured here, before RefreshOwnedKeystone()/activeRun is
         -- cleared below, since the death count, active affixes, and this
         -- run's tracked defensives/interrupts/consumables are only
         -- available from this module's own live state, not from
-        -- GetCompletionInfo() itself.
+        -- GetChallengeCompletionInfo() itself.
         local timeRemaining = 0
         local timeLimit = select(3, GetMapUIInfo(dungeonID))
 
         if timeLimit and timeLimit > 0 then
-            timeRemaining = timeLimit - (completionInfo.time or 0)
+            timeRemaining = timeLimit - completionTimeSeconds
         end
 
         local characterModule = AC.Core and AC.Core:GetModule("Character")
@@ -597,12 +593,12 @@ function MythicPlusModule:OnChallengeModeCompletedRewards(mapID)
             dungeonID = dungeonID,
             dungeonName = self:GetDungeonName(dungeonID),
             level = completionInfo.level or 0,
-            time = completionInfo.time or 0,
+            time = completionTimeSeconds,
             timeRemaining = timeRemaining,
             onTime = completionInfo.onTime == true,
             oldScore = completionInfo.oldOverallDungeonScore or 0,
             newScore = completionInfo.newOverallDungeonScore or 0,
-            isMapRecord = completionInfo.IsMapRecord == true,
+            isMapRecord = completionInfo.isMapRecord == true,
             deathCount = (self.Profile.activeRun and self.Profile.activeRun.deathCount) or 0,
             affixIDs = self.Profile.weeklyAffixIDs or {},
 
@@ -621,24 +617,20 @@ function MythicPlusModule:OnChallengeModeCompletedRewards(mapID)
             itemCountDelta = itemCountDelta,
         }
 
+        self.Session.runsCompletedThisSession = (self.Session.runsCompletedThisSession or 0) + 1
+
+        self:RecordCompletedRun()
+
     end
 
-    self.Session.runsCompletedThisSession = (self.Session.runsCompletedThisSession or 0) + 1
+    self:UnregisterRunTrackingEvents()
+    self:ResetRunTracking()
+
+    self.Profile.activeRun = nil
 
     self:RefreshRating()
     self:RefreshBestRuns()
     self:RefreshOwnedKeystone()
-
-    self.Profile.activeRun = nil
-
-    self:RecordCompletedRun()
-
-    if self.RunTracking.active then
-        self:UnregisterRunTrackingEvents()
-        self:ResetRunTracking()
-    end
-
-    TraceState(self, "CHALLENGE_MODE_COMPLETED_REWARDS")
 
 end
 
@@ -657,12 +649,11 @@ end
 -------------------------------------------------------------------------------
 
 function MythicPlusModule:RecordCompletedRun()
+    local run = self.Profile.lastCompletedRun
 
     if not AC.ActivityHistoryService then
         return
     end
-
-    local run = self.Profile.lastCompletedRun
 
     if not run then
         return
@@ -752,6 +743,14 @@ end
 function MythicPlusModule:OnChallengeModeMapsUpdate()
 
     if not self:IsModuleEnabled() then
+
+        if AC.Logger
+                and AC.Logger:IsDebugEnabled()
+                and AC.Logger:IsTraceCategoryEnabled("Mythic+") then
+
+            AC.Logger:Trace("Mythic+", "RETURN: Module disabled")
+        end
+
         return
     end
 
@@ -1084,7 +1083,7 @@ end
 -- Aggregated entirely from recorded ActivityHistoryService records --
 -- never fabricated, and empty (runsCompleted == 0) until the player
 -- completes their first run after this feature shipped. "Timed" here
--- means Blizzard's own onTime/Success flag from GetCompletionInfo(), not
+-- means Blizzard's own onTime/Success flag from GetChallengeCompletionInfo(), not
 -- a threshold this module invents.
 --
 -- "Weakest/strongest dungeon" are distinct from "least/most-run dungeon":

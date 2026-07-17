@@ -2,11 +2,11 @@
 -- Azeroth Companion
 -- Developer Panel
 --
--- The permanent developer-tooling surface for Azeroth Companion: eight tabs
+-- The permanent developer-tooling surface for Azeroth Companion: nine tabs
 -- (Overview, Modules, Events, Errors, Secret Values, Live API, Checklist,
--- History) inside one standalone window (BaseWindow, same tier as
--- DiagnosticsWindow/SettingsWindow), only ever shown from /ac dev once
--- Developer Mode is enabled. This comment previously said "seven tabs" and
+-- History, Maintenance) inside one standalone window (BaseWindow, same tier as
+-- DiagnosticsWindow/SettingsWindow), shown from /ac dev or the Dashboard's
+-- Developer button once Developer Mode is enabled. This comment previously said "seven tabs" and
 -- didn't mention Secret Values at all -- proof, not just a guess, that
 -- WINDOW_WIDTH below was never revisited when that tab was added, which is
 -- exactly the bug that caused the tab bar to overflow the window (see
@@ -51,7 +51,7 @@ AC.DeveloperPanel = DeveloperPanel
 -- tab bar to overflow the window twice.
 -------------------------------------------------------------------------------
 
-local TABS = { "Overview", "Modules", "Events", "Errors", "SecretValues", "LiveAPI", "Checklist", "History" }
+local TABS = { "Overview", "Modules", "Events", "Errors", "SecretValues", "LiveAPI", "Checklist", "History", "Maintenance" }
 
 -------------------------------------------------------------------------------
 -- Layout Constants
@@ -91,6 +91,8 @@ local CONTENT_WIDTH = WINDOW_WIDTH - (CONTENT_PADDING * 2) - SCROLLBAR_RESERVE
 local TAB_BAR_HEIGHT = 26
 local FOOTER_HEIGHT = 68
 local ROW_HEIGHT = 16
+local MAINTENANCE_ACTION_HEIGHT = 58
+local MAINTENANCE_ACTION_GAP = 8
 
 -- Header layout -- this is the one window in the addon with its own
 -- persistent toolbar row (QoL buttons) in addition to BaseWindow's shared
@@ -116,6 +118,7 @@ local TAB_LABEL_KEY =
     LiveAPI = "Developer.TabLiveAPI",
     Checklist = "Developer.TabChecklist",
     History = "Developer.TabHistory",
+    Maintenance = "Developer.TabMaintenance",
 }
 
 -------------------------------------------------------------------------------
@@ -145,12 +148,12 @@ end
 -------------------------------------------------------------------------------
 -- Generic Row Helpers
 --
--- A minimal pooled label-list, shared by every simple-text tab -- each tab
--- owns one pool (self.Pools[tabName]) of plain FontStrings, laid out
--- top-to-bottom. Deliberately simpler than Dashboard's own Rows.lua
--- primitives (no stars/hero/grid shapes needed here, just dense text) --
--- reusing those would mean fighting their player-facing spacing/typography
--- for a developer tool that wants density instead.
+-- A minimal pooled label-list, shared by every dense simple-text tab -- each
+-- tab owns one pool (self.Pools[tabName]) of plain FontStrings, laid out
+-- top-to-bottom. Overview and Maintenance use Dashboard's shared hero/grid/
+-- section primitives where their information hierarchy genuinely matches;
+-- the remaining tabs keep this denser renderer rather than forcing every
+-- diagnostic line into a player-facing card shape.
 --
 -- The Errors tab is the one deliberate exception: it needs real
 -- expand/collapse behavior, which this file has no primitive of its own
@@ -225,6 +228,7 @@ local POOL_TAB_OWNER =
     ModulesTitle = "Modules",
     ModulesStats = "Modules",
     ChecklistIntro = "Checklist",
+    OverviewHeroStats = "Overview",
 }
 
 -- Hides every pooled row belonging to a tab other than the one now active
@@ -333,6 +337,16 @@ function DeveloperPanel:HideOtherTabs(activeTab)
         self.SecretValuesClearButton:Hide()
     end
 
+    if self.Hero and activeTab ~= "Overview" then
+        self.Hero.Headline:Hide()
+        self.Hero.Value:Hide()
+        self.Hero.Caption:Hide()
+    end
+
+    if self.MaintenanceContainer and activeTab ~= "Maintenance" then
+        self.MaintenanceContainer:Hide()
+    end
+
 end
 
 -------------------------------------------------------------------------------
@@ -342,6 +356,9 @@ end
 function DeveloperPanel:Initialize()
 
     self.Frame = BaseWindow:Create("AzerothCompanionDeveloperPanel", AC.L:Get("Developer.Title"), WINDOW_WIDTH, WINDOW_HEIGHT)
+
+    AC.Presentation.ApplyWindowBackground(self.Frame)
+    AC.Presentation.StyleWindowTitle(self.Frame.Title)
 
     BaseWindow:AddCloseButton(self.Frame, self)
 
@@ -363,19 +380,25 @@ function DeveloperPanel:Initialize()
     -- Tab Bar
     -----------------------------------------------------------------------
 
+    local tabBarPanel = CreateFrame("Frame", nil, self.Frame, "BackdropTemplate")
+    tabBarPanel:SetPoint("TOPLEFT", self.Frame, "TOPLEFT", CONTENT_PADDING - 6, tabTop + 4)
+    tabBarPanel:SetSize((#TABS * TAB_BUTTON_WIDTH) + ((#TABS - 1) * TAB_BUTTON_GAP) + 12, TAB_BAR_HEIGHT + 4)
+    AC.Presentation.ApplyCardBackdrop(tabBarPanel)
+
+    self.TabBarPanel = tabBarPanel
     self.TabButtons = {}
 
     local previousTab
 
     for _, tabName in ipairs(TABS) do
 
-        local button = CreateFrame("Button", nil, self.Frame, "UIPanelButtonTemplate")
+        local button = CreateFrame("Button", nil, tabBarPanel, "UIPanelButtonTemplate")
         button:SetSize(TAB_BUTTON_WIDTH, 22)
 
         if previousTab then
             button:SetPoint("LEFT", previousTab, "RIGHT", TAB_BUTTON_GAP, 0)
         else
-            button:SetPoint("TOPLEFT", CONTENT_PADDING, tabTop)
+            button:SetPoint("TOPLEFT", 6, -4)
         end
 
         button:SetText(AC.L:Get(TAB_LABEL_KEY[tabName]))
@@ -393,6 +416,11 @@ function DeveloperPanel:Initialize()
     -- Content Area
     -----------------------------------------------------------------------
 
+    local contentPanel = CreateFrame("Frame", nil, self.Frame, "BackdropTemplate")
+    contentPanel:SetPoint("TOPLEFT", CONTENT_PADDING - 6, tabTop - TAB_BAR_HEIGHT + 4)
+    contentPanel:SetPoint("BOTTOMRIGHT", -CONTENT_PADDING + 6, FOOTER_HEIGHT - 4)
+    AC.Presentation.ApplyCardBackdrop(contentPanel)
+
     local scrollFrame = CreateFrame("ScrollFrame", nil, self.Frame, "UIPanelScrollFrameTemplate")
     scrollFrame:SetPoint("TOPLEFT", CONTENT_PADDING, tabTop - TAB_BAR_HEIGHT)
     scrollFrame:SetPoint("BOTTOMRIGHT", -CONTENT_PADDING, FOOTER_HEIGHT)
@@ -405,6 +433,7 @@ function DeveloperPanel:Initialize()
 
     self.ScrollFrame = scrollFrame
     self.ScrollChild = scrollChild
+    self.ContentPanel = contentPanel
 
     -----------------------------------------------------------------------
     -- Footer -- Copy JSON / Copy Text / Copy Summary + the shared hidden
@@ -414,6 +443,7 @@ function DeveloperPanel:Initialize()
     -- pattern rather than a new one).
     -----------------------------------------------------------------------
 
+    self:RegisterConfirmationDialogs()
     self:BuildFooter()
 
     self.CurrentTab = "Overview"
@@ -432,6 +462,7 @@ function DeveloperPanel:Initialize()
     -- listened for elsewhere in this codebase regardless of any
     -- enable/disable state).
     AC.Events:Register("DEVELOPER_RUNTIME_UPDATED", self, "OnDeveloperRuntimeUpdated")
+    AC.Events:Register("DEVELOPER_MODE_CHANGED", self, "OnDeveloperModeChanged")
 
 end
 
@@ -477,20 +508,295 @@ function DeveloperPanel:OnDeveloperRuntimeUpdated(capabilityName)
 
 end
 
+function DeveloperPanel:OnDeveloperModeChanged(enabled)
+
+    if not enabled and self.Frame and self.Frame:IsShown() then
+        self:Hide()
+    elseif enabled and self.Frame and self.Frame:IsShown() and self.CurrentTab == "Overview" then
+        self:ShowTab("Overview")
+    end
+
+end
+
+-------------------------------------------------------------------------------
+-- Destructive Maintenance Actions
+--
+-- StaticPopupDialogs below own confirmation. These methods call only the
+-- public clear API of the system that owns each data set, then refresh the
+-- visible presentation. The broad DatabaseService reset APIs are deliberately
+-- not used: they also erase unrelated player configuration and gameplay data.
+-------------------------------------------------------------------------------
+
+local function ClearActivityHistoryData()
+
+    if AC.ActivityHistoryService then
+        AC.ActivityHistoryService:ClearAll()
+    end
+
+end
+
+local function ClearCapturedErrorsData()
+
+    local errorCapture = AC.DeveloperRuntime and AC.DeveloperRuntime:GetCapability("ErrorCapture")
+
+    if errorCapture then
+        errorCapture:ClearErrors()
+    end
+
+end
+
+local function ClearEventLogData()
+
+    if AC.DeveloperModeService then
+        AC.DeveloperModeService:ClearEventLog()
+    end
+
+end
+
+local function ClearSecretValueData()
+
+    local secretValueEvents = AC.DeveloperRuntime and AC.DeveloperRuntime:GetCapability("SecretValueEvents")
+
+    if secretValueEvents then
+        secretValueEvents:ClearEvents()
+    end
+
+end
+
+local function ClearVerificationData()
+
+    if AC.VerificationService then
+        AC.VerificationService:ClearRecordedResults()
+    end
+
+end
+
+function DeveloperPanel:RefreshAfterMaintenance()
+
+    if AC.Dashboard and AC.Dashboard.Frame and AC.Dashboard.Frame:IsShown() then
+        AC.Dashboard:ShowPage(AC.Dashboard.CurrentPage or "Home")
+    end
+
+    if self.Frame and self.Frame:IsShown() then
+        self:ShowTab(self.CurrentTab or "Maintenance")
+    end
+
+end
+
+function DeveloperPanel:ClearActivityHistory()
+
+    ClearActivityHistoryData()
+    AC.Logger:Info("Developer Panel: Activity History cleared.")
+    self:RefreshAfterMaintenance()
+
+end
+
+function DeveloperPanel:ClearCapturedErrors()
+
+    ClearCapturedErrorsData()
+    AC.Logger:Info("Developer Panel: captured errors cleared.")
+    self:RefreshAfterMaintenance()
+
+end
+
+function DeveloperPanel:ClearEventLog()
+
+    ClearEventLogData()
+    AC.Logger:Info("Developer Panel: event log cleared.")
+    self:RefreshAfterMaintenance()
+
+end
+
+function DeveloperPanel:ClearSecretValueEvents()
+
+    ClearSecretValueData()
+    AC.Logger:Info("Developer Panel: secret-value events cleared.")
+    self:RefreshAfterMaintenance()
+
+end
+
+function DeveloperPanel:ClearRuntimeDiagnostics()
+
+    ClearEventLogData()
+    ClearSecretValueData()
+    AC.Logger:Info("Developer Panel: temporary runtime diagnostics cleared.")
+    self:RefreshAfterMaintenance()
+
+end
+
+function DeveloperPanel:ClearVerificationResults()
+
+    ClearVerificationData()
+    AC.Logger:Info("Developer Panel: verification and checklist records cleared.")
+    self:RefreshAfterMaintenance()
+
+end
+
+function DeveloperPanel:ClearNotifications()
+
+    if AC.NotificationService then
+
+        AC.NotificationService.Queue = {}
+        AC.NotificationService.History = {}
+
+        if AC.NotificationService.Active then
+            AC.NotificationService:Dismiss()
+        end
+
+        AC.Logger:Info("Developer Panel: notifications cleared.")
+
+    end
+
+    if self.CurrentTab == "Overview" then
+        self:ShowTab("Overview")
+    end
+
+end
+
+function DeveloperPanel:ResetAllDeveloperData()
+
+    ClearActivityHistoryData()
+    ClearCapturedErrorsData()
+    ClearEventLogData()
+    ClearSecretValueData()
+    ClearVerificationData()
+
+    AC.Logger:Info("Developer Panel: all developer-managed data cleared.")
+    self:RefreshAfterMaintenance()
+
+end
+
+function DeveloperPanel:RegisterConfirmationDialogs()
+
+StaticPopupDialogs["AZEROTHCOMPANION_DEVELOPER_CLEAR_ACTIVITY_HISTORY"] =
+{
+    text = AC.L:Get("Developer.ConfirmClearActivityHistory"),
+    button1 = AC.L:Get("Developer.Clear"),
+    button2 = _G.CANCEL or "Cancel",
+    OnAccept = function()
+        AC.DeveloperPanel:ClearActivityHistory()
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    preferredIndex = 3,
+}
+
+StaticPopupDialogs["AZEROTHCOMPANION_DEVELOPER_CLEAR_ERRORS"] =
+{
+    text = AC.L:Get("Developer.ConfirmClearErrors"),
+    button1 = AC.L:Get("Developer.Clear"),
+    button2 = _G.CANCEL or "Cancel",
+    OnAccept = function()
+        AC.DeveloperPanel:ClearCapturedErrors()
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    preferredIndex = 3,
+}
+
+StaticPopupDialogs["AZEROTHCOMPANION_DEVELOPER_CLEAR_EVENTS"] =
+{
+    text = AC.L:Get("Developer.ConfirmClearEvents"),
+    button1 = AC.L:Get("Developer.Clear"),
+    button2 = _G.CANCEL or "Cancel",
+    OnAccept = function()
+        AC.DeveloperPanel:ClearEventLog()
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    preferredIndex = 3,
+}
+
+StaticPopupDialogs["AZEROTHCOMPANION_DEVELOPER_CLEAR_SECRET_VALUES"] =
+{
+    text = AC.L:Get("Developer.ConfirmClearSecretValues"),
+    button1 = AC.L:Get("Developer.Clear"),
+    button2 = _G.CANCEL or "Cancel",
+    OnAccept = function()
+        AC.DeveloperPanel:ClearSecretValueEvents()
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    preferredIndex = 3,
+}
+
+StaticPopupDialogs["AZEROTHCOMPANION_DEVELOPER_CLEAR_NOTIFICATIONS"] =
+{
+    text = AC.L:Get("Developer.ConfirmClearNotifications"),
+    button1 = AC.L:Get("Developer.Clear"),
+    button2 = _G.CANCEL or "Cancel",
+    OnAccept = function()
+        AC.DeveloperPanel:ClearNotifications()
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    preferredIndex = 3,
+}
+
+StaticPopupDialogs["AZEROTHCOMPANION_DEVELOPER_CLEAR_RUNTIME_DIAGNOSTICS"] =
+{
+    text = AC.L:Get("Developer.ConfirmClearRuntimeDiagnostics"),
+    button1 = AC.L:Get("Developer.Clear"),
+    button2 = _G.CANCEL or "Cancel",
+    OnAccept = function()
+        AC.DeveloperPanel:ClearRuntimeDiagnostics()
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    preferredIndex = 3,
+}
+
+StaticPopupDialogs["AZEROTHCOMPANION_DEVELOPER_CLEAR_VERIFICATION"] =
+{
+    text = AC.L:Get("Developer.ConfirmClearVerification"),
+    button1 = AC.L:Get("Developer.Clear"),
+    button2 = _G.CANCEL or "Cancel",
+    OnAccept = function()
+        AC.DeveloperPanel:ClearVerificationResults()
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    preferredIndex = 3,
+}
+
+StaticPopupDialogs["AZEROTHCOMPANION_DEVELOPER_RESET_ALL"] =
+{
+    text = AC.L:Get("Developer.ConfirmResetEverything"),
+    button1 = AC.L:Get("Developer.Reset"),
+    button2 = _G.CANCEL or "Cancel",
+    OnAccept = function()
+        AC.DeveloperPanel:ResetAllDeveloperData()
+    end,
+    timeout = 0,
+    whileDead = true,
+    hideOnEscape = true,
+    preferredIndex = 3,
+}
+
+end
+
 -------------------------------------------------------------------------------
 -- Footer / Copy Support
 -------------------------------------------------------------------------------
 
 function DeveloperPanel:BuildFooter()
 
-    local footer = CreateFrame("Frame", nil, self.Frame)
+    local footer = CreateFrame("Frame", nil, self.Frame, "BackdropTemplate")
     footer:SetPoint("BOTTOMLEFT", CONTENT_PADDING, CONTENT_PADDING)
     footer:SetPoint("BOTTOMRIGHT", -CONTENT_PADDING, CONTENT_PADDING)
     footer:SetHeight(FOOTER_HEIGHT)
+    AC.Presentation.ApplyCardBackdrop(footer)
 
     local copyJSON = CreateFrame("Button", nil, footer, "UIPanelButtonTemplate")
     copyJSON:SetSize(90, 20)
-    copyJSON:SetPoint("BOTTOMLEFT", 0, 24)
+    copyJSON:SetPoint("BOTTOMLEFT", 8, 24)
     copyJSON:SetText(AC.L:Get("Developer.CopyJSON"))
 
     copyJSON:SetScript("OnClick", function()
@@ -533,6 +839,7 @@ function DeveloperPanel:BuildFooter()
     end)
 
     self.CopyBox = copyBox
+    self.Footer = footer
 
 end
 
@@ -567,7 +874,7 @@ function DeveloperPanel:CopyCurrentTab(mode)
 end
 
 -------------------------------------------------------------------------------
--- Quality of Life Row -- Clear Notifications / Clear History / Force
+-- Quality of Life Row -- Clear Notifications / Force
 -- Refresh / Toggle Tracing, always visible regardless of active tab.
 -------------------------------------------------------------------------------
 
@@ -585,24 +892,7 @@ function DeveloperPanel:BuildQoLRow(topY)
     clearNotifications:SetText(AC.L:Get("Developer.ClearNotifications"))
 
     clearNotifications:SetScript("OnClick", function()
-
-        if AC.NotificationService then
-
-            AC.NotificationService.Queue = {}
-            AC.NotificationService.History = {}
-
-            if AC.NotificationService.Active then
-                AC.NotificationService:Dismiss()
-            end
-
-            AC.Logger:Info("Developer Panel: notifications cleared.")
-
-        end
-
-        if self.CurrentTab == "Overview" then
-            self:ShowTab("Overview")
-        end
-
+        StaticPopup_Show("AZEROTHCOMPANION_DEVELOPER_CLEAR_NOTIFICATIONS")
     end)
 
     local forceRefresh = CreateFrame("Button", nil, self.Frame, "UIPanelButtonTemplate")
@@ -661,6 +951,11 @@ function DeveloperPanel:BuildOverviewTab()
 
     local data = {}
     local lines = {}
+    local serviceCount = AC.ServiceManager and #AC.ServiceManager:GetAll() or 0
+    local moduleCount = AC.ModuleManager and #AC.ModuleManager:GetAll() or 0
+    local eventCount = AC.DeveloperModeService and #AC.DeveloperModeService:GetEventLog() or 0
+    local errorCapture = AC.DeveloperRuntime and AC.DeveloperRuntime:GetCapability("ErrorCapture")
+    local errorCount = errorCapture and #errorCapture:GetErrors() or 0
 
     local function AddLine(labelKey, value)
 
@@ -766,8 +1061,6 @@ function DeveloperPanel:BuildOverviewTab()
 
     end
 
-    local serviceCount = AC.ServiceManager and #AC.ServiceManager:GetAll() or 0
-    local moduleCount = AC.ModuleManager and #AC.ModuleManager:GetAll() or 0
     AddLine("Developer.FieldLoadedModules", string.format("%d services, %d modules", serviceCount, moduleCount))
 
     local lastRefresh = AC.RecommendationEngine and AC.RecommendationEngine:GetLastRefresh()
@@ -779,7 +1072,29 @@ function DeveloperPanel:BuildOverviewTab()
     local framerate = GetFramerate and GetFramerate() or nil
     AddLine("Developer.FieldFrameRate", framerate and string.format("%.0f fps", framerate) or AC.L:Get("Common.Unknown"))
 
-    local yOffset = self:LayoutLines("Overview", lines, -4, CONTENT_WIDTH)
+    local _, _, _, yOffset = AC.Dashboard:BuildHeroSection(
+        self,
+        self.ScrollChild,
+        -4,
+        CONTENT_WIDTH,
+        AC.L:Get("Developer.HeroHeadline"),
+        AC.L:Get("Developer.HeroValue"),
+        AC.L:Get("Developer.HeroCaption")
+    )
+
+    self.Hero.Headline:Show()
+    self.Hero.Value:Show()
+    self.Hero.Caption:Show()
+
+    yOffset = AC.Dashboard:LayoutStatisticsGrid(self, "OverviewHeroStats", self.ScrollChild, yOffset, CONTENT_WIDTH,
+    {
+        { label = "Developer.HeroModules", value = tostring(moduleCount) },
+        { label = "Developer.HeroEvents", value = tostring(eventCount) },
+        { label = "Developer.HeroErrors", value = tostring(errorCount) },
+        { label = "Developer.HeroMode", value = AC.L:Get(AC.DeveloperModeService and AC.DeveloperModeService:IsEnabled() and "Developer.Yes" or "Developer.No") },
+    })
+
+    yOffset = self:LayoutLines("Overview", lines, yOffset, CONTENT_WIDTH)
 
     self.CurrentTabData = data
     self.CurrentTabSummaryLines = lines
@@ -1026,8 +1341,7 @@ function DeveloperPanel:BuildEventsTab()
         clearButton:SetText(AC.L:Get("Developer.Clear"))
 
         clearButton:SetScript("OnClick", function()
-            AC.DeveloperModeService:ClearEventLog()
-            DeveloperPanel:ShowTab("Events")
+            StaticPopup_Show("AZEROTHCOMPANION_DEVELOPER_CLEAR_EVENTS")
         end)
 
         self.EventsClearButton = clearButton
@@ -1294,15 +1608,7 @@ function DeveloperPanel:BuildErrorsToolbar()
     clearButton:SetText(AC.L:Get("Developer.ClearErrors"))
 
     clearButton:SetScript("OnClick", function()
-
-        local errorCapture = AC.DeveloperRuntime and AC.DeveloperRuntime:GetCapability("ErrorCapture")
-
-        if errorCapture then
-            errorCapture:ClearErrors()
-        end
-
-        DeveloperPanel:ShowTab("Errors")
-
+        StaticPopup_Show("AZEROTHCOMPANION_DEVELOPER_CLEAR_ERRORS")
     end)
 
     self.ErrorsClearButton = clearButton
@@ -1657,15 +1963,7 @@ function DeveloperPanel:BuildSecretValuesToolbar()
     clearButton:SetText(AC.L:Get("Developer.ClearSecretValues"))
 
     clearButton:SetScript("OnClick", function()
-
-        local secretValueEvents = AC.DeveloperRuntime and AC.DeveloperRuntime:GetCapability("SecretValueEvents")
-
-        if secretValueEvents then
-            secretValueEvents:ClearEvents()
-        end
-
-        DeveloperPanel:ShowTab("SecretValues")
-
+        StaticPopup_Show("AZEROTHCOMPANION_DEVELOPER_CLEAR_SECRET_VALUES")
     end)
 
     self.SecretValuesClearButton = clearButton
@@ -2348,8 +2646,8 @@ end
 -- players' saved history; see AccomplishmentsModule.lua's own header.
 -------------------------------------------------------------------------------
 
-local HISTORY_MODULES = { "All", "MythicPlus", "Achievements" }
-local HISTORY_TYPES = { "All", "Dungeon", "Achievement" }
+local HISTORY_MODULES = { "All", "MythicPlus", "Delves", "Achievements" }
+local HISTORY_TYPES = { "All", "Dungeon", "Delve", "Achievement" }
 local HISTORY_DATE_RANGES = { "All", "Today", "Last7", "Last30" }
 
 local HISTORY_DATE_RANGE_LABEL_KEY =
@@ -2439,35 +2737,12 @@ function DeveloperPanel:BuildHistoryFilterControls()
     clearButton:SetText(AC.L:Get("Developer.ClearHistory"))
 
     clearButton:SetScript("OnClick", function()
-        StaticPopup_Show("AZEROTHCOMPANION_DEVELOPER_CLEAR_HISTORY")
+        StaticPopup_Show("AZEROTHCOMPANION_DEVELOPER_CLEAR_ACTIVITY_HISTORY")
     end)
 
     table.insert(self.HistoryFilterButtons, clearButton)
 
 end
-
-StaticPopupDialogs["AZEROTHCOMPANION_DEVELOPER_CLEAR_HISTORY"] =
-{
-    text = "Clear all recorded Activity History for this character? This cannot be undone.",
-    button1 = _G.YES or "Clear",
-    button2 = _G.CANCEL or "Cancel",
-    OnAccept = function()
-
-        if AC.ActivityHistoryService then
-            AC.ActivityHistoryService:ClearAll()
-        end
-
-        AC.Logger:Info("Developer Panel: Activity History cleared.")
-
-        if AC.DeveloperPanel then
-            AC.DeveloperPanel:ShowTab("History")
-        end
-
-    end,
-    timeout = 0,
-    whileDead = true,
-    hideOnEscape = true,
-}
 
 function DeveloperPanel:BuildHistoryTab()
 
@@ -2546,6 +2821,244 @@ function DeveloperPanel:BuildHistoryTab()
 end
 
 -------------------------------------------------------------------------------
+-- Maintenance Tab
+--
+-- A presentation-only command surface over existing owner APIs. Each action
+-- receives prepared text and a confirmed callback; this layout helper knows
+-- nothing about the data it clears.
+-------------------------------------------------------------------------------
+
+function DeveloperPanel:GetMaintenanceContainer()
+
+    if self.MaintenanceContainer then
+        return self.MaintenanceContainer
+    end
+
+    local container = CreateFrame("Frame", nil, self.ScrollChild)
+    container:SetPoint("TOPLEFT", 0, 0)
+    container:SetWidth(CONTENT_WIDTH)
+    container:SetHeight(1)
+
+    self.MaintenanceContainer = container
+    self.MaintenanceActions = {}
+
+    return container
+
+end
+
+function DeveloperPanel:LayoutMaintenanceAction(key, parent, yOffset, titleText, descriptionText, buttonText, onClick, isDanger)
+
+    local row = self.MaintenanceActions[key]
+
+    if not row then
+
+        row = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+        AC.Presentation.ApplyCardBackdrop(row)
+
+        local title = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        title:SetPoint("TOPLEFT", 12, -10)
+        title:SetJustifyH("LEFT")
+
+        local description = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        description:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -5)
+        description:SetJustifyH("LEFT")
+        description:SetWordWrap(true)
+        description:SetTextColor(unpack(AC.Presentation.GetSemanticColor("dim")))
+
+        local button = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+        button:SetSize(150, 22)
+        button:SetPoint("RIGHT", -12, 0)
+
+        row.Title = title
+        row.Description = description
+        row.Button = button
+
+        self.MaintenanceActions[key] = row
+
+    end
+
+    row:SetSize(CONTENT_WIDTH, MAINTENANCE_ACTION_HEIGHT)
+    row:ClearAllPoints()
+    row:SetPoint("TOPLEFT", 0, yOffset)
+
+    row.Title:SetText(titleText)
+    row.Description:SetText(descriptionText)
+
+    if buttonText and onClick then
+
+        row.Title:SetWidth(CONTENT_WIDTH - 190)
+        row.Description:SetWidth(CONTENT_WIDTH - 190)
+        row.Button:SetText(buttonText)
+        row.Button:SetScript("OnClick", onClick)
+        row.Button:Show()
+
+        if isDanger then
+            row.Button:GetFontString():SetTextColor(unpack(AC.Presentation.GetSemanticColor("critical")))
+        else
+            row.Button:GetFontString():SetTextColor(1, 1, 1)
+        end
+
+    else
+
+        row.Title:SetWidth(CONTENT_WIDTH - 24)
+        row.Description:SetWidth(CONTENT_WIDTH - 24)
+        row.Button:Hide()
+
+    end
+
+    if isDanger then
+        local r, g, b = unpack(AC.Presentation.GetSemanticColor("critical"))
+        row:SetBackdropBorderColor(r, g, b, 0.65)
+    else
+        row:SetBackdropBorderColor(unpack(AC.Presentation.CARD_BACKDROP.borderColor))
+    end
+
+    row:Show()
+
+    return yOffset - MAINTENANCE_ACTION_HEIGHT - MAINTENANCE_ACTION_GAP
+
+end
+
+function DeveloperPanel:BuildMaintenanceTab()
+
+    local container = self:GetMaintenanceContainer()
+    local historyCount = AC.ActivityHistoryService and AC.ActivityHistoryService:Count() or 0
+    local errorCapture = AC.DeveloperRuntime and AC.DeveloperRuntime:GetCapability("ErrorCapture")
+    local errorCount = errorCapture and #errorCapture:GetErrors() or 0
+    local eventCount = AC.DeveloperModeService and #AC.DeveloperModeService:GetEventLog() or 0
+    local secretValueEvents = AC.DeveloperRuntime and AC.DeveloperRuntime:GetCapability("SecretValueEvents")
+    local secretValueCount = secretValueEvents and #secretValueEvents:GetEvents() or 0
+    local diagnosticCount = eventCount + secretValueCount
+    local yOffset = -4
+
+    container:Show()
+
+    yOffset = AC.Dashboard:BeginSection(container, "Developer.MaintenanceActivityHistory", yOffset)
+    yOffset = self:LayoutMaintenanceAction(
+        "ActivityHistory",
+        container,
+        yOffset,
+        AC.L:Format("Developer.MaintenanceHistoryCountFormat", historyCount),
+        AC.L:Get("Developer.MaintenanceHistoryDescription"),
+        AC.L:Get("Developer.ClearActivityHistory"),
+        function()
+            StaticPopup_Show("AZEROTHCOMPANION_DEVELOPER_CLEAR_ACTIVITY_HISTORY")
+        end
+    )
+    yOffset = AC.Dashboard:EndSection(yOffset)
+
+    yOffset = AC.Dashboard:BeginSection(container, "Developer.MaintenanceAnalytics", yOffset)
+    yOffset = self:LayoutMaintenanceAction(
+        "Analytics",
+        container,
+        yOffset,
+        AC.L:Get("Developer.MaintenanceAnalyticsUnavailable"),
+        AC.L:Get("Developer.MaintenanceAnalyticsPlaceholder")
+    )
+    yOffset = AC.Dashboard:EndSection(yOffset)
+
+    yOffset = AC.Dashboard:BeginSection(container, "Developer.MaintenanceTelemetry", yOffset)
+    yOffset = self:LayoutMaintenanceAction(
+        "Telemetry",
+        container,
+        yOffset,
+        AC.L:Get("Developer.MaintenanceTelemetryUnavailable"),
+        AC.L:Get("Developer.MaintenanceTelemetryPlaceholder")
+    )
+    yOffset = AC.Dashboard:EndSection(yOffset)
+
+    yOffset = AC.Dashboard:BeginSection(container, "Developer.MaintenanceCache", yOffset)
+    yOffset = self:LayoutMaintenanceAction(
+        "Cache",
+        container,
+        yOffset,
+        AC.L:Get("Developer.MaintenanceCacheUnavailable"),
+        AC.L:Get("Developer.MaintenanceCachePlaceholder")
+    )
+    yOffset = AC.Dashboard:EndSection(yOffset)
+
+    yOffset = AC.Dashboard:BeginSection(container, "Developer.MaintenanceDeveloperData", yOffset)
+    yOffset = self:LayoutMaintenanceAction(
+        "CapturedErrors",
+        container,
+        yOffset,
+        AC.L:Format("Developer.MaintenanceErrorCountFormat", errorCount),
+        AC.L:Get("Developer.MaintenanceErrorsDescription"),
+        AC.L:Get("Developer.ClearErrors"),
+        function()
+            StaticPopup_Show("AZEROTHCOMPANION_DEVELOPER_CLEAR_ERRORS")
+        end
+    )
+    yOffset = self:LayoutMaintenanceAction(
+        "RuntimeDiagnostics",
+        container,
+        yOffset,
+        AC.L:Format("Developer.MaintenanceDiagnosticCountFormat", diagnosticCount),
+        AC.L:Get("Developer.MaintenanceDiagnosticsDescription"),
+        AC.L:Get("Developer.ClearRuntimeDiagnostics"),
+        function()
+            StaticPopup_Show("AZEROTHCOMPANION_DEVELOPER_CLEAR_RUNTIME_DIAGNOSTICS")
+        end
+    )
+    yOffset = self:LayoutMaintenanceAction(
+        "Verification",
+        container,
+        yOffset,
+        AC.L:Get("Developer.MaintenanceVerificationTitle"),
+        AC.L:Get("Developer.MaintenanceVerificationDescription"),
+        AC.L:Get("Developer.ClearVerification"),
+        function()
+            StaticPopup_Show("AZEROTHCOMPANION_DEVELOPER_CLEAR_VERIFICATION")
+        end
+    )
+    yOffset = self:LayoutMaintenanceAction(
+        "Exports",
+        container,
+        yOffset,
+        AC.L:Get("Developer.MaintenanceExportsTitle"),
+        AC.L:Get("Developer.MaintenanceExportsDescription")
+    )
+    yOffset = AC.Dashboard:EndSection(yOffset)
+
+    yOffset = AC.Dashboard:BeginSection(container, "Developer.MaintenanceDangerZone", yOffset)
+    yOffset = self:LayoutMaintenanceAction(
+        "ResetEverything",
+        container,
+        yOffset,
+        AC.L:Get("Developer.ResetEverything"),
+        AC.L:Get("Developer.MaintenanceResetDescription"),
+        AC.L:Get("Developer.ResetEverything"),
+        function()
+            StaticPopup_Show("AZEROTHCOMPANION_DEVELOPER_RESET_ALL")
+        end,
+        true
+    )
+    yOffset = AC.Dashboard:EndSection(yOffset)
+
+    container:SetHeight((-yOffset) + 16)
+
+    self.CurrentTabData =
+    {
+        activityHistoryRecords = historyCount,
+        capturedErrors = errorCount,
+        runtimeDiagnostics = diagnosticCount,
+        analyticsAvailable = false,
+        telemetryAvailable = false,
+        developerCacheAvailable = false,
+    }
+
+    self.CurrentTabSummaryLines =
+    {
+        AC.L:Format("Developer.MaintenanceHistoryCountFormat", historyCount),
+        AC.L:Format("Developer.MaintenanceErrorCountFormat", errorCount),
+        AC.L:Format("Developer.MaintenanceDiagnosticCountFormat", diagnosticCount),
+    }
+
+    return (-yOffset) + 16
+
+end
+
+-------------------------------------------------------------------------------
 -- Show Tab
 -------------------------------------------------------------------------------
 
@@ -2583,6 +3096,8 @@ function DeveloperPanel:ShowTab(tabName)
         contentHeight = self:BuildChecklistTab()
     elseif tabName == "History" then
         contentHeight = self:BuildHistoryTab()
+    elseif tabName == "Maintenance" then
+        contentHeight = self:BuildMaintenanceTab()
     end
 
     self.ScrollChild:SetHeight(math.max(contentHeight or 1, 1))

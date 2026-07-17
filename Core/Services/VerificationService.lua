@@ -177,8 +177,8 @@ local REGISTRY =
     { id = "weekly.event", module = "Weekly", api = "WEEKLY_REWARDS_UPDATE", status = S.SOURCE, confidence = "High", citation = "Blizzard Interface Source" },
 
     -- Storage -----------------------------------------------------------------
-    { id = "storage.bankTabs", module = "Storage", api = "C_Bank.FetchPurchasedBankTabIDs / CanUseBank / Enum.BankType", status = S.WIKI, confidence = "High",
-      citation = "Warcraft Wiki (added 11.0.0)", expected = "Enum.BankType = {Character=0, Guild=1, Account=2}; FetchPurchasedBankTabIDs returns an array of owned tab IDs." },
+    { id = "storage.bankTabs", module = "Storage", api = "C_Bank.FetchViewableBankTypes / FetchPurchasedBankTabIDs / Enum.BankType", status = S.WIKI, confidence = "High",
+      citation = "Blizzard Bank API documentation", expected = "FetchViewableBankTypes identifies sources exposed by the active bank interaction; FetchPurchasedBankTabIDs returns each source's owned tab IDs." },
     { id = "storage.reagentBankLegacy", module = "Storage", api = "Enum.BagIndex.Reagentbank / Bank (legacy fallback path)", status = S.WIKI, confidence = "High", citation = "Warcraft Wiki",
       expected = "Harmless-but-vestigial: reagent bank folded into the unified bank-tab system in Patch 11.2.0, already covered by storage.bankTabs." },
     { id = "storage.pickupItem", module = "Storage", api = "C_Container.PickupContainerItem", status = S.WIKI, confidence = "High", citation = "Warcraft Wiki (AllowedWhenUntainted)",
@@ -187,19 +187,19 @@ local REGISTRY =
       citation = "Warcraft Wiki (full ContainerItemInfo field list has no isFavorite field)",
       expected = "N/A -- field does not exist; always false/nil in practice. Also confirmed unread anywhere else in the codebase.",
       notes = "Left as a documented, honest gap (inline comment at the read site) rather than a fabricated fix -- real follow-up: find the correct API or remove the dead field." },
-    { id = "storage.bankerInteraction", module = "Storage", api = "Enum.PlayerInteractionType.Banker / PLAYER_INTERACTION_MANAGER_FRAME_SHOW / HIDE payload", status = S.NEEDS_LIVE, confidence = "Low",
-      citation = "Not yet researched", expected = "Payload includes an interaction type identifying a Banker frame; module's bank-open detection reacts to it correctly." },
+    { id = "storage.bankerInteraction", module = "Storage", api = "Enum.PlayerInteractionType.Banker / AccountBanker / PLAYER_INTERACTION_MANAGER_FRAME_SHOW / HIDE payload", status = S.NEEDS_LIVE, confidence = "Low",
+      citation = "Blizzard enum documentation; payload still needs live verification", expected = "Regular and Warband banker interactions each activate Storage exactly once and expose their viewable bank types synchronously." },
 
     -- Mythic+ -------------------------------------------------------------------
-    { id = "mp.challengeMode", module = "MythicPlus", api = "C_ChallengeMode.GetActiveKeystoneInfo / GetSlottedKeystoneInfo / HasSlottedKeystone / GetOverallDungeonScore / GetMapUIInfo / GetDeathCount / GetMapScoreInfo / GetCompletionInfo / IsChallengeModeActive / GetAffixInfo",
+    { id = "mp.challengeMode", module = "MythicPlus", api = "C_ChallengeMode.GetActiveKeystoneInfo / GetSlottedKeystoneInfo / HasSlottedKeystone / GetOverallDungeonScore / GetMapUIInfo / GetDeathCount / GetMapScoreInfo / GetChallengeCompletionInfo / IsChallengeModeActive / GetAffixInfo",
       status = S.WIKI, confidence = "Medium", citation = "Original Phase 2 API audit (namespace + shape confirmed, not independently re-fetched with fresh citations this pass)",
       expected = "See docs/GameplayModuleArchitecture.md section 1.4's Phase 2 API Audit table for the per-function detail already on record." },
     { id = "mp.mythicPlusNamespace", module = "MythicPlus", api = "C_MythicPlus.GetOwnedKeystoneChallengeMapID / GetOwnedKeystoneLevel / GetCurrentAffixes / GetCurrentSeason / RequestMapInfo",
       status = S.WIKI, confidence = "Medium", citation = "Original Phase 2 API audit", expected = "See docs/GameplayModuleArchitecture.md section 1.4." },
     { id = "mp.eventsSource", module = "MythicPlus", api = "CHALLENGE_MODE_START / RESET / KEYSTONE_SLOTTED / MAPS_UPDATE / MYTHIC_PLUS_CURRENT_AFFIX_UPDATE", status = S.SOURCE, confidence = "High",
       citation = "Blizzard Interface Source (Blizzard_ChallengesUI)" },
-    { id = "mp.eventsWiki", module = "MythicPlus", api = "CHALLENGE_MODE_COMPLETED_REWARDS / CHALLENGE_MODE_DEATH_COUNT_UPDATED", status = S.WIKI, confidence = "High", citation = "Warcraft Wiki",
-      notes = "CHALLENGE_MODE_COMPLETED_REWARDS added Patch 11.2.0; payload mapID,medal,timeMS,money,rewards." },
+    { id = "mp.eventsWiki", module = "MythicPlus", api = "CHALLENGE_MODE_COMPLETED / CHALLENGE_MODE_DEATH_COUNT_UPDATED", status = S.SOURCE, confidence = "High", citation = "Blizzard Interface Source (Blizzard_ChallengesUI) / Warcraft Wiki",
+      notes = "CHALLENGE_MODE_COMPLETED is the authoritative Retail completion event; completion details are read synchronously through C_ChallengeMode.GetChallengeCompletionInfo()." },
     { id = "mp.eventOrdering", module = "MythicPlus", api = "Relative firing order of the events above during a real run", status = S.NEEDS_LIVE, confidence = "Low",
       citation = "N/A -- confirming an event exists is not the same as confirming when it fires relative to the others.",
       expected = "No documented guarantee found; needs a human watching the Event Monitor tab during a real run." },
@@ -287,7 +287,7 @@ local CHECKLIST =
     { id = "GreatVault", labelKey = "Developer.ChecklistGreatVault", relatedIds = { "weekly.activities", "weekly.itemLevelChain", "weekly.progressUnits", "weekly.event" } },
     { id = "Bank", labelKey = "Developer.ChecklistBank", relatedIds = { "storage.bankTabs", "storage.bankerInteraction", "storage.pickupItem", "storage.favoriteField" } },
     { id = "ReagentBank", labelKey = "Developer.ChecklistReagentBank", relatedIds = { "storage.reagentBankLegacy" } },
-    { id = "WarbandBank", labelKey = "Developer.ChecklistWarbandBank", relatedIds = { "storage.bankTabs" } },
+    { id = "WarbandBank", labelKey = "Developer.ChecklistWarbandBank", relatedIds = { "storage.bankTabs", "storage.bankerInteraction" } },
     { id = "Mailbox", labelKey = "Developer.ChecklistMailbox", relatedIds = {} },
     { id = "Vendor", labelKey = "Developer.ChecklistVendor", relatedIds = { "inv.repairCost" } },
     { id = "AuctionHouse", labelKey = "Developer.ChecklistAuctionHouse", relatedIds = {} },
@@ -418,6 +418,30 @@ end
 function VerificationService:GetChecklistRecord(scenarioId)
 
     return GetChecklistLog()[scenarioId]
+
+end
+
+-------------------------------------------------------------------------------
+-- Clear Recorded Results
+--
+-- Developer Panel Maintenance owns the destructive UI and confirmation;
+-- VerificationService remains the only writer for its two persisted logs.
+-- Clear in place so any live reader retaining either table reference observes
+-- the reset immediately.
+-------------------------------------------------------------------------------
+
+function VerificationService:ClearRecordedResults()
+
+    local verificationLog = GetLog()
+    local checklistLog = GetChecklistLog()
+
+    for id in pairs(verificationLog) do
+        verificationLog[id] = nil
+    end
+
+    for scenarioId in pairs(checklistLog) do
+        checklistLog[scenarioId] = nil
+    end
 
 end
 

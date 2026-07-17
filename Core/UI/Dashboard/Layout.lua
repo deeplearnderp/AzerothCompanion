@@ -5,7 +5,7 @@
 -- Every magic number that controls Dashboard spacing/sizing lives here so
 -- the whole Dashboard shares one visual rhythm. Nothing in any Dashboard
 -- file should hand-tune padding/spacing per page/card -- change it here
--- and every page/card follows. Split out of the former single Dashboard.lua
+-- and every page/card follows. Split out of the former monolithic Dashboard
 -- (Technical Debt & Completion Sprint / Dashboard Refactor) so every other
 -- Dashboard file can share these without duplicating them -- Lua has no
 -- cross-file `local`, so this table is the mechanism that replaces what
@@ -196,6 +196,10 @@ DashboardLayout.HISTORY_COLUMN_GAP = 6
 DashboardLayout.HISTORY_ROW_HEIGHT = 18
 DashboardLayout.HISTORY_ROW_GAP = 6
 
+-- Activity Log's journal rows use the same compact time column as the
+-- history table, with one subordinate context line beneath the title.
+DashboardLayout.ACTIVITY_TIMELINE_ROW_HEIGHT = 34
+
 -------------------------------------------------------------------------------
 -- Accordion Engine (generic)
 --
@@ -248,6 +252,8 @@ DashboardLayout.VALID_PAGES =
     Profile = true,
     Inventory = true,
     Accomplishments = true,
+    Dungeons = true,
+    ActivityLog = true,
     MythicPlus = true,
     Storage = true,
     Weekly = true,

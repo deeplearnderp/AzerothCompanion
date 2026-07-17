@@ -272,6 +272,30 @@ function Dashboard:LayoutTextLines(scrollChild, pool, items, yOffset, contentWid
 end
 
 -------------------------------------------------------------------------------
+-- Append Text Section
+--
+-- Composes the section chrome and pooled text-list renderer used by pages
+-- that already prepared their records and formatting callback. It owns no
+-- data lookup, ordering, or gameplay formatting.
+-------------------------------------------------------------------------------
+
+function Dashboard:AppendTextSection(page, poolKey, titleKey, yOffset, items, emptyTextKey, formatLine)
+
+    local scrollChild = page.ScrollChild
+    local contentWidth = page.ContentWidth or Layout.PAGE_CONTENT_WIDTH_FULL
+
+    yOffset = self:BeginSection(scrollChild, titleKey, yOffset)
+
+    page.Pools = page.Pools or {}
+    page.Pools[poolKey] = page.Pools[poolKey] or {}
+
+    yOffset = self:LayoutTextLines(scrollChild, page.Pools[poolKey], items, yOffset, contentWidth, emptyTextKey, formatLine)
+
+    return self:EndSection(yOffset)
+
+end
+
+-------------------------------------------------------------------------------
 -- Append Dynamic Section
 --
 -- Appends one named Recommendations/Insights-shaped list section after a
@@ -681,6 +705,48 @@ function Dashboard:LayoutStatisticsGrid(page, gridKey, scrollChild, yOffset, con
     local rowCount = math.ceil(#stats / 2)
 
     return yOffset - (rowCount * Layout.STAT_ROW_HEIGHT) - Layout.SECTION_GROUP_GAP
+
+end
+
+-------------------------------------------------------------------------------
+-- Append Statistics Section
+--
+-- Composes a standard section around a prepared statistics grid. Empty and
+-- populated states share one lifecycle so pooled cells cannot remain visible
+-- when a section becomes empty. Values arrive fully formatted by the caller.
+-------------------------------------------------------------------------------
+
+function Dashboard:AppendStatisticsSection(page, gridKey, titleKey, yOffset, stats, emptyTextKey)
+
+    local scrollChild = page.ScrollChild
+    local contentWidth = page.ContentWidth or Layout.PAGE_CONTENT_WIDTH_FULL
+    local emptyCacheKey = gridKey .. "EmptyText"
+
+    stats = stats or {}
+    yOffset = self:BeginSection(scrollChild, titleKey, yOffset)
+
+    if #stats == 0 then
+
+        -- LayoutStatisticsGrid owns its pooled cells. An empty render hides
+        -- any cells left from a previously populated refresh without changing
+        -- the empty line's offset.
+        self:LayoutStatisticsGrid(page, gridKey, scrollChild, yOffset, contentWidth, stats)
+
+        if emptyTextKey then
+            yOffset = self:ShowEmptyLine(page, scrollChild, emptyCacheKey, yOffset, contentWidth, emptyTextKey)
+        end
+
+    else
+
+        if page[emptyCacheKey] then
+            page[emptyCacheKey]:Hide()
+        end
+
+        yOffset = self:LayoutStatisticsGrid(page, gridKey, scrollChild, yOffset, contentWidth, stats)
+
+    end
+
+    return self:EndSection(yOffset)
 
 end
 

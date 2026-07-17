@@ -90,6 +90,8 @@ function InventoryModule:ResetCaches()
     self.ItemsBySlot = {}
     self.ItemCounts = {}
     self.Equipment = {}
+    self.InventorySnapshotSequence = self.InventorySnapshotSequence or 0
+    self.InventorySnapshotTimestamp = nil
 
     self.Session =
     {
@@ -196,17 +198,9 @@ function InventoryModule:OnPlayerEnteringWorld()
     self:ScanEquipment()
 
     -- Capture initial bag fullness for session tracking
-    local items = self:GetItems()
-    local usedSlots = #items
-    local totalSlots = 0
+    local bagSummary = self:GetBagSummary()
 
-    if GetContainerNumSlots then
-        for bagID = 0, NUM_BAG_SLOTS do
-            totalSlots = totalSlots + (GetContainerNumSlots(bagID) or 0)
-        end
-    end
-
-    self.Session.initialBagFullness = totalSlots > 0 and (usedSlots / totalSlots * 100) or 0
+    self.Session.initialBagFullness = bagSummary.percentage
     self.Session.initialTotalItemCount = self:GetTotalItemCount()
 
 end
@@ -223,6 +217,7 @@ function InventoryModule:OnBagUpdate(bagID)
     end
 
     self:ScanBag(bagID)
+    self:MarkInventorySnapshotUpdated()
 
 end
 
@@ -269,6 +264,7 @@ function InventoryModule:OnSettingsChanged(moduleName, key, value)
         self:ScanEquipment()
     else
         self:ResetCaches()
+        AC.Events:Fire("INVENTORY_SNAPSHOT_UPDATED")
     end
 
 end
@@ -383,6 +379,17 @@ function InventoryModule:ScanInventory()
         self:ScanBag(bagID)
     end)
 
+    self:MarkInventorySnapshotUpdated()
+
+end
+
+function InventoryModule:MarkInventorySnapshotUpdated()
+
+    self.InventorySnapshotSequence = (self.InventorySnapshotSequence or 0) + 1
+    self.InventorySnapshotTimestamp = time()
+
+    AC.Events:Fire("INVENTORY_SNAPSHOT_UPDATED")
+
 end
 
 function InventoryModule:ScanEquipmentSlot(slotID)
@@ -443,6 +450,55 @@ function InventoryModule:GetItems()
     end
 
     return items
+
+end
+
+-- Authoritative, read-only bag snapshot for aggregate consumers such as
+-- StorageModule. Bag scanning remains entirely owned by InventoryModule.
+function InventoryModule:GetInventorySnapshot()
+
+    local items = {}
+    local hasSnapshot = self.InventorySnapshotTimestamp ~= nil
+    local empty
+
+    for _, item in pairs(self.ItemsBySlot) do
+
+        table.insert(items,
+        {
+            itemID = item.itemID,
+            count = item.count,
+            bagID = item.bagID,
+            slot = item.slot,
+            link = item.link,
+            quality = item.quality,
+        })
+
+    end
+
+    table.sort(items, function(left, right)
+
+        if left.bagID == right.bagID then
+            return left.slot < right.slot
+        end
+
+        return left.bagID < right.bagID
+
+    end)
+
+    if hasSnapshot then
+        empty = #items == 0
+    end
+
+    return
+    {
+        id = hasSnapshot and self.InventorySnapshotSequence or nil,
+        timestamp = self.InventorySnapshotTimestamp,
+        available = self:IsModuleEnabled() and hasSnapshot,
+        freshness = hasSnapshot and "current" or "unknown",
+        empty = empty,
+        items = items,
+        summary = hasSnapshot and self:GetBagSummary() or nil,
+    }
 
 end
 
@@ -532,9 +588,9 @@ function InventoryModule:GetBagSummary()
     local totalSlots = 0
 
     if GetContainerNumSlots then
-        for bagID = 0, NUM_BAG_SLOTS do
+        self:IterateBagIDs(function(bagID)
             totalSlots = totalSlots + (GetContainerNumSlots(bagID) or 0)
-        end
+        end)
     end
 
     local freeSlots = totalSlots - usedSlots

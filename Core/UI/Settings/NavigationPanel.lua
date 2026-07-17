@@ -135,8 +135,10 @@ function NavigationPanel:SetSelected(pageId)
 
         if selected then
             button:LockHighlight()
+            button:GetFontString():SetTextColor(unpack(AC.Presentation.HIGHLIGHT_COLOR))
         else
             button:UnlockHighlight()
+            button:GetFontString():SetTextColor(1, 1, 1)
         end
 
     end

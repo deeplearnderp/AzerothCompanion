@@ -33,7 +33,9 @@ local Layout = AC.DashboardLayout
 
 local MODULE_TO_PAGE =
 {
+    Dungeons = "Dungeons",
     MythicPlus = "MythicPlus",
+    Delves = "Dungeons",
     Inventory = "Inventory",
     Storage = "Storage",
     Weekly = "Weekly",
@@ -44,7 +46,9 @@ local MODULE_TO_PAGE =
 
 local MODULE_DISPLAY_KEY =
 {
+    Dungeons = "Dashboard.Dungeons",
     MythicPlus = "Dashboard.MythicPlus",
+    Delves = "Dashboard.Delves",
     Inventory = "Dashboard.Inventory",
     Storage = "Dashboard.Storage",
     Weekly = "Dashboard.Weekly",

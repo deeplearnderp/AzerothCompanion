@@ -18,9 +18,9 @@
 -- here is fabricated to fill out the illustrative mockups this feature
 -- was designed against. Two deliberate departures from that mockup, both
 -- because the underlying data doesn't exist anywhere in this addon:
---   - Recent Activity shows only Mythic+ runs and Accomplishments, the only
---     two record types anything actually writes to ActivityHistoryService
---     today -- no "Bought N Potions" or "Weekly Completed" entries, since
+--   - Dungeons shows general dungeon records and Delves, while Mythic+
+--     history remains on its dedicated competitive-analysis page
+--     -- no "Bought N Potions" or "Weekly Completed" entries, since
 --     nothing records purchases or discrete weekly-completion events.
 --   - Highest Priority's "Supporting Evidence" renders the real
 --     `label: value` facts RecommendationEngine attached (rating,
@@ -29,7 +29,7 @@
 --     computes as a discrete fact today.
 --
 -- Create() also builds every other page's shell (Profile/Inventory/
--- Accomplishments/MythicPlus/Storage/Weekly/Recommendations) -- this is the
+-- Accomplishments/Dungeons/ActivityLog/MythicPlus/Storage/Weekly/Recommendations) -- this is the
 -- one file that assembles the whole window, even though each page's own
 -- refresh logic lives in Pages/*.lua.
 -------------------------------------------------------------------------------
@@ -40,6 +40,7 @@ local Dashboard = AC.Dashboard
 local Layout = AC.DashboardLayout
 local Format = AC.DashboardFormat
 local Schemas = AC.DashboardSchemas
+local ActivityPresentation = AC.DashboardActivityPresentation
 
 -------------------------------------------------------------------------------
 -- Greeting
@@ -67,83 +68,12 @@ local function GetGreetingKey()
 end
 
 -------------------------------------------------------------------------------
--- Recent Activity Feed
+-- Dungeon Activity Feed
 --
--- A real chronological feed merging every module that actually records
--- discrete events to ActivityHistoryService today -- MythicPlus
--- (GetRecentRuns) and Accomplishments (GetRecentAccomplishments), both already
--- public getters those modules exposed for their own history pages, not
--- a new read path into ActivityHistoryService itself (Dashboard still
--- never talks to that service directly for gameplay records -- see
--- docs/GameplayModuleArchitecture.md Rule 2/4). Sorting a list this
--- module didn't generate is presentation, not a new gameplay judgment --
--- the same category of thing RecommendationEngine already does when it
--- sorts recommendations by score.
+-- Uses the Dungeons page's presentation-only query over
+-- ActivityHistoryService's canonical newest-first stream. The Home card
+-- and full page therefore cannot drift into different merge/sort behavior.
 -------------------------------------------------------------------------------
-
-local function BuildActivityFeedLine(record)
-
-    if record.Module == "MythicPlus" then
-
-        local data = record.Data or {}
-        local level = data.level or 0
-        local name = record.ActivityName ~= "" and record.ActivityName or AC.L:Get("Common.Unknown")
-
-        if record.Success then
-            return AC.L:Format("Dashboard.FeedMythicPlusTimedFormat", level, name)
-        else
-            return AC.L:Format("Dashboard.FeedMythicPlusFailedFormat", level, name)
-        end
-
-    elseif record.Module == "Achievements" then
-
-        local name = record.ActivityName ~= "" and record.ActivityName or AC.L:Get("Common.Unknown")
-
-        return AC.L:Format("Dashboard.FeedAchievementFormat", name)
-
-    end
-
-    return nil
-
-end
-
-local function GetRecentActivityFeed(count)
-
-    local entries = {}
-
-    local mythicPlusModule = AC.Core and AC.Core:GetModule("MythicPlus")
-
-    if mythicPlusModule and mythicPlusModule.GetRecentRuns then
-
-        for _, record in ipairs(mythicPlusModule:GetRecentRuns(count)) do
-            table.insert(entries, record)
-        end
-
-    end
-
-    local accomplishmentsModule = AC.Core and AC.Core:GetModule("Accomplishments")
-
-    if accomplishmentsModule and accomplishmentsModule.GetRecentAccomplishments then
-
-        for _, record in ipairs(accomplishmentsModule:GetRecentAccomplishments(count)) do
-            table.insert(entries, record)
-        end
-
-    end
-
-    table.sort(entries, function(a, b)
-        return (a.Timestamp or 0) > (b.Timestamp or 0)
-    end)
-
-    local trimmed = {}
-
-    for i = 1, math.min(count, #entries) do
-        trimmed[i] = entries[i]
-    end
-
-    return trimmed
-
-end
 
 -------------------------------------------------------------------------------
 -- Create Home Card
@@ -220,58 +150,8 @@ function Dashboard:Create()
 
     frame:SetSize(Layout.WINDOW_WIDTH, Layout.WINDOW_HEIGHT)
 
-    -----------------------------------------------------------------------
-    -- Shared Decorative Background (Dashboard Background Polish Pass)
-    --
-    -- One CreateTexture, one owner (frame itself -- the single frame every
-    -- page/card is already a descendant of via ContentArea/CreateDataPage),
-    -- one SetTexture, one texture constant, one alpha constant. Drawn at
-    -- the BACKGROUND layer directly on frame -- every page and every card
-    -- is a CHILD frame of this one, so it renders behind all of them
-    -- automatically; a future page added the same way (CreateDataPage,
-    -- parented through ContentArea) inherits this with zero new code,
-    -- since nothing here is keyed to which pages currently exist. Created
-    -- once here, never touched by ShowPage/page-switching, so it stays
-    -- fixed while navigating -- not special-cased, simply never hidden,
-    -- moved, or recreated by anything else.
-    --
-    -- Uniform "cover" scale, centered, computed from
-    -- DASHBOARD_BACKGROUND_ASPECT_RATIO -- not SetAllPoints(frame). The
-    -- artwork's real pixel size (957x1643, read from the PNG header) is
-    -- portrait and very close to this frame's own ratio, so this comes
-    -- out to roughly 420x721 -- effectively edge-to-edge with negligible
-    -- overflow, not the previous SetAllPoints approach's independent-axis
-    -- stretch (which was fine only because the earlier, now-replaced
-    -- artwork was landscape). One hardcoded ratio is required here since
-    -- there is no runtime API to ask a texture file for its native pixel
-    -- dimensions -- see DASHBOARD_BACKGROUND_ASPECT_RATIO's own comment in
-    -- Presentation.lua for where that number comes from and why it's not
-    -- a magic literal.
-    --
-    -- Explicit instruction this pass: do NOT touch the Dashboard's own
-    -- backdrop alpha -- it stays exactly whatever BaseWindow:Create()
-    -- already set it to (WINDOW_BACKDROP's shared 0.95).
-    -----------------------------------------------------------------------
-
-    local background = frame:CreateTexture(nil, "ARTWORK")
-    background:SetTexture(AC.Presentation.DASHBOARD_BACKGROUND_TEXTURE)
-    background:SetAlpha(AC.Presentation.DASHBOARD_BACKGROUND_ALPHA)
-
-    local backgroundAspectRatio = AC.Presentation.DASHBOARD_BACKGROUND_ASPECT_RATIO
-    local backgroundWidth, backgroundHeight
-
-    if (Layout.WINDOW_WIDTH / Layout.WINDOW_HEIGHT) < backgroundAspectRatio then
-        backgroundHeight = Layout.WINDOW_HEIGHT
-        backgroundWidth = backgroundHeight * backgroundAspectRatio
-    else
-        backgroundWidth = Layout.WINDOW_WIDTH
-        backgroundHeight = backgroundWidth / backgroundAspectRatio
-    end
-
-    background:SetSize(backgroundWidth, backgroundHeight)
-    background:SetPoint("CENTER", frame, "CENTER", 0, 0)
-
-    frame.Background = background
+    AC.Presentation.ApplyWindowBackground(frame)
+    AC.Presentation.StyleWindowTitle(frame.Title)
 
     -----------------------------------------------------------------------
     -- Header
@@ -286,9 +166,42 @@ function Dashboard:Create()
     frame.Title:SetPoint("TOPLEFT", 16, -16)
     frame.Title:SetJustifyH("LEFT")
 
+    local developerButton = CreateFrame("Button", "AzerothCompanionDashboardDeveloper", frame, "UIPanelButtonTemplate")
+    developerButton:SetSize(26, 22)
+    developerButton:SetPoint("TOPRIGHT", -16, -14)
+
+    local developerIcon = developerButton:CreateTexture(nil, "ARTWORK")
+    developerIcon:SetSize(14, 14)
+    developerIcon:SetPoint("CENTER")
+    developerIcon:SetTexture("Interface\\Icons\\Trade_Engineering")
+
+    developerButton:SetScript("OnEnter", function(self)
+
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        GameTooltip:SetText(AC.L:Get("Developer.OpenTooltip"), 1, 1, 1, 1, true)
+        GameTooltip:Show()
+
+    end)
+
+    developerButton:SetScript("OnLeave", function()
+        GameTooltip:Hide()
+    end)
+
+    developerButton:SetScript("OnClick", function()
+
+        local panel = AC.Core:GetModule("DeveloperPanel")
+
+        if panel then
+            panel:Toggle()
+        end
+
+    end)
+
+    frame.DeveloperButton = developerButton
+
     local settingsButton = CreateFrame("Button", "AzerothCompanionDashboardSettings", frame, "UIPanelButtonTemplate")
     settingsButton:SetSize(80, 22)
-    settingsButton:SetPoint("TOPRIGHT", -16, -14)
+    settingsButton:SetPoint("RIGHT", developerButton, "LEFT", -6, 0)
     settingsButton:SetText(AC.L:Get("Dashboard.Settings"))
 
     settingsButton:SetScript("OnClick", function()
@@ -634,35 +547,45 @@ function Dashboard:Create()
 
     frame.VaultCard = vaultCard
 
-    -- Recent Activity Card ------------------------------------------------
+    -- Dungeons Card -------------------------------------------------------
     --
-    -- A real chronological feed (GetRecentActivityFeed above) across
-    -- every module that actually records to ActivityHistoryService today.
+    -- A real chronological feed across general dungeon activity and Delves.
 
-    local recentActivityCard = CreateHomeCard(homeScrollChild, "Dashboard.RecentActivity",
+    local recentActivityCard = CreateHomeCard(homeScrollChild, "Dashboard.Dungeons",
     {
         width = Layout.CARD_WIDTH,
         height = Layout.CARD_HEIGHT,
         tooltip = AC.L:Get("Dashboard.TooltipRecentActivity"),
         onClick = function()
-
-            -- Routes to whichever page the newest feed entry is actually
-            -- about (set fresh every UpdateContent below, since the feed
-            -- itself merges MythicPlus runs and Accomplishments records) --
-            -- defaults to MythicPlus before the first refresh has run.
-            Dashboard:Navigate(recentActivityCard.TargetPage or "MythicPlus")
-
+            Dashboard:Navigate("Dungeons")
         end,
     }, vaultCard)
 
     frame.RecentActivityCard = recentActivityCard
 
+    -- Activity Log Card ---------------------------------------------------
+    --
+    -- The long-term counterpart to Dungeons' recent general-activity
+    -- summary. ActivityHistoryService remains the source for both.
+
+    local activityLogCard = CreateHomeCard(homeScrollChild, "Dashboard.ActivityLog",
+    {
+        width = Layout.CARD_WIDTH,
+        height = Layout.CARD_HEIGHT,
+        tooltip = AC.L:Get("Dashboard.TooltipActivityLog"),
+        onClick = function()
+            Dashboard:Navigate("ActivityLog")
+        end,
+    }, recentActivityCard)
+
+    frame.ActivityLogCard = activityLogCard
+
     -- Progress Card ("How am I improving?") --------------------------------
     --
     -- The one compact entry point into the Progress Dashboard from Home --
     -- deliberately a season-level trend summary, not a duplicate of what
-    -- the Mythic+ Card (current keystone/live rating) or Recent Activity
-    -- Card (chronological run feed) already show.
+    -- the Mythic+ Card (current keystone/live rating) or Activity Log Card
+    -- (chronological history) already show.
 
     local progressCard = CreateHomeCard(homeScrollChild, "Dashboard.Progress",
     {
@@ -672,7 +595,7 @@ function Dashboard:Create()
         onClick = function()
             Dashboard:Navigate("Progress")
         end,
-    }, recentActivityCard)
+    }, activityLogCard)
 
     frame.ProgressCard = progressCard
 
@@ -816,6 +739,22 @@ function Dashboard:Create()
     local mythicPlusPage = self:CreateDataPage(contentArea, AC.L:Get("Dashboard.MythicPlus"))
 
     frame.Pages.MythicPlus = mythicPlusPage
+
+    -----------------------------------------------------------------------
+    -- Dungeons Page
+    -----------------------------------------------------------------------
+
+    local dungeonsPage = self:CreateDataPage(contentArea, AC.L:Get("Dashboard.Dungeons"))
+
+    frame.Pages.Dungeons = dungeonsPage
+
+    -----------------------------------------------------------------------
+    -- Activity Log Page
+    -----------------------------------------------------------------------
+
+    local activityLogPage = self:CreateDataPage(contentArea, AC.L:Get("Dashboard.ActivityLog"))
+
+    frame.Pages.ActivityLog = activityLogPage
 
     -----------------------------------------------------------------------
     -- Storage Page
@@ -1245,12 +1184,9 @@ function Dashboard:UpdateContent(frame)
     -----------------------------------------------------------------------
     -- Storage Card
     --
-    -- "Items Missing" and "Shopping List" are two genuinely different,
-    -- real numbers from StorageModule's own analysis, not one count
-    -- shown twice: withdrawals are items already owned (in the bank,
-    -- just need moving to bags), missing are items not owned anywhere
-    -- (need to be acquired). Execute Available mirrors the exact
-    -- readiness check the Storage page's own Execute button uses.
+    -- Storage readiness is only shown while StorageModule confirms that
+    -- bank data is currently accessible. The module has no persisted scan
+    -- marker yet, so a closed bank is unknown rather than an empty bank.
     -----------------------------------------------------------------------
 
     local storageModule = AC.Core and AC.Core:GetModule("Storage")
@@ -1261,37 +1197,43 @@ function Dashboard:UpdateContent(frame)
 
         if storageProfile then
 
-            local analysis = storageModule:AnalyzeProfile(storageProfile.id)
             local bankSummary = storageModule:GetBankSummary()
-            local ready = #analysis.missing == 0 and #analysis.withdrawals == 0
 
             frame.StorageCard:SetPrimaryValue(AC.L:Get(storageProfile.label))
 
-            if ready then
-                frame.StorageCard:SetSecondaryText(AC.L:Get("Dashboard.StorageReady"))
-                frame.StorageCard:SetStatus("Normal", AC.L:Get("Dashboard.StatusHealthy"))
-                frame.StorageCard:SetBarValue(analysis.readinessPercent or 100, unpack(AC.Presentation.GetSemanticColor("success")))
+            if bankSummary.accessible then
+
+                local analysis = storageModule:AnalyzeProfile(storageProfile.id)
+                local ready = #analysis.missing == 0 and #analysis.withdrawals == 0
+
+                if ready then
+                    frame.StorageCard:SetSecondaryText(AC.L:Get("Dashboard.StorageReady"))
+                    frame.StorageCard:SetStatus("Normal", AC.L:Get("Dashboard.StatusHealthy"))
+                    frame.StorageCard:SetBarValue(analysis.readinessPercent or 100, unpack(AC.Presentation.GetSemanticColor("success")))
+                else
+                    frame.StorageCard:SetSecondaryText(AC.L:Format("Dashboard.StorageMissingFormat", #analysis.missing + #analysis.withdrawals))
+                    frame.StorageCard:SetStatus("Warning", "")
+                    frame.StorageCard:SetBarValue(analysis.readinessPercent or 0, unpack(AC.Presentation.GetSemanticColor("warning")))
+                end
+
+                local sections = {}
+
+                if #analysis.withdrawals > 0 then
+                    table.insert(sections, { label = AC.L:Get("Dashboard.SectionItemsMissing"), text = AC.L:Format("Dashboard.StorageWithdrawCountFormat", #analysis.withdrawals) })
+                end
+
+                if #analysis.missing > 0 then
+                    table.insert(sections, { label = AC.L:Get("Dashboard.SectionShoppingList"), text = AC.L:Format("Dashboard.StorageShoppingCountFormat", #analysis.missing) })
+                end
+
+                frame.StorageCard:SetDetailSections(sections)
+
             else
-                frame.StorageCard:SetSecondaryText(AC.L:Format("Dashboard.StorageMissingFormat", #analysis.missing + #analysis.withdrawals))
-                frame.StorageCard:SetStatus("Warning", "")
-                frame.StorageCard:SetBarValue(analysis.readinessPercent or 0, unpack(AC.Presentation.GetSemanticColor("warning")))
+                frame.StorageCard:SetSecondaryText(AC.L:Get("Dashboard.StorageNoScan"))
+                frame.StorageCard:SetStatus("Normal", "")
+                frame.StorageCard:SetBarValue(0)
+                frame.StorageCard:SetDetailSections({})
             end
-
-            local sections = {}
-
-            if #analysis.withdrawals > 0 then
-                table.insert(sections, { label = AC.L:Get("Dashboard.SectionItemsMissing"), text = AC.L:Format("Dashboard.StorageWithdrawCountFormat", #analysis.withdrawals) })
-            end
-
-            if #analysis.missing > 0 then
-                table.insert(sections, { label = AC.L:Get("Dashboard.SectionShoppingList"), text = AC.L:Format("Dashboard.StorageShoppingCountFormat", #analysis.missing) })
-            end
-
-            if bankSummary.accessible and (#analysis.withdrawals > 0 or #analysis.deposits > 0) then
-                table.insert(sections, { label = AC.L:Get("Dashboard.SectionExecute"), text = AC.L:Get("Dashboard.StorageExecuteAvailable") })
-            end
-
-            frame.StorageCard:SetDetailSections(sections)
 
         else
             frame.StorageCard:SetPrimaryValue(AC.L:Get("Dashboard.StorageNoProfile"))
@@ -1500,39 +1442,55 @@ function Dashboard:UpdateContent(frame)
     end
 
     -----------------------------------------------------------------------
-    -- Recent Activity Card
+    -- Dungeons Card
     --
-    -- A real chronological feed (GetRecentActivityFeed above) rather
-    -- than only the single most recent Mythic+ run -- the most recent
+    -- A real general-dungeon/Delve feed from ActivityHistoryService. Mythic+
+    -- history is intentionally owned by its dedicated page; the most recent
     -- entry gets the card's headline treatment (PrimaryValue), the rest
     -- render as a compact list below it.
     -----------------------------------------------------------------------
 
-    local feed = GetRecentActivityFeed(4)
+    local feed = self:GetRecentDungeonActivities(4)
     local feedLines = {}
 
     for _, record in ipairs(feed) do
 
-        local line = BuildActivityFeedLine(record)
+        local line = ActivityPresentation:FormatLine(record)
 
         if line then
-
-            local icon = record.Success and Format.CHECK_SUCCESS or Format.CHECK_FAILURE
-            table.insert(feedLines, icon .. " " .. line)
-
+            table.insert(feedLines, line)
         end
 
     end
 
     ApplyLinesToCard(frame.RecentActivityCard, feedLines, "Dashboard.NoRecentActivity")
 
-    -- The card's own onClick (above) reads this every click -- routes to
-    -- whichever page the newest feed entry is actually about, rather
-    -- than always assuming MythicPlus. `feed[1].Module` is
-    -- ActivityHistoryService's STORED tag, still literally "Achievements"
-    -- (see AccomplishmentsModule.lua's own header) -- only the resulting
-    -- PAGE NAME below is the renamed "Accomplishments".
-    frame.RecentActivityCard.TargetPage = (feed[1] and feed[1].Module == "Achievements") and "Accomplishments" or "MythicPlus"
+    -----------------------------------------------------------------------
+    -- Activity Log Card
+    -----------------------------------------------------------------------
+
+    local activityHistory = AC.ActivityHistoryService
+    local activityCount = activityHistory and activityHistory:Count() or 0
+    local latestActivity = activityHistory and activityHistory:GetRecent(1)[1]
+
+    if latestActivity then
+
+        local activityModel = ActivityPresentation:Build(latestActivity, "shortTime")
+
+        frame.ActivityLogCard:SetPrimaryValue(AC.L:Format("Dashboard.ActivityLogCountFormat", activityCount))
+        frame.ActivityLogCard:SetSecondaryText(activityModel and activityModel.title or AC.L:Get("Common.Unknown"))
+        frame.ActivityLogCard:SetDetailSections(activityModel and
+        {
+            { label = AC.L:Get("ActivityLog.StatNewest"), text = activityModel.timestampText },
+        } or {})
+
+    else
+
+        frame.ActivityLogCard:SetPrimaryValue(AC.L:Get("ActivityLog.NoActivities"))
+        frame.ActivityLogCard:SetSecondaryText("")
+        frame.ActivityLogCard:SetDetailSections({})
+
+    end
 
     -----------------------------------------------------------------------
     -- Progress Card ("How am I improving?")

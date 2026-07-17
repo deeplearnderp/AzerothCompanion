@@ -36,7 +36,7 @@ AC.Locales.enUS =
 
     ["Dashboard.RecommendedNextStep"] = "Recommended Next Step",
     ["Dashboard.HighestPriority"] = "Highest Priority",
-    ["Dashboard.Profile"] = "Profile",
+    ["Dashboard.Profile"] = "Character",
     ["Dashboard.Inventory"] = "Inventory",
     ["Dashboard.Accomplishments"] = "Accomplishments",
     ["Dashboard.Journey"] = "Journey",
@@ -55,9 +55,8 @@ AC.Locales.enUS =
     ["Dashboard.VaultRewardReady"] = "A reward is ready to claim.",
     ["Dashboard.VaultUnavailable"] = "Vault progress unavailable",
 
-    ["Dashboard.RecentActivity"] = "Recent Activity",
-    ["Dashboard.TooltipRecentActivity"] = "View details for your most recent activity",
-    ["Dashboard.NoRecentActivity"] = "No recent Mythic+ activity",
+    ["Dashboard.TooltipRecentActivity"] = "View your most recent dungeon or Delve",
+    ["Dashboard.NoRecentActivity"] = "No recent dungeon or Delve activity",
 
     ["Dashboard.EvidenceLineFormat"] = "%s: %s",
 
@@ -106,18 +105,49 @@ AC.Locales.enUS =
     ["Dashboard.MythicPlusUnavailable"] = "Mythic+ unavailable",
     ["Dashboard.StatusActive"] = "Active",
 
+    ["Dashboard.Delves"] = "Delves",
+    ["Dashboard.Dungeons"] = "Dungeons",
+    ["Dashboard.ActivityLog"] = "Activity Log",
+    ["Dashboard.TooltipActivityLog"] = "View your complete recorded activity history",
+    ["Dashboard.ActivityLogCountFormat"] = "Recorded Activities: %d",
+    ["Dashboard.ActivitySubtitleFormat"] = "%s - %s",
+    ["Dashboard.ActivityLineFormat"] = "%s %s%s  |cff999999%s|r",
+    ["Dashboard.ActivityTimelineTitleFormat"] = "%s %s%s",
+
+    ["Dungeons.SectionRecentActivity"] = "Recent Activity",
+    ["Dungeons.SectionDelves"] = "Delves",
+    ["Dungeons.SectionOverview"] = "Dungeon Overview",
+    ["Dungeons.HeroCurrentDungeon"] = "Current Dungeon",
+    ["Dungeons.HeroActiveDelve"] = "Active Delve",
+    ["Dungeons.HeroActiveDelveTier"] = "Active Delve Tier",
+    ["Dungeons.HeroNoActiveDungeon"] = "No active dungeon",
+    ["Dungeons.NoActiveDelve"] = "No active Delve",
+    ["Dungeons.NoRecentActivity"] = "No general dungeon or Delve activity recorded yet.",
+    ["Dungeons.OverviewUnavailable"] = "Normal, Heroic, Mythic 0, Story Dungeon, and Dungeon Finder progress is not currently recorded.",
+    ["Dungeons.WeeklyProgressUnavailable"] = "Not currently tracked",
+    ["Dungeons.StatActiveDelve"] = "Active Delve",
+    ["Dungeons.StatRecentDungeon"] = "Recent Dungeon",
+    ["Dungeons.StatWeeklyProgress"] = "Weekly Dungeon Progress",
+    ["Dungeons.StatTrackedCompletions"] = "Tracked Delve Completions",
+    ["Dungeons.StatHighestTrackedTier"] = "Highest Tracked Delve Tier",
+    ["Dungeons.DelveTierFormat"] = "%s (Tier %d)",
+    ["Dungeons.DungeonDifficultyFormat"] = "%s (%s)",
+    ["Dungeons.ActivityDungeonFormat"] = "%s",
+    ["Dungeons.ActivityDungeonDifficultyFormat"] = "%s (%s)",
+
     ["Dashboard.TooltipRecommendations"] = "View all recommendations",
     ["Dashboard.TooltipProfile"] = "View full character details",
     ["Dashboard.TooltipInventory"] = "View full inventory details",
     ["Dashboard.TooltipAccomplishments"] = "View your character's defining accomplishments",
     ["Dashboard.TooltipJourney"] = "View the story of this character over time",
-    ["Dashboard.TooltipStorage"] = "View bank, restock status, and shopping list",
+    ["Dashboard.TooltipStorage"] = "View storage readiness and open the Inventory Manager",
 
     ["Dashboard.Storage"] = "Storage",
     ["Dashboard.StorageReady"] = "Ready to go.",
     ["Dashboard.StorageMissingFormat"] = "%d item(s) need attention",
     ["Dashboard.StorageNoProfile"] = "No storage profile selected",
     ["Dashboard.StorageUnavailable"] = "Storage unavailable",
+    ["Dashboard.StorageNoScan"] = "No storage scan",
     ["Dashboard.StorageStatusReady"] = "Storage: Ready",
     ["Dashboard.StorageStatusNeedsRestock"] = "Storage: Needs Restock",
 
@@ -170,12 +200,12 @@ AC.Locales.enUS =
     ["Dashboard.StorageWithdrawCountFormat"] = "%d item(s) in your bank",
     ["Dashboard.SectionShoppingList"] = "Shopping List",
     ["Dashboard.StorageShoppingCountFormat"] = "%d item(s) to buy",
-    ["Dashboard.SectionExecute"] = "Execute",
-    ["Dashboard.StorageExecuteAvailable"] = "Ready to move items",
 
     ["Dashboard.FeedMythicPlusTimedFormat"] = "Timed +%d %s",
     ["Dashboard.FeedMythicPlusFailedFormat"] = "Not Timed +%d %s",
     ["Dashboard.FeedAchievementFormat"] = "Earned %s",
+    ["Dashboard.FeedDelveTierFormat"] = "Completed Tier %d %s",
+    ["Dashboard.FeedDelveFormat"] = "Completed %s",
 
     -----------------------------------------------------------------------
     -- Profile Page
@@ -394,12 +424,56 @@ AC.Locales.enUS =
     ["MythicPlus.RunDetailAffixes"] = "Affixes: %s",
 
     -----------------------------------------------------------------------
+    -- Delve presentation
+    -----------------------------------------------------------------------
+
+    ["Delves.SectionRecentDelves"] = "Recent Delves",
+    ["Delves.NoDelvesRecorded"] = "No Delves recorded yet.",
+
+    -----------------------------------------------------------------------
+    -- Activity Log Page
+    -----------------------------------------------------------------------
+
+    ["ActivityLog.HeroHeadline"] = "Total Recorded Activities",
+    ["ActivityLog.HeroCaption"] = "Across your tracked history",
+    ["ActivityLog.HeroEmptyCaption"] = "Your recorded history will appear below",
+    ["ActivityLog.StatOldest"] = "First Recorded",
+    ["ActivityLog.StatNewest"] = "Most Recent",
+    ["ActivityLog.StatActivityTypes"] = "Activity Types",
+    ["ActivityLog.StatCharacters"] = "Characters Represented",
+    ["ActivityLog.SectionFilters"] = "Filters",
+    ["ActivityLog.SectionTimeline"] = "Timeline",
+    ["ActivityLog.FilterActivityType"] = "Activity Type",
+    ["ActivityLog.FilterSort"] = "Sort",
+    ["ActivityLog.FilterAll"] = "All",
+    ["ActivityLog.FilterMythicPlus"] = "Mythic+",
+    ["ActivityLog.FilterDelves"] = "Delves",
+    ["ActivityLog.FilterHeroic"] = "Heroic",
+    ["ActivityLog.FilterMythic0"] = "Mythic 0",
+    ["ActivityLog.FilterAchievements"] = "Achievements",
+    ["ActivityLog.FilterOther"] = "Other",
+    ["ActivityLog.SortNewest"] = "Newest First",
+    ["ActivityLog.SortOldest"] = "Oldest First",
+    ["ActivityLog.ContextMythicPlusFormat"] = "+%d %s %s",
+    ["ActivityLog.ContextMythicPlus"] = "Mythic+",
+    ["ActivityLog.ContextNotTimed"] = "Not Timed",
+    ["ActivityLog.ContextDelveTierFormat"] = "Tier %d Delve",
+    ["ActivityLog.ContextDelve"] = "Delve",
+    ["ActivityLog.ContextHeroic"] = "Heroic Dungeon",
+    ["ActivityLog.ContextMythic0"] = "Mythic 0",
+    ["ActivityLog.ContextDungeonDifficultyFormat"] = "%s Dungeon",
+    ["ActivityLog.ContextDungeon"] = "Dungeon",
+    ["ActivityLog.ContextAchievement"] = "Achievement Earned",
+    ["ActivityLog.UnknownDate"] = "Unknown Date",
+    ["ActivityLog.NoActivities"] = "Complete an activity to begin your log.",
+    ["ActivityLog.NoMatchingActivities"] = "No activities match the selected filter.",
+
+    -----------------------------------------------------------------------
     -- Storage Page
     -----------------------------------------------------------------------
 
-    -- Storage Supply Manager Sprint -- Inventory Summary + Storage Health
-    -- merged into one Storage Summary section (they answered the same
-    -- "how much room/stuff do I have" question as two thin sections).
+    -- Storage presentation shared by the Dashboard summary and Inventory
+    -- Manager. Legacy labels remain available to existing consumers.
     ["Storage.SectionStorageSummary"] = "Storage Summary",
     ["Storage.StatBagSlotsUsed"] = "Bag Slots Used",
     ["Storage.StatBagSlotsFree"] = "Bag Slots Free",
@@ -407,14 +481,7 @@ AC.Locales.enUS =
     ["Storage.StatBankSlotsScanned"] = "Bank Slots Used",
     ["Storage.StatBankDistinctItems"] = "Distinct Items in Bank",
 
-    -- Supply Health -- one sentence, hero position. Detailed reasoning
-    -- lives in the sections below it, never repeated here.
     ["Storage.SectionSupplyHealth"] = "Supply Health",
-    -- UI Polish Pass -- icon-prefixed (code prepends a Ready Check icon
-    -- texture keyed off SUPPLY_HEALTH_ICONS depending on state, see
-    -- Pages/Storage.lua), so these strings stay icon-free and short/
-    -- conversational, never repeating "missing"/"need more" in the same
-    -- sentence.
     ["Storage.SupplyHealthReady"] = "Ready to Play",
     ["Storage.SupplyHealthMissingFormat"] = "Missing %d %s",
     ["Storage.SupplyHealthMultipleMissing"] = "Multiple Required Consumables Missing",
@@ -425,32 +492,17 @@ AC.Locales.enUS =
     ["Storage.FieldActiveProfile"] = "Active Profile",
     ["Storage.FieldRuleCount"] = "Rule Count",
 
-    -- Renamed from "Restock Status" -- action-oriented, and now strictly
-    -- scoped to what Execute can actually move (withdrawals + deposits
-    -- only). Missing items live in Shopping List instead -- see that
-    -- section's own comment in Pages/Storage.lua for why these were
-    -- merged before and are now deliberately split.
     ["Storage.SectionBankTransfers"] = "Bank Transfers",
     ["Storage.AmountWithdrawFormat"] = "Withdraw %d",
     ["Storage.AmountDepositFormat"] = "Deposit %d",
     ["Storage.NoBankTransfersNeeded"] = "Nothing to move between bags and bank right now.",
 
-    -- Shopping List -- missing only, now itemized (Storage Supply Manager
-    -- Sprint): the specific already-held item(s) per shortfall, never a
-    -- guessed item name for a category with nothing held.
     ["Storage.SectionShoppingList"] = "Shopping List",
     ["Storage.NothingToBuy"] = "Nothing to buy right now.",
-    -- Final Polish -- "Need %d" (dropped "more"), now rendered as its own
-    -- right-aligned value FontString next to the category label, not
-    -- concatenated into one string.
     ["Storage.ShoppingListNeedFormat"] = "Need %d",
     ["Storage.ShoppingListItemFormat"] = "%s (have %d)",
     ["Storage.ShoppingListNoneHeld"] = "None currently held -- check a vendor or the Auction House.",
 
-    -- Consumables -- the definitive supply-check view: every tracked
-    -- consumable by icon/name/bag count/bank count/total, grouped by
-    -- category, independent of the active profile (your bags don't
-    -- change because you switched profiles).
     ["Storage.SectionConsumables"] = "Consumables",
     ["Storage.NoConsumablesTracked"] = "No tracked consumables found in your bags or bank.",
     ["Storage.ConsumableCountFormat"] = "%d total (%d bag, %d bank)",
@@ -460,16 +512,10 @@ AC.Locales.enUS =
     ["Storage.Category.itemEnhancement"] = "Weapon Enhancements",
     ["Storage.Category.healthstone"] = "Healthstones",
 
-    -- Supply Forecast -- player-friendly sentences built from real
-    -- Mythic+ consumption history (MythicPlusModule), not raw numbers.
     ["Storage.SectionSupplyForecast"] = "Supply Forecast",
     ["Storage.NoSupplyForecast"] = "Not enough Mythic+ history yet to forecast supply usage.",
     ["Storage.SupplyForecastFormat"] = "Approximately %d Mythic+ runs remaining",
 
-    -- Storage Insights only -- the "Recommendations" mini-section
-    -- (general RecommendationEngine advice, e.g. "Complete Your
-    -- Keystone") is removed entirely; that belongs on the Recommendations
-    -- page, not here.
     ["Storage.SectionInsights"] = "Storage Insights",
     ["Storage.NoInsights"] = "No storage insights right now.",
 
@@ -490,6 +536,171 @@ AC.Locales.enUS =
 
     ["Storage.ExecuteButton"] = "Execute Restock",
     ["Storage.ExecuteConfirmFormat"] = "This will attempt %d withdrawal(s) and %d deposit(s) using whole item stacks. Continue?",
+
+    -----------------------------------------------------------------------
+    -- Inventory Manager
+    -----------------------------------------------------------------------
+
+    ["InventoryManager.Title"] = "Inventory Manager",
+    ["InventoryManager.Description"] = "Manage your bags, banks, consumables, and storage preparation.",
+    ["InventoryManager.PageCaption"] = "A dedicated workspace for storage management.",
+    ["InventoryManager.DashboardCaption"] = "Open the Inventory Manager for detailed storage work.",
+
+    ["InventoryManager.NavOverview"] = "Overview",
+    ["InventoryManager.NavCategories"] = "Categories",
+    ["InventoryManager.NavSearch"] = "Search",
+    ["InventoryManager.NavTransfers"] = "Transfers",
+    ["InventoryManager.NavShoppingList"] = "Shopping List",
+    ["InventoryManager.NavConsumables"] = "Consumables",
+    ["InventoryManager.NavForecast"] = "Forecast",
+    ["InventoryManager.NavSettings"] = "Settings",
+
+    ["InventoryManager.StatStorageReadiness"] = "Storage Readiness",
+    ["InventoryManager.StatCurrentProfile"] = "Current Profile",
+    ["InventoryManager.StatLastScan"] = "Last Scan",
+    ["InventoryManager.StatSourcesAvailable"] = "Sources Available",
+    ["InventoryManager.StatItemsScanned"] = "Bank Item Types",
+    ["InventoryManager.LastScanUnknown"] = "Not tracked",
+    ["InventoryManager.SourceUnavailable"] = "Unavailable",
+    ["InventoryManager.SourceBags"] = "Bags",
+    ["InventoryManager.SourceCharacterBank"] = "Character Bank",
+    ["InventoryManager.SourceWarbandBank"] = "Warband Bank",
+    ["InventoryManager.SourceStateCurrent"] = "Current",
+    ["InventoryManager.SourceStateLastScanFormat"] = "Last scanned %s",
+    ["InventoryManager.SourceCountFormat"] = "%d of %d available",
+    ["InventoryManager.SourceLineFormat"] = "%s — %s • %d slots • %d item types",
+    ["InventoryManager.Ready"] = "Ready",
+    ["InventoryManager.ReadinessFormat"] = "%.0f%% Ready",
+
+    ["InventoryManager.NoScanTitle"] = "No Storage Scan",
+    ["InventoryManager.NoScanDescription"] = "Open a supported bank, then scan your inventory to begin.",
+    ["InventoryManager.DataRequiresScan"] = "Open a supported bank before evaluating this information.",
+    ["InventoryManager.StorageDisabled"] = "The Storage module is disabled.",
+    ["InventoryManager.LiveDataAvailable"] = "Current bank data is available.",
+    ["InventoryManager.StaleDataAvailable"] = "Showing the last storage snapshot from %s. Open a supported bank to refresh it.",
+    ["InventoryManager.OpenBankPrompt"] = "Open a supported bank to make storage data available.",
+    ["InventoryManager.ScanInventory"] = "Scan Inventory",
+    ["InventoryManager.ScanComplete"] = "Inventory scan refreshed.",
+    ["InventoryManager.ScanFailed"] = "The storage scan could not be completed. The last successful snapshot was preserved.",
+    ["InventoryManager.ScanUnavailable"] = "Inventory scanning is currently unavailable.",
+
+    ["InventoryManager.SectionRecommendations"] = "Current Recommendations",
+    ["InventoryManager.SectionStorageSources"] = "Storage Sources",
+    ["InventoryManager.NoSources"] = "No supported storage source has been scanned yet.",
+
+    ["InventoryManager.CategoriesHeroTitle"] = "Stored Items",
+    ["InventoryManager.CategoriesHeroCaption"] = "Browse authoritative items across bags and available bank snapshots.",
+    ["InventoryManager.StatCategories"] = "Categories",
+    ["InventoryManager.StatAggregateItemTypes"] = "Item Types",
+    ["InventoryManager.StatAggregateStacks"] = "Stacks",
+    ["InventoryManager.StatAggregateSources"] = "Sources Available",
+    ["InventoryManager.SectionCategories"] = "Categories",
+    ["InventoryManager.CategoriesEmpty"] = "No items are available from bags or scanned storage sources.",
+    ["InventoryManager.CategoryItemCountFormat"] = "%d item types",
+    ["InventoryManager.CategoryStackCountFormat"] = "%d items across %d stacks",
+    ["InventoryManager.CategoryLocationFormat"] = "%s: %d stacks / %d items",
+    ["InventoryManager.CategoryEquipment"] = "Equipment",
+    ["InventoryManager.CategoryConsumables"] = "Consumables",
+    ["InventoryManager.CategoryReagents"] = "Reagents",
+    ["InventoryManager.CategoryTradeGoods"] = "Trade Goods",
+    ["InventoryManager.CategoryQuestItems"] = "Quest Items",
+    ["InventoryManager.CategoryMounts"] = "Mounts",
+    ["InventoryManager.CategoryBattlePets"] = "Battle Pets",
+    ["InventoryManager.CategoryMiscellaneous"] = "Miscellaneous",
+    ["InventoryManager.CategoryUnknown"] = "Unknown",
+    ["InventoryManager.AggregateBagsAndBanks"] = "Showing live bags and recorded bank snapshots.",
+    ["InventoryManager.AggregateBagsOnly"] = "Showing live bags. Open a supported bank to include stored items.",
+    ["InventoryManager.AggregateBanksOnly"] = "Showing recorded bank snapshots. Live bags are unavailable.",
+    ["InventoryManager.AggregateUnavailable"] = "No authoritative inventory or storage data is currently available.",
+
+    ["InventoryManager.SearchHeroTitle"] = "Search Storage",
+    ["InventoryManager.SearchHeroValue"] = "Find Items",
+    ["InventoryManager.SearchHeroCaption"] = "Find items across live bags and recorded bank snapshots.",
+    ["InventoryManager.SectionSearch"] = "Search",
+    ["InventoryManager.SectionSearchFilters"] = "Filters",
+    ["InventoryManager.SectionSearchSummary"] = "Result Summary",
+    ["InventoryManager.SectionSearchResults"] = "Search Results",
+    ["InventoryManager.SearchItemName"] = "Item Name",
+    ["InventoryManager.SearchInputTooltip"] = "Enter part of an item's name. Matching is case-insensitive.",
+    ["InventoryManager.SearchButton"] = "Search",
+    ["InventoryManager.SearchClear"] = "Clear",
+    ["InventoryManager.SearchFilterCategory"] = "Category",
+    ["InventoryManager.SearchFilterSource"] = "Storage Source",
+    ["InventoryManager.SearchFilterOwner"] = "Owner",
+    ["InventoryManager.SearchFilterQuality"] = "Quality",
+    ["InventoryManager.SearchSort"] = "Sort By",
+    ["InventoryManager.FilterAllCategories"] = "All Categories",
+    ["InventoryManager.FilterAllSources"] = "All Sources",
+    ["InventoryManager.FilterAllOwners"] = "All Owners",
+    ["InventoryManager.FilterAllQualities"] = "All Qualities",
+    ["InventoryManager.OwnerNameRealmFormat"] = "%s-%s",
+    ["InventoryManager.SortName"] = "Name",
+    ["InventoryManager.SortQuantity"] = "Quantity",
+    ["InventoryManager.SortCategory"] = "Category",
+    ["InventoryManager.SortSource"] = "Source",
+    ["InventoryManager.QualityPoor"] = "Poor",
+    ["InventoryManager.QualityCommon"] = "Common",
+    ["InventoryManager.QualityUncommon"] = "Uncommon",
+    ["InventoryManager.QualityRare"] = "Rare",
+    ["InventoryManager.QualityEpic"] = "Epic",
+    ["InventoryManager.QualityLegendary"] = "Legendary",
+    ["InventoryManager.QualityArtifact"] = "Artifact",
+    ["InventoryManager.QualityHeirloom"] = "Heirloom",
+    ["InventoryManager.QualityWoWToken"] = "WoW Token",
+    ["InventoryManager.QualityUnknown"] = "Unknown Quality",
+    ["InventoryManager.SearchNeverSearched"] = "Enter an item name to begin searching your storage.",
+    ["InventoryManager.SearchPending"] = "Press Search or Enter to search using the current name and filters.",
+    ["InventoryManager.SearchSearching"] = "Searching the current aggregate storage snapshot...",
+    ["InventoryManager.SearchEmptyQuery"] = "Enter a non-blank item name before searching.",
+    ["InventoryManager.SearchNoResults"] = "No stored items match the current name and filters.",
+    ["InventoryManager.SearchNoStorageData"] = "No authoritative bag or bank snapshot is available to search.",
+    ["InventoryManager.SearchStorageUnavailable"] = "Storage search is unavailable while the Storage module is disabled.",
+    ["InventoryManager.SearchSuccessStatus"] = "%d storage result(s) found.",
+    ["InventoryManager.SearchResultsTitleFormat"] = "Search Results (%d)",
+    ["InventoryManager.StatSearchItemTypes"] = "Item Types",
+    ["InventoryManager.StatSearchQuantity"] = "Total Items",
+    ["InventoryManager.StatSearchStacks"] = "Stacks",
+    ["InventoryManager.StatSearchSources"] = "Sources",
+    ["InventoryManager.SearchUnknownItemFormat"] = "Item %d",
+    ["InventoryManager.SearchQuantityFormat"] = "%d items",
+    ["InventoryManager.SearchResultContextFormat"] = "%s • %s • %d stacks",
+    ["InventoryManager.SearchOwnerFormat"] = "Owner: %s",
+    ["InventoryManager.SearchFreshnessCurrent"] = "Current",
+    ["InventoryManager.SearchFreshnessRecorded"] = "Recorded %s",
+    ["InventoryManager.SearchFreshnessUnknown"] = "Unknown freshness",
+
+    ["InventoryManager.ShoppingHeroTitle"] = "Shopping List",
+    ["InventoryManager.ShoppingHeroCaption"] = "See what your active preparation profile still needs before you play.",
+    ["InventoryManager.ShoppingUnavailableValue"] = "Unavailable",
+    ["InventoryManager.ShoppingNoRequirementsValue"] = "No Requirements",
+    ["InventoryManager.SectionShoppingSummary"] = "Shopping Summary",
+    ["InventoryManager.SectionShoppingMissing"] = "Items to Acquire",
+    ["InventoryManager.SectionShoppingAvailable"] = "Available in Storage",
+    ["InventoryManager.StatShoppingReadiness"] = "Preparation Readiness",
+    ["InventoryManager.StatShoppingMissing"] = "Need to Acquire",
+    ["InventoryManager.StatShoppingAvailable"] = "Available in Storage",
+    ["InventoryManager.ShoppingMissingContext"] = "Still needed after checking current bags and storage.",
+    ["InventoryManager.ShoppingAvailableContext"] = "Already in scanned storage; move it to your bags.",
+    ["InventoryManager.ShoppingMissingStatus"] = "Missing",
+    ["InventoryManager.ShoppingAvailableStatus"] = "In Storage",
+    ["InventoryManager.ShoppingUnavailable"] = "Shopping information is currently unavailable.",
+    ["InventoryManager.ShoppingUnknown"] = "Open a supported character bank and scan before evaluating what is missing.",
+    ["InventoryManager.ShoppingStale"] = "The last bank snapshot is stale. Open a supported character bank to refresh the shopping list.",
+    ["InventoryManager.ShoppingCharacterBankRequired"] = "Open a supported character bank before evaluating what still needs to be acquired.",
+    ["InventoryManager.ShoppingInventoryRequired"] = "A current bag snapshot is required before evaluating what still needs to be acquired.",
+    ["InventoryManager.ShoppingNoRequirements"] = "The active profile has no tracked shopping requirements.",
+    ["InventoryManager.ShoppingReadyStatus"] = "All tracked preparation requirements are already in your bags.",
+    ["InventoryManager.ShoppingFooterFormat"] = "%d items to acquire | %d available in storage",
+
+    ["InventoryManager.PlannedSection"] = "Planned",
+    ["InventoryManager.TransfersPlanned"] = "Transfer planning and movement are intentionally reserved for a later phase.",
+    ["InventoryManager.ConsumablesPlanned"] = "Detailed consumable management is planned for a later phase.",
+    ["InventoryManager.ForecastPlanned"] = "Storage forecasting is planned for a later phase.",
+    ["InventoryManager.SettingsPlanned"] = "Inventory Manager settings are planned for a later phase. Existing addon settings remain unchanged.",
+
+    ["InventoryManager.WorkspaceSection"] = "Inventory Workspace",
+    ["InventoryManager.WorkspaceDescription"] = "Open the dedicated Inventory Manager for storage readiness and future inventory workflows.",
+    ["InventoryManager.OpenButton"] = "Open Inventory Manager",
 
     -----------------------------------------------------------------------
     -- Weekly Page
@@ -886,8 +1097,10 @@ AC.Locales.enUS =
     ["Developer.Yes"] = "Yes",
     ["Developer.No"] = "No",
     ["Developer.Clear"] = "Clear",
+    ["Developer.Reset"] = "Reset",
     ["Developer.Refresh"] = "Refresh",
     ["Developer.NoError"] = "None",
+    ["Developer.OpenTooltip"] = "Open Developer Panel",
 
     ["Developer.TabOverview"] = "Overview",
     ["Developer.TabModules"] = "Modules",
@@ -897,6 +1110,7 @@ AC.Locales.enUS =
     ["Developer.TabLiveAPI"] = "Live API",
     ["Developer.TabHistory"] = "History",
     ["Developer.TabChecklist"] = "Checklist",
+    ["Developer.TabMaintenance"] = "Maintenance",
 
     ["Developer.CopyJSON"] = "Copy JSON",
     ["Developer.CopyText"] = "Copy Text",
@@ -908,6 +1122,51 @@ AC.Locales.enUS =
     ["Developer.TracingOn"] = "Tracing: On",
     ["Developer.TracingOff"] = "Tracing: Off",
     ["Developer.ClearHistory"] = "Clear History",
+
+    ["Developer.HeroHeadline"] = "Azeroth Companion Engineering",
+    ["Developer.HeroValue"] = "Developer Mode",
+    ["Developer.HeroCaption"] = "Live diagnostics, verification, and internal maintenance tools.",
+    ["Developer.HeroModules"] = "Modules",
+    ["Developer.HeroEvents"] = "Events",
+    ["Developer.HeroErrors"] = "Captured Errors",
+    ["Developer.HeroMode"] = "Developer Mode",
+
+    ["Developer.MaintenanceActivityHistory"] = "Activity History",
+    ["Developer.MaintenanceAnalytics"] = "Analytics",
+    ["Developer.MaintenanceTelemetry"] = "Telemetry",
+    ["Developer.MaintenanceCache"] = "Cache",
+    ["Developer.MaintenanceDeveloperData"] = "Developer Data",
+    ["Developer.MaintenanceDangerZone"] = "Danger Zone",
+    ["Developer.MaintenanceHistoryCountFormat"] = "Total Stored Records: %d",
+    ["Developer.MaintenanceHistoryDescription"] = "Clears every recorded activity type for the current character.",
+    ["Developer.ClearActivityHistory"] = "Clear Activity History",
+    ["Developer.MaintenanceAnalyticsUnavailable"] = "No analytics data store",
+    ["Developer.MaintenanceAnalyticsPlaceholder"] = "Reserved for a future analytics system. No persistent analytics exist today.",
+    ["Developer.MaintenanceTelemetryUnavailable"] = "No telemetry data store",
+    ["Developer.MaintenanceTelemetryPlaceholder"] = "Reserved for future Equipment Wear Telemetry.",
+    ["Developer.MaintenanceCacheUnavailable"] = "No developer-managed cache",
+    ["Developer.MaintenanceCachePlaceholder"] = "Gameplay caches remain owned and refreshed by their gameplay modules.",
+    ["Developer.MaintenanceErrorCountFormat"] = "Captured Errors: %d",
+    ["Developer.MaintenanceErrorsDescription"] = "Removes persisted Developer Runtime error records.",
+    ["Developer.MaintenanceDiagnosticCountFormat"] = "Temporary Diagnostics: %d",
+    ["Developer.MaintenanceDiagnosticsDescription"] = "Clears the Blizzard event log and secret-value diagnostic events.",
+    ["Developer.ClearRuntimeDiagnostics"] = "Clear Diagnostics",
+    ["Developer.MaintenanceVerificationTitle"] = "Verification & Checklist Results",
+    ["Developer.MaintenanceVerificationDescription"] = "Clears human-recorded API verification and guided-checklist results.",
+    ["Developer.ClearVerification"] = "Clear Verification",
+    ["Developer.MaintenanceExportsTitle"] = "Exported Data",
+    ["Developer.MaintenanceExportsDescription"] = "Exports are generated on demand and are not stored by Azeroth Companion.",
+    ["Developer.ResetEverything"] = "Reset Everything",
+    ["Developer.MaintenanceResetDescription"] = "Clears Activity History, captured errors, verification records, and temporary diagnostics.",
+
+    ["Developer.ConfirmClearActivityHistory"] = "Clear Activity History?\n\nThis will permanently remove:\n\n• Mythic+ history\n• Delve history\n• Dungeon history\n• Raid history\n• Any recorded activities\n\nThis cannot be undone.",
+    ["Developer.ConfirmClearErrors"] = "Clear all captured runtime errors?\n\nPersisted error records and occurrence history will be permanently removed. This cannot be undone.",
+    ["Developer.ConfirmClearEvents"] = "Clear the captured Blizzard event log?\n\nThis session's recorded events will be permanently removed.",
+    ["Developer.ConfirmClearSecretValues"] = "Clear all secret-value diagnostic events?\n\nThis session's recorded secure-callback diagnostics will be permanently removed.",
+    ["Developer.ConfirmClearNotifications"] = "Clear active, queued, and recent notifications?\n\nThis session's notification history will be permanently removed.",
+    ["Developer.ConfirmClearRuntimeDiagnostics"] = "Clear temporary runtime diagnostics?\n\nThis will permanently remove the current Blizzard event log and secret-value diagnostic events.",
+    ["Developer.ConfirmClearVerification"] = "Clear verification and checklist results?\n\nAll human-recorded live API results and completed checklist scenarios will be permanently removed. This cannot be undone.",
+    ["Developer.ConfirmResetEverything"] = "Reset all developer-managed data?\n\nThis will permanently remove:\n\n• All recorded Activity History\n• Captured runtime errors\n• Verification and checklist results\n• Temporary runtime diagnostics\n\nSettings, gameplay modules, and Player Journal data will not be changed. This cannot be undone.",
 
     ["Developer.FieldCharacter"] = "Current Character",
     ["Developer.FieldZone"] = "Current Zone",

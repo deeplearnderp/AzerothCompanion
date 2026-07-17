@@ -31,11 +31,12 @@
 --
 -- Run outcome data (dungeon/level/timed/rating change) is never
 -- recomputed here -- it is read from MythicPlusModule's own already-
--- published GetRecentRuns() the instant after a run completes
+-- published GetRecentRuns() after a run completes, correlated against the
+-- history ID captured when that run started
 -- (Architectural Rule 7: never duplicate logic the owning module already
 -- provides). See FinalizeCompletedRunForRoster's own comment for why
 -- that read is deferred one frame via C_Timer.After(0, ...) rather than
--- read synchronously inside the same CHALLENGE_MODE_COMPLETED_REWARDS
+-- read synchronously inside the same CHALLENGE_MODE_COMPLETED
 -- handler.
 -------------------------------------------------------------------------------
 
@@ -229,7 +230,7 @@ end
 function PlayerJournalModule:Enable()
 
     AC.Events:Register("CHALLENGE_MODE_START", self)
-    AC.Events:Register("CHALLENGE_MODE_COMPLETED_REWARDS", self)
+    AC.Events:Register("CHALLENGE_MODE_COMPLETED", self)
     AC.Events:Register("CHALLENGE_MODE_RESET", self)
 
 end
@@ -279,6 +280,8 @@ function PlayerJournalModule:ResetRunTracking()
         interruptsByGUID = {},
         missingSince = {},   -- [guid] = timestamp, cleared if the player reappears
         leftEarly = {},      -- [guid] = true once a grace-period recheck confirms a real departure
+        historyBaselineCaptured = false,
+        historyBaselineRunID = nil,
     }
 
 end
@@ -370,6 +373,17 @@ function PlayerJournalModule:OnChallengeModeStart()
     self.RunTracking.active = true
     self.RunTracking.roster = self:SnapshotRoster()
 
+    local mythicPlusModule = AC.Core and AC.Core:GetModule("MythicPlus")
+
+    if mythicPlusModule and mythicPlusModule.GetRecentRuns then
+
+        local previousRun = mythicPlusModule:GetRecentRuns(1)[1]
+
+        self.RunTracking.historyBaselineCaptured = true
+        self.RunTracking.historyBaselineRunID = previousRun and previousRun.ID or nil
+
+    end
+
     self:RegisterRunTrackingEvents()
 
 end
@@ -459,7 +473,7 @@ function PlayerJournalModule:OnChallengeModeReset()
 
 end
 
-function PlayerJournalModule:OnChallengeModeCompletedRewards()
+function PlayerJournalModule:OnChallengeModeCompleted()
 
     if not self.RunTracking.active then
         return
@@ -495,7 +509,10 @@ end
 --
 -- Reads MythicPlusModule's own already-recorded run for dungeon/level/
 -- timed/rating-change (Architectural Rule 7 -- never duplicate logic the
--- owning module already provides) rather than recomputing any of it.
+-- owning module already provides) rather than recomputing any of it. The
+-- record is accepted only when its ActivityHistory ID differs from the
+-- latest run captured at CHALLENGE_MODE_START, proving that this run
+-- produced a new stored completion instead of reusing the previous one.
 -- "Average Rating Gain" is this run's overall score change applied
 -- identically to every companion who was present -- no Blizzard API
 -- attributes rating gain per party member, so this is a documented
@@ -508,8 +525,19 @@ function PlayerJournalModule:FinalizeCompletedRunForRoster(snapshot)
         return
     end
 
+    if not snapshot.historyBaselineCaptured then
+        return
+    end
+
     local mythicPlusModule = AC.Core and AC.Core:GetModule("MythicPlus")
     local lastRun = mythicPlusModule and mythicPlusModule.GetRecentRuns and mythicPlusModule:GetRecentRuns(1)[1]
+
+    if not lastRun
+            or type(lastRun.ID) ~= "string"
+            or lastRun.ID == ""
+            or lastRun.ID == snapshot.historyBaselineRunID then
+        return
+    end
 
     local now = time()
     local rosterKeys = {}

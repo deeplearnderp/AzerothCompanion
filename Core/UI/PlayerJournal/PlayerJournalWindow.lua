@@ -8,7 +8,7 @@
 -- only (window shell, tab bar, ScrollFrame, pooled-row helpers, tab
 -- dispatch) -- one Build<X>Tab() method per tab lives in its own file
 -- under Core/UI/PlayerJournal/Tabs/, added onto this same shared table,
--- the same spine-then-leaves split Dashboard.lua uses for Pages/*.lua
+-- the same spine-then-leaves split the Dashboard framework uses for Pages/*.lua
 -- (and the same reason: the load order in the .toc puts this file before
 -- every Tabs/*.lua file, since they add methods onto AC.PlayerJournalWindow
 -- rather than this file needing to know about them).
@@ -34,8 +34,8 @@ AC.PlayerJournalWindow = PlayerJournalWindow
 -- End-of-Run Prompt
 --
 -- Shown from OnPlayerJournalRunRecorded (below) -- matches
--- Pages/Storage.lua's own StaticPopupDialogs["AZEROTHCOMPANION_STORAGE_EXECUTE"]
--- pattern. "Yes" opens the Journal on the Search tab, pre-filtered to
+-- Blizzard's standard StaticPopupDialogs confirmation pattern. "Yes"
+-- opens the Journal on the Search tab, pre-filtered to
 -- that run's roster (PendingEndOfRunRosterKeys) -- rather than guessing
 -- which one companion the player wants to note.
 -------------------------------------------------------------------------------

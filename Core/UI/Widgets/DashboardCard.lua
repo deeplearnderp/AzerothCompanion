@@ -80,27 +80,11 @@ function DashboardCard:Create(parent, title, options)
     -- second background color for players to learn.
     -----------------------------------------------------------------------
 
-    local baseR, baseG, baseB, baseA = 0.15, 0.15, 0.15, 0.85
+    local cardBackdrop = AC.Presentation.CARD_BACKDROP
+    local baseR, baseG, baseB, baseA = unpack(cardBackdrop.bgColor)
+    local borderR, borderG, borderB, borderA = AC.Presentation.GetCardBorderColor(options.emphasized)
 
-    card:SetBackdrop(
-    {
-        bgFile = "Interface\\Buttons\\WHITE8x8",
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        edgeSize = 12,
-        insets = { left = 3, right = 3, top = 3, bottom = 3 },
-    })
-
-    card:SetBackdropColor(baseR, baseG, baseB, baseA)
-
-    local borderR, borderG, borderB, borderA
-
-    if options.emphasized then
-        borderR, borderG, borderB, borderA = AC.Presentation.HIGHLIGHT_COLOR[1], AC.Presentation.HIGHLIGHT_COLOR[2], AC.Presentation.HIGHLIGHT_COLOR[3], 0.5
-    else
-        borderR, borderG, borderB, borderA = 1, 1, 1, 0.28
-    end
-
-    card:SetBackdropBorderColor(borderR, borderG, borderB, borderA)
+    AC.Presentation.ApplyCardBackdrop(card, options.emphasized)
 
     -----------------------------------------------------------------------
     -- Title
@@ -332,8 +316,8 @@ function DashboardCard:Create(parent, title, options)
         card:EnableMouse(true)
 
         card:SetScript("OnEnter", function(self)
-            self:SetBackdropColor(baseR + 0.05, baseG + 0.05, baseB + 0.05, baseA)
-            self:SetBackdropBorderColor(borderR, borderG, borderB, math.min(borderA + 0.2, 1))
+            self:SetBackdropColor(baseR + cardBackdrop.hoverBackgroundDelta, baseG + cardBackdrop.hoverBackgroundDelta, baseB + cardBackdrop.hoverBackgroundDelta, baseA)
+            self:SetBackdropBorderColor(borderR, borderG, borderB, math.min(borderA + cardBackdrop.hoverBorderAlphaDelta, 1))
             if self.Indicator then
                 AC.DashboardFormat.SetHighlightColor(self.Indicator)
             end

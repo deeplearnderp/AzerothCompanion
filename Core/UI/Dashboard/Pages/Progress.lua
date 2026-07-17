@@ -128,11 +128,6 @@ function Dashboard:UpdateProgressPage(frame)
 
     end
 
-    -- Delegates to the shared Dashboard:ShowEmptyLine.
-    local function ShowEmptyLine(cacheKey, yOffset, width, textKey)
-        return self:ShowEmptyLine(page, scrollChild, cacheKey, yOffset, width, textKey)
-    end
-
     local function Layout_(width)
 
         page.ContentWidth = width
@@ -209,19 +204,11 @@ function Dashboard:UpdateProgressPage(frame)
         -- Last 7 Days
         -----------------------------------------------------------------------
 
-        yOffset = self:BeginSection(scrollChild, "Progress.SectionLast7Days", yOffset)
+        local last7Stats = {}
 
-        if last7.runsCompleted == 0 then
+        if last7.runsCompleted ~= 0 then
 
-            yOffset = ShowEmptyLine("Last7EmptyText", yOffset, width, "Progress.NoRecentData")
-
-        else
-
-            if page.Last7EmptyText then
-                page.Last7EmptyText:Hide()
-            end
-
-            local last7Stats =
+            last7Stats =
             {
                 { label = "Progress.StatRunsCompleted", value = ValueWithTrend(tostring(last7.runsCompleted), trends7 and trends7.runs) },
                 { label = "Progress.StatRatingGain", value = ValueWithTrend(string.format("%.1f", last7.ratingGained), trends7 and trends7.ratingGain) },
@@ -232,29 +219,19 @@ function Dashboard:UpdateProgressPage(frame)
                 { label = "Progress.StatConsumables", value = ValueWithTrend(tostring(last7.totalConsumables), trends7 and trends7.consumables) },
             }
 
-            yOffset = self:LayoutStatisticsGrid(page, "Last7Days", scrollChild, yOffset, width, last7Stats)
-
         end
 
-        yOffset = self:EndSection(yOffset)
+        yOffset = self:AppendStatisticsSection(page, "Last7Days", "Progress.SectionLast7Days", yOffset, last7Stats, "Progress.NoRecentData")
 
         -----------------------------------------------------------------------
         -- Last 30 Days
         -----------------------------------------------------------------------
 
-        yOffset = self:BeginSection(scrollChild, "Progress.SectionLast30Days", yOffset)
+        local last30Stats = {}
 
-        if last30.runsCompleted == 0 then
+        if last30.runsCompleted ~= 0 then
 
-            yOffset = ShowEmptyLine("Last30EmptyText", yOffset, width, "Progress.NoRecentData")
-
-        else
-
-            if page.Last30EmptyText then
-                page.Last30EmptyText:Hide()
-            end
-
-            local last30Stats =
+            last30Stats =
             {
                 { label = "Progress.StatRunsCompleted", value = ValueWithTrend(tostring(last30.runsCompleted), trends30 and trends30.runs) },
                 { label = "Progress.StatRatingGain", value = ValueWithTrend(string.format("%.1f", last30.ratingGained), trends30 and trends30.ratingGain) },
@@ -265,29 +242,19 @@ function Dashboard:UpdateProgressPage(frame)
                 { label = "Progress.StatConsumables", value = ValueWithTrend(tostring(last30.totalConsumables), trends30 and trends30.consumables) },
             }
 
-            yOffset = self:LayoutStatisticsGrid(page, "Last30Days", scrollChild, yOffset, width, last30Stats)
-
         end
 
-        yOffset = self:EndSection(yOffset)
+        yOffset = self:AppendStatisticsSection(page, "Last30Days", "Progress.SectionLast30Days", yOffset, last30Stats, "Progress.NoRecentData")
 
         -----------------------------------------------------------------------
         -- Lifetime
         -----------------------------------------------------------------------
 
-        yOffset = self:BeginSection(scrollChild, "Progress.SectionLifetime", yOffset)
+        local lifetimeStats = {}
 
-        if lifetime.runsCompleted == 0 then
+        if lifetime.runsCompleted ~= 0 then
 
-            yOffset = ShowEmptyLine("LifetimeEmptyText", yOffset, width, "Progress.NoLifetimeData")
-
-        else
-
-            if page.LifetimeEmptyText then
-                page.LifetimeEmptyText:Hide()
-            end
-
-            local lifetimeStats =
+            lifetimeStats =
             {
                 { label = "Progress.StatHighestKey", value = tostring(lifetime.highestCompletedLevel or 0) },
                 { label = "Progress.StatLargestRatingGain", value = string.format("%.1f", lifetime.largestRatingGain or 0) },
@@ -300,27 +267,17 @@ function Dashboard:UpdateProgressPage(frame)
                 { label = "Progress.StatTotalInterrupts", value = tostring(lifetime.totalInterrupts or 0) },
             }
 
-            yOffset = self:LayoutStatisticsGrid(page, "Lifetime", scrollChild, yOffset, width, lifetimeStats)
-
         end
 
-        yOffset = self:EndSection(yOffset)
+        yOffset = self:AppendStatisticsSection(page, "Lifetime", "Progress.SectionLifetime", yOffset, lifetimeStats, "Progress.NoLifetimeData")
 
         -----------------------------------------------------------------------
         -- Personal Records
         -----------------------------------------------------------------------
 
-        yOffset = self:BeginSection(scrollChild, "Progress.SectionPersonalRecords", yOffset)
+        local recordsStats = {}
 
-        if lifetime.runsCompleted == 0 then
-
-            yOffset = ShowEmptyLine("RecordsEmptyText", yOffset, width, "Progress.NoPersonalRecords")
-
-        else
-
-            if page.RecordsEmptyText then
-                page.RecordsEmptyText:Hide()
-            end
+        if lifetime.runsCompleted ~= 0 then
 
             local fastestText = AC.L:Get("Common.Unknown")
 
@@ -328,7 +285,7 @@ function Dashboard:UpdateProgressPage(frame)
                 fastestText = AC.L:Format("Progress.FastestCompletionFormat", lifetime.fastestRun.dungeonName or AC.L:Get("Common.Unknown"), lifetime.fastestRun.level or 0, Format.FormatClock(lifetime.fastestRun.time))
             end
 
-            local recordsStats =
+            recordsStats =
             {
                 { label = "Progress.StatHighestKey", value = tostring(lifetime.highestCompletedLevel or 0) },
                 { label = "Progress.StatFastestCompletion", value = fastestText },
@@ -339,40 +296,25 @@ function Dashboard:UpdateProgressPage(frame)
                 { label = "Progress.StatBestTimedPercent", value = AC.Presentation.FormatPercent(lifetime.successRate) },
             }
 
-            yOffset = self:LayoutStatisticsGrid(page, "PersonalRecords", scrollChild, yOffset, width, recordsStats)
-
         end
 
-        yOffset = self:EndSection(yOffset)
+        yOffset = self:AppendStatisticsSection(page, "PersonalRecords", "Progress.SectionPersonalRecords", yOffset, recordsStats, "Progress.NoPersonalRecords")
 
         -----------------------------------------------------------------------
         -- Recent Milestones
         -----------------------------------------------------------------------
 
-        yOffset = self:BeginSection(scrollChild, "Progress.SectionRecentMilestones", yOffset)
-
-        page.Pools = page.Pools or {}
-        page.Pools.RecentMilestones = page.Pools.RecentMilestones or {}
-
-        yOffset = self:LayoutTextLines(scrollChild, page.Pools.RecentMilestones, recentMilestones, yOffset, width, "Progress.NoRecentMilestones", function(milestone)
+        yOffset = self:AppendTextSection(page, "RecentMilestones", "Progress.SectionRecentMilestones", yOffset, recentMilestones, "Progress.NoRecentMilestones", function(milestone)
             return AC.L:Format("Progress.MilestoneLineFormat", AC.Presentation.FormatDate(milestone.achievedAt, "short"), AC.L:Get(milestone.titleKey), AC.L:Get(milestone.descriptionKey))
         end)
-
-        yOffset = self:EndSection(yOffset)
 
         -----------------------------------------------------------------------
         -- Current Trends
         -----------------------------------------------------------------------
 
-        yOffset = self:BeginSection(scrollChild, "Progress.SectionCurrentTrends", yOffset)
-
-        page.Pools.CurrentTrends = page.Pools.CurrentTrends or {}
-
-        yOffset = self:LayoutTextLines(scrollChild, page.Pools.CurrentTrends, trendLines, yOffset, width, "Progress.NoTrendsAvailable", function(metric)
+        yOffset = self:AppendTextSection(page, "CurrentTrends", "Progress.SectionCurrentTrends", yOffset, trendLines, "Progress.NoTrendsAvailable", function(metric)
             return Format.GetTrendArrow(metric.direction) .. " " .. AC.L:Get(metric.label)
         end)
-
-        yOffset = self:EndSection(yOffset)
 
         return (-yOffset) + Layout.PAGE_BOTTOM_PADDING
 

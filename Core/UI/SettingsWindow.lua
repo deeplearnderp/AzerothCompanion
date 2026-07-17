@@ -25,6 +25,9 @@ function SettingsWindow:Initialize()
         600
     )
 
+    AC.Presentation.ApplyWindowBackground(self.Frame)
+    AC.Presentation.StyleWindowTitle(self.Frame.Title)
+
     ---------------------------------------------------------------------------
     -- Close Button
     ---------------------------------------------------------------------------
@@ -32,11 +35,23 @@ function SettingsWindow:Initialize()
     BaseWindow:AddCloseButton(self.Frame, self)
 
     ---------------------------------------------------------------------------
+    -- Footer
+    ---------------------------------------------------------------------------
+
+    local footer = CreateFrame("Frame", nil, self.Frame, "BackdropTemplate")
+    footer:SetPoint("BOTTOMLEFT", 10, 8)
+    footer:SetPoint("BOTTOMRIGHT", -10, 8)
+    footer:SetHeight(24)
+    AC.Presentation.ApplyCardBackdrop(footer)
+
+    self.Footer = footer
+
+    ---------------------------------------------------------------------------
     -- Version
     ---------------------------------------------------------------------------
 
-    local version = self.Frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    version:SetPoint("BOTTOMLEFT", self.Frame, "BOTTOMLEFT", 16, 12)
+    local version = footer:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    version:SetPoint("LEFT", 8, 0)
     version:SetText("v" .. tostring(AC.Version or "0.0.0"))
 
     self.VersionLabel = version
@@ -52,12 +67,12 @@ function SettingsWindow:Initialize()
     local cancelButton = CreateFrame(
         "Button",
         "AzerothCompanionSettingsCancel",
-        self.Frame,
+        footer,
         "UIPanelButtonTemplate"
     )
 
     cancelButton:SetSize(90, 22)
-    cancelButton:SetPoint("BOTTOMRIGHT", self.Frame, "BOTTOMRIGHT", -110, 8)
+    cancelButton:SetPoint("RIGHT", footer, "RIGHT", -106, 0)
     cancelButton:SetText("Cancel")
     cancelButton:SetEnabled(false)
 
@@ -72,7 +87,7 @@ function SettingsWindow:Initialize()
     local saveButton = CreateFrame(
         "Button",
         "AzerothCompanionSettingsSave",
-        self.Frame,
+        footer,
         "UIPanelButtonTemplate"
     )
 
@@ -107,20 +122,7 @@ function SettingsWindow:Initialize()
     navigationHost:SetPoint("BOTTOMLEFT", 10, 36)
     navigationHost:SetWidth(200)
 
-    -- Presentation System v2 -- these exact values are the named
-    -- AC.Presentation.PANEL_BACKDROP preset (an "inner panel", distinct
-    -- from BaseWindow's own top-level AC.Presentation.WINDOW_BACKDROP).
-    local navBackdrop = AC.Presentation.PANEL_BACKDROP
-
-    navigationHost:SetBackdrop({
-        bgFile = navBackdrop.bgFile,
-        edgeFile = navBackdrop.edgeFile,
-        edgeSize = navBackdrop.edgeSize,
-        insets = navBackdrop.insets,
-    })
-
-    navigationHost:SetBackdropColor(unpack(navBackdrop.bgColor))
-    navigationHost:SetBackdropBorderColor(unpack(navBackdrop.borderColor))
+    AC.Presentation.ApplyCardBackdrop(navigationHost)
 
     ---------------------------------------------------------------------------
     -- Content Host
@@ -136,25 +138,7 @@ function SettingsWindow:Initialize()
     contentHost:SetPoint("TOPLEFT", navigationHost, "TOPRIGHT", 10, 0)
     contentHost:SetPoint("BOTTOMRIGHT", -10, 36)
 
-    -- Presentation System v2 -- was its own independent backdrop, one of
-    -- 5 different border-alpha values found addon-wide for the same
-    -- "bordered panel" concept -- and its base gray (0.15) genuinely
-    -- disagreed with its own sibling panel (navigationHost's 0.10) despite
-    -- both being the same window's two side-by-side panels. Migrated to
-    -- the same AC.Presentation.PANEL_BACKDROP navigationHost already uses
-    -- -- a real, visible darkening that fixes the two panels disagreeing
-    -- with each other.
-    local contentBackdrop = AC.Presentation.PANEL_BACKDROP
-
-    contentHost:SetBackdrop({
-        bgFile = contentBackdrop.bgFile,
-        edgeFile = contentBackdrop.edgeFile,
-        edgeSize = contentBackdrop.edgeSize,
-        insets = contentBackdrop.insets,
-    })
-
-    contentHost:SetBackdropColor(unpack(contentBackdrop.bgColor))
-    contentHost:SetBackdropBorderColor(unpack(contentBackdrop.borderColor))
+    AC.Presentation.ApplyCardBackdrop(contentHost)
 
     ---------------------------------------------------------------------------
     -- Panels

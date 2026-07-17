@@ -369,15 +369,9 @@ function Dashboard:UpdateAccomplishmentsPage(frame)
         -- lines, not accordion rows -- see file header).
         -----------------------------------------------------------------------
 
-        yOffset = self:BeginSection(scrollChild, "Accomplishments.SectionRecentHistory", yOffset)
-
-        page.Pools.RecentHistory = page.Pools.RecentHistory or {}
-
-        yOffset = self:LayoutTextLines(scrollChild, page.Pools.RecentHistory, recentHistory, yOffset, width, "Accomplishments.NoRecentHistory", function(record)
+        yOffset = self:AppendTextSection(page, "RecentHistory", "Accomplishments.SectionRecentHistory", yOffset, recentHistory, "Accomplishments.NoRecentHistory", function(record)
             return AC.L:Format("Accomplishments.RecentHistoryLineFormat", record.ActivityName or AC.L:Get("Common.Unknown"), AC.Presentation.FormatDate(record.Timestamp, "short"))
         end)
-
-        yOffset = self:EndSection(yOffset)
 
         -----------------------------------------------------------------------
         -- Recommendations / Insights -- same tail shape every dynamic

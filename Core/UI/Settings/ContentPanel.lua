@@ -100,9 +100,10 @@ function ContentPanel:Create(parent)
     panel.Frame = scrollFrame
     panel.ScrollChild = scrollChild
 
-    local emptyLabel = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+    local emptyLabel = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     emptyLabel:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", ContentPanel.Layout.Margin, -ContentPanel.Layout.Margin)
     emptyLabel:SetText("No settings pages are registered.")
+    emptyLabel:SetTextColor(unpack(AC.Presentation.GetSemanticColor("dim")))
     emptyLabel:Hide()
 
     panel.EmptyLabel = emptyLabel
@@ -348,9 +349,10 @@ function ContentPanel:BuildPage(page)
 
         local section = page.SectionOrder[sectionIndex]
 
-        local header = pageFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        local header = pageFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
         header:SetPoint("TOPLEFT", pageFrame, "TOPLEFT", layout.Margin, yOffset)
         header:SetText(section.Title)
+        header:SetTextColor(unpack(AC.Presentation.HIGHLIGHT_COLOR))
 
         yOffset = yOffset - layout.HeaderHeight - layout.ControlSpacing
 

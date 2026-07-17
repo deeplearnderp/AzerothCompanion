@@ -38,6 +38,7 @@ Core/Managers/ModuleManager.lua
 Core/Services/DatabaseService.lua
 Core/Logging/Logger.lua
 Core/Services/ActivityHistoryService.lua
+Core/Services/LoadoutService.lua
 Core/Events/EventManager.lua
 Core/Services/NotificationService.lua
 Core/Diagnostics/DiagnosticsService.lua
@@ -107,6 +108,7 @@ Core/UI/Dashboard/Navigation.lua
 
 Core/UI/Dashboard/Notifications.lua
 
+Core/UI/InventoryComponents.lua
 Core/UI/InventoryManager.lua
 
 Core/UI/DeveloperPanel.lua

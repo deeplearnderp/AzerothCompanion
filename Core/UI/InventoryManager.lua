@@ -35,15 +35,20 @@ local SEARCH_INPUT_WIDTH = 396
 local SEARCH_ACTION_WIDTH = 90
 local SEARCH_RESULT_CARD_HEIGHT = 92
 local SHOPPING_CARD_HEIGHT = 92
+local LOADOUT_LIST_WIDTH = 220
+local LOADOUT_ROW_HEIGHT = 28
+local LOADOUT_CONTENT_GAP = 12
 
 local PAGE_DEFINITIONS =
 {
     { id = "Overview", label = "InventoryManager.NavOverview" },
     { id = "Categories", label = "InventoryManager.NavCategories" },
+    { id = "Explorer", label = "InventoryManager.NavExplorer" },
     { id = "Search", label = "InventoryManager.NavSearch" },
     { id = "Transfers", label = "InventoryManager.NavTransfers", placeholder = "InventoryManager.TransfersPlanned" },
     { id = "ShoppingList", label = "InventoryManager.NavShoppingList" },
     { id = "Consumables", label = "InventoryManager.NavConsumables", placeholder = "InventoryManager.ConsumablesPlanned" },
+    { id = "Loadouts", label = "InventoryManager.NavLoadouts" },
     { id = "Forecast", label = "InventoryManager.NavForecast", placeholder = "InventoryManager.ForecastPlanned" },
     { id = "Settings", label = "InventoryManager.NavSettings", placeholder = "InventoryManager.SettingsPlanned" },
 }
@@ -485,52 +490,25 @@ end
 
 function InventoryManager:LayoutCategoryCards(page, yOffset, width, categories)
 
-    page.CategoryCards = page.CategoryCards or {}
+    local self_ref = self
 
-    if #categories == 0 then
-
-        for _, card in ipairs(page.CategoryCards) do
-            card:Hide()
-        end
-
-        return Dashboard:ShowEmptyLine(page, page.ScrollChild, "CategoriesEmptyText", yOffset, width, "InventoryManager.CategoriesEmpty")
-
-    end
-
-    if page.CategoriesEmptyText then
-        page.CategoriesEmptyText:Hide()
-    end
-
-    local cardWidth = width - (Layout.ROW_INDENT * 2)
-
-    for index, category in ipairs(categories) do
-
-        local card = page.CategoryCards[index]
-
-        if not card then
-            card = AC.DashboardCard:Create(page.ScrollChild, "", { width = cardWidth, height = 84 })
-            page.CategoryCards[index] = card
-        end
-
-        card:SetWidth(cardWidth)
-        card:SetTitle(AC.L:Get(STORAGE_CATEGORY_LABELS[category.id] or "InventoryManager.CategoryUnknown"))
-        card:SetPrimaryValue(AC.L:Format("InventoryManager.CategoryItemCountFormat", category.itemCount or 0))
-        card:SetSecondaryText(AC.L:Format("InventoryManager.CategoryStackCountFormat", category.quantity or 0, category.stackCount or 0))
-        card:SetDetailText(self:FormatCategoryLocations(category))
-        card:SetStatus(nil, "")
-        card:ClearAllPoints()
-        card:SetPoint("TOPLEFT", Layout.ROW_INDENT, yOffset)
-        card:Show()
-
-        yOffset = yOffset - card:GetHeight() - Layout.HOME_SECTION_GAP
-
-    end
-
-    for index = #categories + 1, #page.CategoryCards do
-        page.CategoryCards[index]:Hide()
-    end
-
-    return yOffset
+    return AC.InventoryComponents:LayoutItemCards(
+        page,
+        "CategoryCards",
+        "CategoriesEmptyText",
+        yOffset,
+        width,
+        categories,
+        84,
+        function(card, category)
+            card:SetTitle(AC.L:Get(STORAGE_CATEGORY_LABELS[category.id] or "InventoryManager.CategoryUnknown"))
+            card:SetPrimaryValue(AC.L:Format("InventoryManager.CategoryItemCountFormat", category.itemCount or 0))
+            card:SetSecondaryText(AC.L:Format("InventoryManager.CategoryStackCountFormat", category.quantity or 0, category.stackCount or 0))
+            card:SetDetailText(self_ref:FormatCategoryLocations(category))
+            card:SetStatus(nil, "")
+        end,
+        "InventoryManager.CategoriesEmpty"
+    )
 
 end
 
@@ -958,15 +936,7 @@ end
 
 function InventoryManager:HideSearchResults(page)
 
-    for _, card in ipairs(page.SearchResultCards or {}) do
-        card:Hide()
-    end
-
-    local headers = page.ScrollChild and page.ScrollChild.SectionHeaders
-
-    if headers and headers["InventoryManager.SectionSearchResults"] then
-        headers["InventoryManager.SectionSearchResults"]:Hide()
-    end
+    AC.InventoryComponents:HideCardSection(page, "SearchResultCards", "InventoryManager.SectionSearchResults", nil)
 
 end
 
@@ -1002,49 +972,35 @@ end
 
 function InventoryManager:LayoutSearchResultCards(page, yOffset, width, items)
 
-    page.SearchResultCards = page.SearchResultCards or {}
+    local self_ref = self
 
-    local cardWidth = width - (Layout.ROW_INDENT * 2)
+    return AC.InventoryComponents:LayoutItemCards(
+        page,
+        "SearchResultCards",
+        nil,
+        yOffset,
+        width,
+        items,
+        SEARCH_RESULT_CARD_HEIGHT,
+        function(card, item)
+            local title = item.itemName
 
-    for index, item in ipairs(items) do
+            if not title or title == "" then
+                title = AC.L:Format("InventoryManager.SearchUnknownItemFormat", item.itemID or 0)
+            end
 
-        local card = page.SearchResultCards[index]
+            local category = AC.L:Get(STORAGE_CATEGORY_LABELS[item.category] or "InventoryManager.CategoryUnknown")
+            local source = AC.L:Get(STORAGE_SOURCE_LABELS[item.storageSource] or "Common.Unknown")
+            local status, statusText = self_ref:GetSearchResultFreshness(item)
 
-        if not card then
-            card = AC.DashboardCard:Create(page.ScrollChild, "", { width = cardWidth, height = SEARCH_RESULT_CARD_HEIGHT })
-            page.SearchResultCards[index] = card
+            card:SetIcon(item.icon)
+            card:SetTitle(title)
+            card:SetPrimaryValue(AC.L:Format("InventoryManager.SearchQuantityFormat", item.quantity or 0))
+            card:SetSecondaryText(AC.L:Format("InventoryManager.SearchResultContextFormat", category, source, item.stackCount or 0))
+            card:SetDetailText(self_ref:GetSearchResultOwnerText(item))
+            card:SetStatus(status, statusText)
         end
-
-        local title = item.itemName
-
-        if not title or title == "" then
-            title = AC.L:Format("InventoryManager.SearchUnknownItemFormat", item.itemID or 0)
-        end
-
-        local category = AC.L:Get(STORAGE_CATEGORY_LABELS[item.category] or "InventoryManager.CategoryUnknown")
-        local source = AC.L:Get(STORAGE_SOURCE_LABELS[item.storageSource] or "Common.Unknown")
-        local status, statusText = self:GetSearchResultFreshness(item)
-
-        card:SetWidth(cardWidth)
-        card:SetIcon(item.icon)
-        card:SetTitle(title)
-        card:SetPrimaryValue(AC.L:Format("InventoryManager.SearchQuantityFormat", item.quantity or 0))
-        card:SetSecondaryText(AC.L:Format("InventoryManager.SearchResultContextFormat", category, source, item.stackCount or 0))
-        card:SetDetailText(self:GetSearchResultOwnerText(item))
-        card:SetStatus(status, statusText)
-        card:ClearAllPoints()
-        card:SetPoint("TOPLEFT", Layout.ROW_INDENT, yOffset)
-        card:Show()
-
-        yOffset = yOffset - card:GetHeight() - Layout.HOME_SECTION_GAP
-
-    end
-
-    for index = #items + 1, #page.SearchResultCards do
-        page.SearchResultCards[index]:Hide()
-    end
-
-    return yOffset
+    )
 
 end
 
@@ -1355,76 +1311,31 @@ function InventoryManager:FormatShoppingHeldItems(entry)
 
 end
 
-function InventoryManager:HideShoppingCardSection(page, poolKey, titleKey, emptyKey)
-
-    for _, card in ipairs(page[poolKey] or {}) do
-        card:Hide()
-    end
-
-    if page[emptyKey] then
-        page[emptyKey]:Hide()
-    end
-
-    local headers = page.ScrollChild and page.ScrollChild.SectionHeaders
-
-    if headers and headers[titleKey] then
-        headers[titleKey]:Hide()
-    end
-
-end
-
 function InventoryManager:LayoutShoppingCards(page, poolKey, emptyKey, yOffset, width, entries, entryType, emptyTextKey)
 
-    page[poolKey] = page[poolKey] or {}
+    local self_ref = self
+    local missing = entryType == "missing"
 
-    if #entries == 0 then
+    return AC.InventoryComponents:LayoutItemCards(
+        page,
+        poolKey,
+        emptyKey,
+        yOffset,
+        width,
+        entries,
+        SHOPPING_CARD_HEIGHT,
+        function(card, entry)
+            local icon = missing and entry.items and #entry.items == 1 and entry.items[1].icon or nil
 
-        for _, card in ipairs(page[poolKey]) do
-            card:Hide()
-        end
-
-        return Dashboard:ShowEmptyLine(page, page.ScrollChild, emptyKey, yOffset, width, emptyTextKey)
-
-    end
-
-    if page[emptyKey] then
-        page[emptyKey]:Hide()
-    end
-
-    local cardWidth = width - (Layout.ROW_INDENT * 2)
-
-    for index, entry in ipairs(entries) do
-
-        local card = page[poolKey][index]
-
-        if not card then
-            card = AC.DashboardCard:Create(page.ScrollChild, "", { width = cardWidth, height = SHOPPING_CARD_HEIGHT })
-            page[poolKey][index] = card
-        end
-
-        local missing = entryType == "missing"
-        local icon = missing and entry.items and #entry.items == 1 and entry.items[1].icon or nil
-
-        card:SetWidth(cardWidth)
-        card:SetIcon(icon)
-        card:SetTitle(AC.L:Get(entry.label or "Common.Unknown"))
-        card:SetPrimaryValue(AC.L:Format(missing and "Storage.ShoppingListNeedFormat" or "Storage.AmountWithdrawFormat", entry.amount or 0))
-        card:SetSecondaryText(AC.L:Get(missing and "InventoryManager.ShoppingMissingContext" or "InventoryManager.ShoppingAvailableContext"))
-        card:SetDetailText(missing and self:FormatShoppingHeldItems(entry) or "")
-        card:SetStatus(missing and "Important" or "Warning", AC.L:Get(missing and "InventoryManager.ShoppingMissingStatus" or "InventoryManager.ShoppingAvailableStatus"))
-        card:ClearAllPoints()
-        card:SetPoint("TOPLEFT", Layout.ROW_INDENT, yOffset)
-        card:Show()
-
-        yOffset = yOffset - card:GetHeight() - Layout.HOME_SECTION_GAP
-
-    end
-
-    for index = #entries + 1, #page[poolKey] do
-        page[poolKey][index]:Hide()
-    end
-
-    return yOffset
+            card:SetIcon(icon)
+            card:SetTitle(AC.L:Get(entry.label or "Common.Unknown"))
+            card:SetPrimaryValue(AC.L:Format(missing and "Storage.ShoppingListNeedFormat" or "Storage.AmountWithdrawFormat", entry.amount or 0))
+            card:SetSecondaryText(AC.L:Get(missing and "InventoryManager.ShoppingMissingContext" or "InventoryManager.ShoppingAvailableContext"))
+            card:SetDetailText(missing and self_ref:FormatShoppingHeldItems(entry) or "")
+            card:SetStatus(missing and "Important" or "Warning", AC.L:Get(missing and "InventoryManager.ShoppingMissingStatus" or "InventoryManager.ShoppingAvailableStatus"))
+        end,
+        emptyTextKey
+    )
 
 end
 
@@ -1458,8 +1369,8 @@ function InventoryManager:BuildShoppingListPage()
                 self:GetShoppingListEmptyState(summary)
             )
 
-            self:HideShoppingCardSection(page, "ShoppingMissingCards", "InventoryManager.SectionShoppingMissing", "ShoppingMissingEmptyText")
-            self:HideShoppingCardSection(page, "ShoppingAvailableCards", "InventoryManager.SectionShoppingAvailable", "ShoppingAvailableEmptyText")
+            AC.InventoryComponents:HideCardSection(page, "ShoppingMissingCards", "InventoryManager.SectionShoppingMissing", "ShoppingMissingEmptyText")
+            AC.InventoryComponents:HideCardSection(page, "ShoppingAvailableCards", "InventoryManager.SectionShoppingAvailable", "ShoppingAvailableEmptyText")
 
             return (-yOffset) + Layout.PAGE_BOTTOM_PADDING
 
@@ -1488,7 +1399,7 @@ function InventoryManager:BuildShoppingListPage()
             yOffset = Dashboard:EndSection(yOffset)
 
         else
-            self:HideShoppingCardSection(page, "ShoppingAvailableCards", "InventoryManager.SectionShoppingAvailable", "ShoppingAvailableEmptyText")
+            AC.InventoryComponents:HideCardSection(page, "ShoppingAvailableCards", "InventoryManager.SectionShoppingAvailable", "ShoppingAvailableEmptyText")
         end
 
         return (-yOffset) + Layout.PAGE_BOTTOM_PADDING
@@ -1516,6 +1427,1562 @@ function InventoryManager:GetShoppingListStatusText()
     end
 
     return AC.L:Format("InventoryManager.ShoppingFooterFormat", statistics.missingQuantity or 0, statistics.availableQuantity or 0)
+
+end
+
+-------------------------------------------------------------------------------
+-- Consumables
+-------------------------------------------------------------------------------
+
+local CONSUMABLE_SUBCLASS_ORDER =
+{
+    "flask",
+    "food",
+    "potion",
+    "itemEnhancement",
+    "healthstone",
+}
+
+local CONSUMABLE_CARD_HEIGHT = 76
+
+function InventoryManager:GetConsumableSubclassLabel(subclass)
+
+    return AC.L:Get("InventoryManager.ConsumableSubclass." .. (subclass or "unknown"))
+
+end
+
+function InventoryManager:GetConsumableInventorySummary()
+
+    local storageModule = AC.Core and AC.Core:GetModule("Storage")
+
+    if not storageModule or not storageModule.GetConsumableInventory then
+        return
+        {
+            enabled = false,
+            categories = {},
+            statistics = { itemCount = 0, totalQuantity = 0, bagQuantity = 0, bankQuantity = 0 },
+        }
+    end
+
+    local inventory = storageModule:GetConsumableInventory()
+    local categories = inventory.categories or {}
+    local statistics =
+    {
+        itemCount = 0,
+        totalQuantity = 0,
+        bagQuantity = 0,
+        bankQuantity = 0,
+        subclassCount = 0,
+    }
+
+    for subclass, bucket in pairs(categories) do
+        statistics.subclassCount = statistics.subclassCount + 1
+        statistics.itemCount = statistics.itemCount + #(bucket.items or {})
+        statistics.totalQuantity = statistics.totalQuantity + (bucket.categoryTotal or 0)
+        statistics.bagQuantity = statistics.bagQuantity + (bucket.categoryBagTotal or 0)
+        statistics.bankQuantity = statistics.bankQuantity + (bucket.categoryBankTotal or 0)
+    end
+
+    return
+    {
+        enabled = storageModule:IsModuleEnabled(),
+        categories = categories,
+        statistics = statistics,
+    }
+
+end
+
+function InventoryManager:GetConsumableMissingItems()
+
+    local storageModule = AC.Core and AC.Core:GetModule("Storage")
+
+    if not storageModule or not storageModule.AnalyzeProfile or not storageModule.GetActiveProfile then
+        return {}
+    end
+
+    local profile = storageModule:GetActiveProfile()
+
+    if not profile then
+        return {}
+    end
+
+    local analysis = storageModule:AnalyzeProfile(profile.id)
+
+    return analysis.missing or {}
+
+end
+
+function InventoryManager:GetConsumableHeroValue(summary)
+
+    if not summary.enabled then
+        return AC.L:Get("InventoryManager.ConsumablesUnavailableValue")
+    end
+
+    local statistics = summary.statistics or {}
+
+    if (statistics.itemCount or 0) == 0 then
+        return "0"
+    end
+
+    return tostring(statistics.totalQuantity or 0)
+
+end
+
+function InventoryManager:GetConsumableSourceLabel(item)
+
+    local hasBag = (item.bagCount or 0) > 0
+    local hasBank = (item.bankCount or 0) > 0
+
+    if hasBag and hasBank then
+        return AC.L:Get("InventoryManager.ConsumableSourceBoth")
+    end
+
+    if hasBag then
+        return AC.L:Get("InventoryManager.ConsumableSourceBags")
+    end
+
+    if hasBank then
+        return AC.L:Get("InventoryManager.ConsumableSourceBank")
+    end
+
+    return AC.L:Get("Common.Unknown")
+
+end
+
+function InventoryManager:LayoutConsumableSubclassCards(page, poolKey, yOffset, width, items, subclass)
+
+    local self_ref = self
+
+    return AC.InventoryComponents:LayoutItemCards(
+        page,
+        poolKey,
+        nil,
+        yOffset,
+        width,
+        items,
+        CONSUMABLE_CARD_HEIGHT,
+        function(card, item)
+            local name = item.name
+
+            if not name or name == "" then
+                name = AC.L:Format("InventoryManager.SearchUnknownItemFormat", item.itemID or 0)
+            end
+
+            card:SetIcon(item.icon)
+            card:SetTitle(name)
+            card:SetPrimaryValue(AC.L:Format("InventoryManager.ConsumableQuantityFormat", item.totalCount or 0))
+            card:SetSecondaryText(AC.L:Format("InventoryManager.ConsumableLocationFormat", item.bagCount or 0, item.bankCount or 0))
+            card:SetDetailText(self_ref:GetConsumableSourceLabel(item))
+            card:SetStatus(nil, "")
+        end
+    )
+
+end
+
+function InventoryManager:LayoutConsumableMissingCards(page, yOffset, width, missingItems)
+
+    return AC.InventoryComponents:LayoutItemCards(
+        page,
+        "ConsumableMissingCards",
+        "ConsumableMissingEmptyText",
+        yOffset,
+        width,
+        missingItems,
+        CONSUMABLE_CARD_HEIGHT,
+        function(card, entry)
+            card:SetIcon(nil)
+            card:SetTitle(AC.L:Get(entry.label or "Common.Unknown"))
+            card:SetPrimaryValue(AC.L:Format("InventoryManager.ConsumableMissingFormat", entry.amount or 0))
+            card:SetSecondaryText(AC.L:Get("InventoryManager.ConsumableMissingContext"))
+            card:SetDetailText("")
+            card:SetStatus("Important", AC.L:Get("InventoryManager.ShoppingMissingStatus"))
+        end,
+        "InventoryManager.ConsumablesMissingEmpty"
+    )
+
+end
+
+function InventoryManager:BuildConsumablesPage()
+
+    local page = self.Pages.Consumables
+    local summary = self:GetConsumableInventorySummary()
+    local missingItems = self:GetConsumableMissingItems()
+    local statistics = summary.statistics or {}
+
+    page.ConsumableSummary = summary
+    page.ConsumableMissing = missingItems
+
+    self:LayoutPage(page, function(width)
+
+        page.ContentWidth = width
+
+        local yOffset = self:BeginPageHero(
+            page,
+            "InventoryManager.ConsumablesHeroTitle",
+            "InventoryManager.ConsumablesHeroCaption",
+            self:GetConsumableHeroValue(summary)
+        )
+
+        if not summary.enabled then
+
+            yOffset = Dashboard:AppendStatisticsSection(
+                page,
+                "ConsumableSummary",
+                "InventoryManager.SectionConsumableSummary",
+                yOffset,
+                {},
+                "InventoryManager.ConsumablesDisabled"
+            )
+
+            AC.InventoryComponents:HideCardSection(page, "ConsumableFlaskCards", "InventoryManager.ConsumableSubclass.flask", nil)
+            AC.InventoryComponents:HideCardSection(page, "ConsumableFoodCards", "InventoryManager.ConsumableSubclass.food", nil)
+            AC.InventoryComponents:HideCardSection(page, "ConsumablePotionCards", "InventoryManager.ConsumableSubclass.potion", nil)
+            AC.InventoryComponents:HideCardSection(page, "ConsumableEnhancementCards", "InventoryManager.ConsumableSubclass.itemEnhancement", nil)
+            AC.InventoryComponents:HideCardSection(page, "ConsumableHealthstoneCards", "InventoryManager.ConsumableSubclass.healthstone", nil)
+            AC.InventoryComponents:HideCardSection(page, "ConsumableMissingCards", "InventoryManager.SectionMissingConsumables", "ConsumableMissingEmptyText")
+
+            return (-yOffset) + Layout.PAGE_BOTTOM_PADDING
+
+        end
+
+        yOffset = Dashboard:LayoutStatisticsGrid(page, "ConsumableHeroStats", page.ScrollChild, yOffset, width,
+        {
+            { label = "InventoryManager.StatConsumableTypes", value = tostring(statistics.itemCount or 0) },
+            { label = "InventoryManager.StatConsumableTotal", value = tostring(statistics.totalQuantity or 0) },
+            { label = "InventoryManager.StatConsumableInBags", value = tostring(statistics.bagQuantity or 0) },
+            { label = "InventoryManager.StatConsumableInBank", value = tostring(statistics.bankQuantity or 0) },
+        })
+
+        local categories = summary.categories or {}
+        local hasAnyConsumables = false
+
+        for _, subclass in ipairs(CONSUMABLE_SUBCLASS_ORDER) do
+
+            local bucket = categories[subclass]
+            local items = bucket and bucket.items or {}
+
+            if #items > 0 then
+
+                hasAnyConsumables = true
+                local poolKey = "Consumable" .. subclass:sub(1, 1):upper() .. subclass:sub(2) .. "Cards"
+
+                if subclass == "itemEnhancement" then
+                    poolKey = "ConsumableEnhancementCards"
+                end
+
+                local sectionTitle = self:GetConsumableSubclassLabel(subclass)
+
+                yOffset = Dashboard:BeginSection(page.ScrollChild, "InventoryManager.ConsumableSubclass." .. subclass, yOffset, sectionTitle)
+                yOffset = self:LayoutConsumableSubclassCards(page, poolKey, yOffset, width, items, subclass)
+                yOffset = Dashboard:EndSection(yOffset)
+
+            else
+
+                local poolKey = "Consumable" .. subclass:sub(1, 1):upper() .. subclass:sub(2) .. "Cards"
+
+                if subclass == "itemEnhancement" then
+                    poolKey = "ConsumableEnhancementCards"
+                end
+
+                AC.InventoryComponents:HideCardSection(page, poolKey, "InventoryManager.ConsumableSubclass." .. subclass, nil)
+
+            end
+
+        end
+
+        if not hasAnyConsumables then
+
+            yOffset = Dashboard:BeginSection(page.ScrollChild, "InventoryManager.SectionReadyConsumables", yOffset)
+            yOffset = Dashboard:ShowEmptyLine(page, page.ScrollChild, "ConsumablesEmptyText", yOffset, width, "InventoryManager.ConsumablesEmpty")
+            yOffset = Dashboard:EndSection(yOffset)
+
+        end
+
+        if #missingItems > 0 then
+
+            yOffset = Dashboard:BeginSection(page.ScrollChild, "InventoryManager.SectionMissingConsumables", yOffset)
+            yOffset = self:LayoutConsumableMissingCards(page, yOffset, width, missingItems)
+            yOffset = Dashboard:EndSection(yOffset)
+
+        else
+
+            AC.InventoryComponents:HideCardSection(page, "ConsumableMissingCards", "InventoryManager.SectionMissingConsumables", "ConsumableMissingEmptyText")
+
+        end
+
+        return (-yOffset) + Layout.PAGE_BOTTOM_PADDING
+
+    end)
+
+end
+
+function InventoryManager:GetConsumablesStatusText()
+
+    local page = self.Pages and self.Pages.Consumables
+    local summary = page and page.ConsumableSummary or self:GetConsumableInventorySummary()
+    local missing = page and page.ConsumableMissing or self:GetConsumableMissingItems()
+    local statistics = summary.statistics or {}
+
+    if not summary.enabled then
+        return AC.L:Get("InventoryManager.ConsumablesDisabled")
+    end
+
+    if (statistics.itemCount or 0) == 0 and #missing == 0 then
+        return AC.L:Get("InventoryManager.ConsumablesEmpty")
+    end
+
+    if #missing > 0 then
+        return AC.L:Format("InventoryManager.ConsumablesFooterMissingFormat", statistics.itemCount or 0, statistics.totalQuantity or 0, #missing)
+    end
+
+    return AC.L:Format("InventoryManager.ConsumablesFooterFormat", statistics.itemCount or 0, statistics.totalQuantity or 0)
+
+end
+
+-------------------------------------------------------------------------------
+-- Loadouts
+-------------------------------------------------------------------------------
+
+function InventoryManager:GetLoadoutService()
+
+    if AC.LoadoutService then
+        return AC.LoadoutService
+    end
+
+    if AC.Core and AC.Core.GetService then
+        return AC.Core:GetService("LoadoutService")
+    end
+
+    return nil
+
+end
+
+function InventoryManager:GetLoadouts()
+
+    local service = self:GetLoadoutService()
+
+    if service and service.GetLoadouts then
+        return service:GetLoadouts()
+    end
+
+    return {}
+
+end
+
+function InventoryManager:GetLoadoutViewState(loadout)
+
+    local service = self:GetLoadoutService()
+
+    if service and service.GetLoadoutViewState then
+        return service:GetLoadoutViewState(loadout)
+    end
+
+    return { loadout = loadout, items = {} }
+
+end
+
+function InventoryManager:GetLoadoutPageState(page)
+
+    if not page.LoadoutState then
+        page.LoadoutState = {}
+    end
+
+    return page.LoadoutState
+
+end
+
+function InventoryManager:SetActiveLoadout(page, loadoutID)
+
+    local state = self:GetLoadoutPageState(page)
+    state.ActiveLoadoutID = loadoutID
+
+end
+
+function InventoryManager:GetActiveLoadout(page)
+
+    local state = self:GetLoadoutPageState(page)
+    local loadouts = self:GetLoadouts()
+    local activeID = state.ActiveLoadoutID
+
+    if activeID then
+        for _, loadout in ipairs(loadouts) do
+            if loadout.id == activeID then
+                return loadout
+            end
+        end
+    end
+
+    if #loadouts > 0 then
+        return loadouts[1]
+    end
+
+    return nil
+
+end
+
+function InventoryManager:IsBankTransferAvailable()
+
+    local service = self:GetLoadoutService()
+
+    if service and service.IsBankTransferAvailable then
+        return service:IsBankTransferAvailable()
+    end
+
+    if IsBankFrameVisible then
+        return IsBankFrameVisible() == true
+    end
+
+    return BankFrame and BankFrame:IsVisible() == true
+
+end
+
+function InventoryManager:WithdrawLoadout(page)
+
+    local loadout = self:GetActiveLoadout(page)
+    local service = self:GetLoadoutService()
+
+    if not loadout or not service or not service.Withdraw then
+        return false
+    end
+
+    local withdrew = service:Withdraw(loadout)
+
+    if withdrew then
+        C_Timer.After(0.2, function()
+            self:RefreshCurrentPage()
+        end)
+    end
+
+    return withdrew
+
+end
+
+function InventoryManager:DepositExtras(page)
+
+    local loadout = self:GetActiveLoadout(page)
+    local service = self:GetLoadoutService()
+
+    if not loadout or not service or not service.Deposit then
+        return false
+    end
+
+    local deposited = service:Deposit(loadout)
+
+    if deposited then
+        C_Timer.After(0.2, function()
+            self:RefreshCurrentPage()
+        end)
+    end
+
+    return deposited
+
+end
+
+function InventoryManager:BuildLoadoutsPage()
+
+    local page = self.Pages.Loadouts
+    local loadouts = self:GetLoadouts()
+    local pageState = self:GetLoadoutPageState(page)
+
+    if not pageState.ActiveLoadoutID and #loadouts > 0 then
+        pageState.ActiveLoadoutID = loadouts[1].id
+    end
+
+    local activeLoadout = self:GetActiveLoadout(page)
+
+    local function createLoadout()
+        local service = page and page.LoadoutService or self:GetLoadoutService()
+        local newLoadout = service and service.CreateLoadout and service:CreateLoadout()
+        if newLoadout and newLoadout.id then
+            self:SetActiveLoadout(page, newLoadout.id)
+            self:BuildLoadoutsPage()
+        end
+    end
+
+    self:LayoutPage(page, function(width)
+
+        page.ContentWidth = width
+
+        if page.LoadoutContent then
+            page.LoadoutContent:Hide()
+            page.LoadoutContent:SetParent(nil)
+        end
+
+        page.LoadoutContent = CreateFrame("Frame", nil, page.ScrollChild)
+        page.LoadoutContent:SetPoint("TOPLEFT", 0, -12)
+        page.LoadoutContent:SetSize(width, 1)
+
+        local layoutOffset = -12
+
+        local contentWidth = width - LOADOUT_LIST_WIDTH - LOADOUT_CONTENT_GAP
+        local leftWidth = LOADOUT_LIST_WIDTH
+
+        local columnsContainer = CreateFrame("Frame", nil, page.LoadoutContent)
+        columnsContainer:SetPoint("TOPLEFT", 0, 0)
+        columnsContainer:SetSize(width, 1)
+
+        local listFrame = CreateFrame("Frame", nil, columnsContainer)
+        listFrame:SetPoint("TOPLEFT", 0, 0)
+        listFrame:SetSize(leftWidth, 1)
+
+        local libraryTitle = listFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        libraryTitle:SetPoint("TOPLEFT", 12, -12)
+        libraryTitle:SetText(AC.L:Get("InventoryManager.LoadoutLibraryTitle"))
+
+        local summaryText = listFrame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+        summaryText:SetPoint("TOPLEFT", 12, -34)
+        summaryText:SetText(#loadouts > 0 and AC.L:Format("InventoryManager.LoadoutsLibrarySummaryFormat", #loadouts) or AC.L:Get("InventoryManager.LoadoutsLibraryHint"))
+
+        local y = 58
+
+        for _, loadout in ipairs(loadouts) do
+            local row = CreateFrame("Button", nil, listFrame, "UIPanelButtonTemplate")
+            row:SetPoint("TOPLEFT", 12, -y)
+            row:SetSize(leftWidth - 24, LOADOUT_ROW_HEIGHT)
+            row:SetText(loadout.name or AC.L:Get("InventoryManager.LoadoutDefaultName"))
+            row:SetScript("OnClick", function()
+                self:SetActiveLoadout(page, loadout.id)
+                self:BuildLoadoutsPage()
+            end)
+            if activeLoadout and loadout.id == activeLoadout.id then
+                row:LockHighlight()
+            else
+                row:UnlockHighlight()
+            end
+            y = y + LOADOUT_ROW_HEIGHT + 6
+        end
+
+        local listHeight = math.max(220, 58 + math.max(#loadouts, 1) * (LOADOUT_ROW_HEIGHT + 6) + 16)
+        listFrame:SetHeight(listHeight)
+
+        local detailsFrame = CreateFrame("Frame", nil, columnsContainer)
+        detailsFrame:SetPoint("TOPLEFT", listFrame, "TOPRIGHT", LOADOUT_CONTENT_GAP, 0)
+        detailsFrame:SetSize(contentWidth, 1)
+
+        local detailsTitle = detailsFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        detailsTitle:SetPoint("TOPLEFT", 12, -12)
+
+        local detailsSubtitle = detailsFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        detailsSubtitle:SetPoint("TOPLEFT", 12, -34)
+        detailsSubtitle:SetWidth(contentWidth - 24)
+
+        local detailsHeight = 280
+
+        if not activeLoadout then
+            detailsTitle:SetText(AC.L:Get("InventoryManager.LoadoutsEmptyTitle"))
+            detailsSubtitle:SetText(AC.L:Get("InventoryManager.LoadoutsEmptyDescription"))
+
+            local emptyCreateButton = CreateFrame("Button", nil, detailsFrame, "UIPanelButtonTemplate")
+            emptyCreateButton:SetPoint("TOPLEFT", 12, -74)
+            emptyCreateButton:SetSize(180, 28)
+            emptyCreateButton:SetText(AC.L:Get("InventoryManager.LoadoutsCreatePrimary"))
+            emptyCreateButton:SetScript("OnClick", createLoadout)
+
+            detailsHeight = 180
+        else
+            detailsTitle:SetText(activeLoadout.name or AC.L:Get("InventoryManager.LoadoutDefaultName"))
+            detailsSubtitle:SetText(AC.L:Get("InventoryManager.LoadoutEditorSubtitle"))
+        end
+
+        detailsFrame:SetHeight(detailsHeight)
+
+        local yOffset = layoutOffset
+
+        if not activeLoadout then
+            return -yOffset + Layout.PAGE_BOTTOM_PADDING
+        end
+
+        local nameLabel = detailsFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        nameLabel:SetPoint("TOPLEFT", 12, -74)
+        nameLabel:SetText(AC.L:Get("InventoryManager.LoadoutNameLabel"))
+
+        local nameBox = CreateFrame("EditBox", nil, detailsFrame, "InputBoxTemplate")
+        nameBox:SetPoint("TOPLEFT", 12, -90)
+        nameBox:SetSize(contentWidth - 24, 24)
+        nameBox:SetText(activeLoadout.name or "")
+        nameBox:SetAutoFocus(false)
+        nameBox:SetScript("OnEnterPressed", function(editBox)
+            activeLoadout.name = editBox:GetText() or ""
+            editBox:ClearFocus()
+            local service = self:GetLoadoutService()
+            if service and service.SaveLoadout then
+                service:SaveLoadout(activeLoadout)
+            end
+            self:BuildLoadoutsPage()
+        end)
+
+        local descriptionLabel = detailsFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        descriptionLabel:SetPoint("TOPLEFT", 12, -124)
+        descriptionLabel:SetText(AC.L:Get("InventoryManager.LoadoutDescriptionLabel"))
+
+        local descriptionBox = CreateFrame("EditBox", nil, detailsFrame, "InputBoxTemplate")
+        descriptionBox:SetPoint("TOPLEFT", 12, -140)
+        descriptionBox:SetSize(contentWidth - 24, 24)
+        descriptionBox:SetText(activeLoadout.description or "")
+        descriptionBox:SetAutoFocus(false)
+        descriptionBox:SetScript("OnEnterPressed", function(editBox)
+            activeLoadout.description = editBox:GetText() or ""
+            editBox:ClearFocus()
+            local service = self:GetLoadoutService()
+            if service and service.SaveLoadout then
+                service:SaveLoadout(activeLoadout)
+            end
+        end)
+
+        local itemsHeader = detailsFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        itemsHeader:SetPoint("TOPLEFT", 12, -174)
+        itemsHeader:SetText(AC.L:Get("InventoryManager.LoadoutItemsHeader"))
+
+        local addItemButton = CreateFrame("Button", nil, detailsFrame, "UIPanelButtonTemplate")
+        addItemButton:SetPoint("TOPRIGHT", -12, -170)
+        addItemButton:SetSize(110, 24)
+        addItemButton:SetText("+ " .. AC.L:Get("InventoryManager.LoadoutAddItemLabel"))
+        addItemButton:SetScript("OnClick", function()
+            page.LoadoutPickerOpen = true
+            page.LoadoutPickerSearchText = ""
+            self:BuildLoadoutsPage()
+        end)
+
+        local listStartY = -208
+        local pickerOpen = page.LoadoutPickerOpen == true
+
+        if pickerOpen then
+            local pickerLabel = detailsFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            pickerLabel:SetPoint("TOPLEFT", 12, listStartY)
+            pickerLabel:SetText(AC.L:Get("InventoryManager.LoadoutAddItemLabel"))
+
+            local pickerSearchBox = CreateFrame("EditBox", nil, detailsFrame, "InputBoxTemplate")
+            pickerSearchBox:SetPoint("TOPLEFT", 12, listStartY - 20)
+            pickerSearchBox:SetSize(contentWidth - 24, 24)
+            pickerSearchBox:SetAutoFocus(false)
+            pickerSearchBox:SetText(page.LoadoutPickerSearchText or "")
+            pickerSearchBox:SetScript("OnTextChanged", function(editBox)
+                page.LoadoutPickerSearchText = editBox:GetText() or ""
+                self:BuildLoadoutsPage()
+            end)
+
+            local pickerItems = {}
+            local explorerData = self:GetExplorerData()
+            local searchText = (page.LoadoutPickerSearchText or ""):lower()
+
+            for _, category in ipairs(explorerData.categories or {}) do
+                for _, subclass in ipairs(category.subclasses or {}) do
+                    for _, item in ipairs(subclass.items or {}) do
+                        local name = (item.itemName or ""):lower()
+                        local categoryName = (category.id or ""):lower()
+                        local subclassName = (subclass.name or ""):lower()
+                        if searchText == "" or name:find(searchText, 1, true) or categoryName:find(searchText, 1, true) or subclassName:find(searchText, 1, true) then
+                            table.insert(pickerItems, { item = item, category = category, subclass = subclass })
+                        end
+                    end
+                end
+            end
+
+            local pickerY = listStartY - 56
+            local pickerEmptyText = detailsFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            pickerEmptyText:SetPoint("TOPLEFT", 12, pickerY)
+            pickerEmptyText:SetText(AC.L:Get("InventoryManager.SearchNoResults"))
+            pickerEmptyText:Hide()
+
+            for _, entry in ipairs(pickerItems) do
+                local item = entry.item
+                local name = item.itemName or AC.L:Format("InventoryManager.SearchUnknownItemFormat", item.itemID or 0)
+                local row = CreateFrame("Button", nil, detailsFrame)
+                row:SetPoint("TOPLEFT", 12, pickerY)
+                row:SetSize(contentWidth - 24, 28)
+                row:SetScript("OnClick", function()
+                    if not activeLoadout.items then
+                        activeLoadout.items = {}
+                    end
+
+                    local quantity = 1
+                    local entryData =
+                    {
+                        id = tostring(item.itemID) .. "-" .. tostring(time()),
+                        itemID = item.itemID,
+                        itemName = name,
+                        itemLink = item.itemLink,
+                        desiredQuantity = quantity,
+                    }
+
+                    table.insert(activeLoadout.items, entryData)
+                    local service = self:GetLoadoutService()
+                    if service and service.SaveLoadout then
+                        service:SaveLoadout(activeLoadout)
+                    end
+                    page.LoadoutPickerOpen = false
+                    page.LoadoutPickerSearchText = ""
+                    self:BuildLoadoutsPage()
+                end)
+                row:SetScript("OnEnter", function(self)
+                    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+                    if item.itemLink then
+                        GameTooltip:SetHyperlink(item.itemLink)
+                    elseif item.itemID then
+                        GameTooltip:SetItemByID(item.itemID)
+                    end
+                    GameTooltip:Show()
+                end)
+                row:SetScript("OnLeave", function()
+                    GameTooltip:Hide()
+                end)
+
+                local icon = row:CreateTexture(nil, "ARTWORK")
+                icon:SetSize(16, 16)
+                icon:SetPoint("LEFT", 0, 0)
+                icon:SetTexture(item.icon or (item.itemID and GetItemIcon(item.itemID)) or "Interface\\Icons\\INV_Misc_QuestionMark")
+
+                local label = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                label:SetPoint("LEFT", 22, 0)
+                label:SetText(name)
+
+                local detail = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+                detail:SetPoint("RIGHT", -4, 0)
+                detail:SetText((entry.category and entry.category.id) or "")
+
+                pickerY = pickerY - 32
+            end
+
+            if #pickerItems == 0 then
+                pickerEmptyText:Show()
+            end
+        else
+            local viewState = self:GetLoadoutViewState(activeLoadout)
+            local rowY = listStartY
+
+            for _, itemState in ipairs(viewState.items or {}) do
+                local item = itemState.item
+                local name = item.itemName or AC.L:Format("InventoryManager.SearchUnknownItemFormat", item.itemID or 0)
+                local desired = tonumber(itemState.desiredQuantity) or 0
+                local bagCount = tonumber(itemState.bagCount) or 0
+                local bankCount = tonumber(itemState.bankCount) or 0
+                local status = itemState.status
+                local statusText = itemState.statusText
+                local row = CreateFrame("Frame", nil, detailsFrame, "BackdropTemplate")
+                row:SetPoint("TOPLEFT", 12, rowY)
+                row:SetSize(contentWidth - 24, 36)
+                AC.Presentation.ApplyCardBackdrop(row)
+
+                local icon = row:CreateTexture(nil, "ARTWORK")
+                icon:SetSize(16, 16)
+                icon:SetPoint("LEFT", 8, 0)
+                icon:SetTexture(item.icon or (item.itemID and GetItemIcon(item.itemID)) or "Interface\\Icons\\INV_Misc_QuestionMark")
+
+                local label = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                label:SetPoint("LEFT", 30, -6)
+                label:SetText(name)
+
+                local quantityText = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                quantityText:SetPoint("LEFT", 30, -20)
+                quantityText:SetText(AC.L:Format("InventoryManager.LoadoutItemSummaryFormat", desired, bagCount, bankCount))
+
+                local qtyBox = CreateFrame("EditBox", nil, row, "InputBoxTemplate")
+                qtyBox:SetPoint("RIGHT", -70, 0)
+                qtyBox:SetSize(56, 20)
+                qtyBox:SetText(tostring(desired))
+                qtyBox:SetAutoFocus(false)
+                qtyBox:SetScript("OnEnterPressed", function(editBox)
+                    local newQuantity = tonumber(editBox:GetText() or "1") or 1
+                    item.desiredQuantity = newQuantity
+                    local service = self:GetLoadoutService()
+                    if service and service.SaveLoadout then
+                        service:SaveLoadout(activeLoadout)
+                    end
+                    editBox:ClearFocus()
+                    self:BuildLoadoutsPage()
+                end)
+
+                local removeButton = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+                removeButton:SetPoint("RIGHT", -8, 0)
+                removeButton:SetSize(64, 20)
+                removeButton:SetText(AC.L:Get("InventoryManager.LoadoutAddItemButton"))
+                removeButton:SetScript("OnClick", function()
+                    for index, existing in ipairs(activeLoadout.items or {}) do
+                        if existing.id == item.id then
+                            table.remove(activeLoadout.items, index)
+                            break
+                        end
+                    end
+                    local service = self:GetLoadoutService()
+                    if service and service.SaveLoadout then
+                        service:SaveLoadout(activeLoadout)
+                    end
+                    self:BuildLoadoutsPage()
+                end)
+
+                local statusTextString = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                statusTextString:SetPoint("RIGHT", -140, -8)
+                statusTextString:SetText(statusText)
+                if status == "ready" then
+                    statusTextString:SetTextColor(0.2, 0.8, 0.2)
+                elseif status == "bank" then
+                    statusTextString:SetTextColor(0.9, 0.7, 0.2)
+                else
+                    statusTextString:SetTextColor(0.9, 0.2, 0.2)
+                end
+
+                rowY = rowY - 40
+            end
+        end
+
+        local actionButtonRow = CreateFrame("Frame", nil, detailsFrame)
+        actionButtonRow:SetPoint("TOPLEFT", 12, listStartY - 120)
+        actionButtonRow:SetSize(contentWidth - 24, 24)
+
+        local withdrawButton = CreateFrame("Button", nil, actionButtonRow, "UIPanelButtonTemplate")
+        withdrawButton:SetPoint("LEFT", 0, 0)
+        withdrawButton:SetSize(120, 24)
+        withdrawButton:SetText(AC.L:Get("InventoryManager.LoadoutWithdrawButton"))
+        withdrawButton:SetScript("OnClick", function()
+            self:WithdrawLoadout(page)
+        end)
+
+        local depositButton = CreateFrame("Button", nil, actionButtonRow, "UIPanelButtonTemplate")
+        depositButton:SetPoint("LEFT", withdrawButton, "RIGHT", 8, 0)
+        depositButton:SetSize(120, 24)
+        depositButton:SetText(AC.L:Get("InventoryManager.LoadoutDepositButton"))
+        depositButton:SetScript("OnClick", function()
+            self:DepositExtras(page)
+        end)
+
+        return (-yOffset) + Layout.PAGE_BOTTOM_PADDING
+
+    end)
+
+end
+
+function InventoryManager:GetLoadoutsStatusText()
+
+    local loadouts = self:GetLoadouts()
+
+    if #loadouts == 0 then
+        return AC.L:Get("InventoryManager.LoadoutsStatusEmpty")
+    end
+
+    return AC.L:Format("InventoryManager.LoadoutsStatusFormat", #loadouts)
+
+end
+
+-------------------------------------------------------------------------------
+-- Explorer
+--
+-- A dedicated visual browser for all recorded storage, functioning like a
+-- modern file explorer with collapsible tree sections. Unlike the Categories
+-- page (which shows summary cards), Explorer reveals individual items with
+-- icons, quality colors, and quantities -- supporting visual browsing without
+-- requiring search.
+--
+-- Architecture:
+--   - Reads aggregate storage through StorageModule:GetAggregateStorage()
+--   - Groups items by category, then by subclass
+--   - Uses lightweight tree rows (not DashboardCards) for visual hierarchy
+--   - Single row pool with rebuild-from-scratch on every refresh
+--   - Never calls Blizzard APIs directly
+--
+-- Design Philosophy (UI Polish Pass):
+--   - Tree nodes are lightweight -- no card borders, no heavy backgrounds
+--   - Categories and subclasses are accordion nodes with expand/collapse
+--   - Items are simple rows with icon, quality-colored name, and quantity
+--   - Proper indentation creates clear visual hierarchy
+--   - Hover highlight provides selection feedback
+-------------------------------------------------------------------------------
+
+local EXPLORER_CATEGORY_ORDER =
+{
+    "Equipment",
+    "Consumables",
+    "Reagents",
+    "TradeGoods",
+    "QuestItems",
+    "Mounts",
+    "BattlePets",
+    "Miscellaneous",
+    "Unknown",
+}
+
+-- Tree row dimensions (lightweight, no card weight)
+local EXPLORER_ROW_HEIGHT = 22
+local EXPLORER_ROW_GAP = 2
+local EXPLORER_ICON_SIZE = 16
+local EXPLORER_ICON_LABEL_GAP = 6
+local EXPLORER_ARROW_WIDTH = 12
+
+-- Indentation levels for hierarchy
+local EXPLORER_INDENT_CATEGORY = 8
+local EXPLORER_INDENT_SUBCLASS = 24
+local EXPLORER_INDENT_ITEM = 40
+
+-- Colors
+local EXPLORER_HOVER_COLOR = { 0.2, 0.3, 0.5, 0.2 }
+local EXPLORER_CATEGORY_COLOR = { 1.0, 0.82, 0.0 }  -- Gold for categories
+local EXPLORER_SUBCLASS_COLOR = { 0.8, 0.8, 0.8 }   -- Light gray for subclasses
+
+-- Row version for pool invalidation (increment when row structure changes)
+local EXPLORER_ROW_VERSION = 2
+
+-- Category icons (Blizzard item icons representing each storage category)
+local EXPLORER_CATEGORY_ICONS =
+{
+    Equipment     = "Interface\\Icons\\INV_Sword_01",
+    Consumables   = "Interface\\Icons\\INV_Potion_01",
+    Reagents      = "Interface\\Icons\\INV_Misc_Herb_01",
+    TradeGoods    = "Interface\\Icons\\INV_Misc_Gear_01",
+    QuestItems    = "Interface\\Icons\\INV_Scroll_01",
+    Mounts        = "Interface\\Icons\\Ability_Mount_MechanoStrider",
+    BattlePets    = "Interface\\Icons\\Spell_Nature_SpiritWolf",
+    Miscellaneous = "Interface\\Icons\\INV_Misc_Bag_01",
+    Unknown       = "Interface\\Icons\\INV_Misc_QuestionMark",
+}
+
+function InventoryManager:GetExplorerData()
+
+    local storageModule = AC.Core and AC.Core:GetModule("Storage")
+
+    if not storageModule or not storageModule.GetAggregateStorage then
+        return
+        {
+            enabled = false,
+            categories = {},
+            statistics = { itemCount = 0, quantity = 0, categoryCount = 0 },
+            snapshotTimestamp = nil,
+            freshness = "unknown",
+        }
+    end
+
+    if not storageModule:IsModuleEnabled() then
+        return
+        {
+            enabled = false,
+            categories = {},
+            statistics = { itemCount = 0, quantity = 0, categoryCount = 0 },
+            snapshotTimestamp = nil,
+            freshness = "unknown",
+        }
+    end
+
+    local aggregate = storageModule:GetAggregateStorage()
+    local scanStatus = storageModule:GetScanStatus()
+
+    -- Group items by category, then by subclass
+    local categoryByID = {}
+    local itemCountByID = {}
+    local quantityByID = {}
+
+    for _, item in ipairs(aggregate.items or {}) do
+
+        local category = item.category or "Unknown"
+        local subclass = item.subclass or item.className or "Other"
+
+        if not categoryByID[category] then
+            categoryByID[category] =
+            {
+                id = category,
+                subclasses = {},
+                subclassByID = {},
+                itemCount = 0,
+                quantity = 0,
+            }
+        end
+
+        local cat = categoryByID[category]
+
+        if not cat.subclassByID[subclass] then
+            cat.subclassByID[subclass] =
+            {
+                name = subclass,
+                items = {},
+                itemCount = 0,
+                quantity = 0,
+            }
+            table.insert(cat.subclasses, cat.subclassByID[subclass])
+        end
+
+        local sub = cat.subclassByID[subclass]
+
+        -- Aggregate by itemID within subclass
+        local existingItem = nil
+        for _, existing in ipairs(sub.items) do
+            if existing.itemID == item.itemID then
+                existingItem = existing
+                break
+            end
+        end
+
+        if existingItem then
+            existingItem.quantity = existingItem.quantity + (item.quantity or 0)
+        else
+            table.insert(sub.items,
+            {
+                itemID = item.itemID,
+                itemName = item.itemName,
+                itemLink = item.itemLink,
+                icon = item.icon,
+                quality = item.quality,
+                quantity = item.quantity or 0,
+            })
+            sub.itemCount = sub.itemCount + 1
+            itemCountByID[item.itemID] = (itemCountByID[item.itemID] or 0) + 1
+        end
+
+        sub.quantity = sub.quantity + (item.quantity or 0)
+        cat.itemCount = cat.itemCount + 1
+        cat.quantity = cat.quantity + (item.quantity or 0)
+        quantityByID[item.itemID] = (quantityByID[item.itemID] or 0) + (item.quantity or 0)
+
+    end
+
+    -- Build ordered category list
+    local categories = {}
+    local categoryCount = 0
+    local totalItemCount = 0
+    local totalQuantity = 0
+
+    for _, categoryID in ipairs(EXPLORER_CATEGORY_ORDER) do
+
+        local cat = categoryByID[categoryID]
+
+        if cat then
+
+            -- Sort subclasses alphabetically
+            table.sort(cat.subclasses, function(a, b)
+                return (a.name or "") < (b.name or "")
+            end)
+
+            -- Sort items within each subclass by name
+            for _, sub in ipairs(cat.subclasses) do
+                table.sort(sub.items, function(a, b)
+                    return (a.itemName or "") < (b.itemName or "")
+                end)
+            end
+
+            table.insert(categories, cat)
+            categoryCount = categoryCount + 1
+            totalItemCount = totalItemCount + cat.itemCount
+            totalQuantity = totalQuantity + cat.quantity
+
+        end
+
+    end
+
+    -- Count distinct items
+    local distinctItemCount = 0
+    for _ in pairs(itemCountByID) do
+        distinctItemCount = distinctItemCount + 1
+    end
+
+    return
+    {
+        enabled = true,
+        categories = categories,
+        statistics =
+        {
+            itemCount = distinctItemCount,
+            quantity = totalQuantity,
+            categoryCount = categoryCount,
+        },
+        snapshotTimestamp = aggregate.snapshotTimestamp,
+        freshness = scanStatus.freshness or "unknown",
+        hasSnapshot = scanStatus.hasSnapshot == true,
+    }
+
+end
+
+function InventoryManager:GetExplorerHeroValue(data)
+
+    if not data.enabled then
+        return AC.L:Get("InventoryManager.ExplorerUnavailableValue")
+    end
+
+    if not data.hasSnapshot then
+        return AC.L:Get("InventoryManager.ExplorerUnavailableValue")
+    end
+
+    return tostring(data.statistics.quantity or 0)
+
+end
+
+function InventoryManager:GetExplorerSnapshotText(data)
+
+    if not data.hasSnapshot then
+        return AC.L:Get("InventoryManager.ExplorerSnapshotNeedsScan")
+    end
+
+    if data.freshness == "current" then
+        return AC.L:Get("InventoryManager.ExplorerSnapshotCurrent")
+    end
+
+    if data.snapshotTimestamp then
+        return AC.L:Format("InventoryManager.ExplorerSnapshotStaleFormat", AC.Presentation.FormatDate(data.snapshotTimestamp, "shortTime"))
+    end
+
+    return AC.L:Get("InventoryManager.ExplorerSnapshotNeedsScan")
+
+end
+
+-------------------------------------------------------------------------------
+-- Explorer Tree Row Pool
+--
+-- Lightweight row-based rendering for the Explorer tree. All rows (categories,
+-- subclasses, and items) are drawn from a single pool and rebuilt from scratch
+-- on every refresh. This ensures:
+--   - No overlapping rows from stale positioning
+--   - Consistent layout after expand/collapse operations
+--   - Minimal visual weight (no card borders or backgrounds)
+-------------------------------------------------------------------------------
+
+function InventoryManager:EnsureExplorerRowPool(page)
+
+    if not page.ExplorerRowPool then
+        page.ExplorerRowPool = {}
+    end
+
+    return page.ExplorerRowPool
+
+end
+
+function InventoryManager:HideAllExplorerRows(page)
+
+    local pool = page.ExplorerRowPool
+
+    if not pool then
+        return
+    end
+
+    for _, row in ipairs(pool) do
+        -- Ensure hover background is hidden when row is hidden
+        -- (OnLeave may not fire if row is hidden while mouse is over it)
+        if row.HoverBg then
+            row.HoverBg:Hide()
+        end
+        row:Hide()
+    end
+
+end
+
+function InventoryManager:AcquireExplorerRow(page, parent, rowType)
+
+    local pool = self:EnsureExplorerRowPool(page)
+
+    -- Find a hidden row of the same type and version to reuse
+    -- (version check ensures old Button-based rows are not reused after
+    -- the migration to Frame-based rows)
+    for _, row in ipairs(pool) do
+        if not row:IsShown() and row.RowType == rowType and row.RowVersion == EXPLORER_ROW_VERSION then
+            row.ItemID = nil
+            row.ItemLink = nil
+            return row
+        end
+    end
+
+    -- Create a new row
+    -- Use Button so the row can own click interaction while remaining visually lightweight
+    -- and without any default button artwork.
+    local row = CreateFrame("Button", nil, parent)
+    row:SetHeight(EXPLORER_ROW_HEIGHT)
+    row.RowType = rowType
+    row.RowVersion = EXPLORER_ROW_VERSION
+    row:EnableMouse(true)
+
+    -- Expand/collapse arrow (for category and subclass rows)
+    -- FontString with explicit width to avoid any bounding box artifacts
+    local arrow = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    arrow:SetWidth(EXPLORER_ARROW_WIDTH)
+    arrow:SetJustifyH("CENTER")
+    row.Arrow = arrow
+
+    -- Item icon (for item rows)
+    local icon = row:CreateTexture(nil, "ARTWORK")
+    icon:SetSize(EXPLORER_ICON_SIZE, EXPLORER_ICON_SIZE)
+    icon:Hide()
+    row.Icon = icon
+
+    -- Label text
+    local label = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    label:SetJustifyH("LEFT")
+    row.Label = label
+
+    -- Quantity text (right-aligned, for item rows)
+    local quantity = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    quantity:SetJustifyH("RIGHT")
+    quantity:SetTextColor(0.7, 0.7, 0.7)
+    row.Quantity = quantity
+
+    -- Hover effects and Blizzard GameTooltip (active only for item rows
+    -- where ItemID is set; category/subclass rows leave ItemID nil)
+    -- No hover background texture - just tooltip for items
+    row:SetScript("OnEnter", function(self)
+        if self.ItemID then
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            if self.ItemLink then
+                GameTooltip:SetHyperlink(self.ItemLink)
+            else
+                GameTooltip:SetItemByID(self.ItemID)
+            end
+            GameTooltip:Show()
+        end
+    end)
+
+    row:SetScript("OnLeave", function(self)
+        if self.ItemID then
+            GameTooltip:Hide()
+        end
+    end)
+
+    table.insert(pool, row)
+
+    return row
+
+end
+
+function InventoryManager:EnsureExplorerAccordionState(page)
+
+    if not page.ExplorerAccordionState then
+        page.ExplorerAccordionState = {}
+    end
+
+    return page.ExplorerAccordionState
+
+end
+
+function InventoryManager:ToggleExplorerCategory(page, categoryID)
+
+    local state = self:EnsureExplorerAccordionState(page)
+    state[categoryID] = not state[categoryID]
+
+    if self.CurrentPage == "Explorer" then
+        self:BuildExplorerPage()
+    end
+
+end
+
+function InventoryManager:ToggleExplorerSubclass(page, categoryID, subclass)
+
+    local state = self:EnsureExplorerAccordionState(page)
+    local key = categoryID .. ":" .. subclass
+    state[key] = not state[key]
+
+    if self.CurrentPage == "Explorer" then
+        self:BuildExplorerPage()
+    end
+
+end
+
+function InventoryManager:IsExplorerCategoryExpanded(page, categoryID)
+
+    local state = self:EnsureExplorerAccordionState(page)
+    return state[categoryID] == true
+
+end
+
+function InventoryManager:IsExplorerSubclassExpanded(page, categoryID, subclass)
+
+    local state = self:EnsureExplorerAccordionState(page)
+    local key = categoryID .. ":" .. subclass
+    return state[key] == true
+
+end
+
+-------------------------------------------------------------------------------
+-- Explorer Tree Row Layout
+--
+-- Each row type (category, subclass, item) has specific layout:
+--   Category: [>/v] CategoryName                    (gold text, bold)
+--   Subclass:     [>/v] SubclassName (count)        (gray text)
+--   Item:             [icon] ItemName        xCount  (quality color)
+-------------------------------------------------------------------------------
+
+function InventoryManager:LayoutExplorerCategoryRow(page, parent, category, yOffset, width)
+
+    local self_ref = self
+    local expanded = self:IsExplorerCategoryExpanded(page, category.id)
+    local row = self:AcquireExplorerRow(page, parent, "category")
+
+    row:ClearAllPoints()
+    row:SetPoint("TOPLEFT", EXPLORER_INDENT_CATEGORY, yOffset)
+    row:SetWidth(width - EXPLORER_INDENT_CATEGORY - Layout.ROW_INDENT)
+    row:SetHeight(EXPLORER_ROW_HEIGHT)
+
+    -- Arrow
+    row.Arrow:ClearAllPoints()
+    row.Arrow:SetPoint("LEFT", 0, 0)
+    row.Arrow:SetText(expanded and "v" or ">")  -- v for expanded, > for collapsed
+    row.Arrow:SetTextColor(unpack(EXPLORER_CATEGORY_COLOR))
+    row.Arrow:Show()
+
+    -- Category icon (16x16, Blizzard texture, between arrow and label)
+    local categoryIcon = EXPLORER_CATEGORY_ICONS[category.id]
+    if categoryIcon then
+        row.Icon:ClearAllPoints()
+        row.Icon:SetPoint("LEFT", EXPLORER_ARROW_WIDTH + 4, 0)
+        row.Icon:SetSize(EXPLORER_ICON_SIZE, EXPLORER_ICON_SIZE)
+        row.Icon:SetTexture(categoryIcon)
+        row.Icon:Show()
+    else
+        row.Icon:Hide()
+    end
+
+    -- Label
+    local categoryLabel = AC.L:Get(STORAGE_CATEGORY_LABELS[category.id] or "InventoryManager.CategoryUnknown")
+    row.Label:ClearAllPoints()
+    row.Label:SetPoint("LEFT", EXPLORER_ARROW_WIDTH + 4 + EXPLORER_ICON_SIZE + 4, 0)
+    row.Label:SetPoint("RIGHT", -60, 0)
+    row.Label:SetText(categoryLabel)
+    row.Label:SetTextColor(unpack(EXPLORER_CATEGORY_COLOR))
+    row.Label:SetFontObject("GameFontNormal")
+
+    -- Quantity shows item count
+    row.Quantity:ClearAllPoints()
+    row.Quantity:SetPoint("RIGHT", -4, 0)
+    row.Quantity:SetWidth(56)
+    row.Quantity:SetText(AC.L:Format("InventoryManager.ExplorerItemCountFormat", category.itemCount or 0))
+    row.Quantity:SetTextColor(0.6, 0.6, 0.6)
+    row.Quantity:Show()
+
+    -- Click handler
+    row:SetScript("OnClick", function()
+        self_ref:ToggleExplorerCategory(page, category.id)
+    end)
+
+    row:Show()
+
+    return yOffset - EXPLORER_ROW_HEIGHT - EXPLORER_ROW_GAP
+
+end
+
+function InventoryManager:LayoutExplorerSubclassRow(page, parent, categoryID, subclass, yOffset, width)
+
+    local self_ref = self
+    local expanded = self:IsExplorerSubclassExpanded(page, categoryID, subclass.name)
+    local row = self:AcquireExplorerRow(page, parent, "subclass")
+
+    row:ClearAllPoints()
+    row:SetPoint("TOPLEFT", EXPLORER_INDENT_SUBCLASS, yOffset)
+    row:SetWidth(width - EXPLORER_INDENT_SUBCLASS - Layout.ROW_INDENT)
+    row:SetHeight(EXPLORER_ROW_HEIGHT)
+
+    -- Arrow
+    row.Arrow:ClearAllPoints()
+    row.Arrow:SetPoint("LEFT", 0, 0)
+    row.Arrow:SetText(expanded and "v" or ">")  -- v for expanded, > for collapsed
+    row.Arrow:SetTextColor(unpack(EXPLORER_SUBCLASS_COLOR))
+    row.Arrow:Show()
+
+    -- Icon hidden for subclasses
+    row.Icon:Hide()
+
+    -- Label
+    row.Label:ClearAllPoints()
+    row.Label:SetPoint("LEFT", EXPLORER_ARROW_WIDTH + 4, 0)
+    row.Label:SetPoint("RIGHT", -60, 0)
+    row.Label:SetText(AC.L:Format("InventoryManager.ExplorerSubclassFormat", subclass.name or "Other", subclass.itemCount or 0))
+    row.Label:SetTextColor(unpack(EXPLORER_SUBCLASS_COLOR))
+    row.Label:SetFontObject("GameFontNormalSmall")
+
+    -- Quantity hidden for subclasses (count is in label)
+    row.Quantity:Hide()
+
+    -- Click handler
+    row:SetScript("OnClick", function()
+        self_ref:ToggleExplorerSubclass(page, categoryID, subclass.name)
+    end)
+
+    row:Show()
+
+    return yOffset - EXPLORER_ROW_HEIGHT - EXPLORER_ROW_GAP
+
+end
+
+function InventoryManager:LayoutExplorerItemRow(page, parent, item, yOffset, width)
+
+    local row = self:AcquireExplorerRow(page, parent, "item")
+
+    row:ClearAllPoints()
+    row:SetPoint("TOPLEFT", EXPLORER_INDENT_ITEM, yOffset)
+    row:SetWidth(width - EXPLORER_INDENT_ITEM - Layout.ROW_INDENT)
+    row:SetHeight(EXPLORER_ROW_HEIGHT)
+
+    -- Arrow hidden for items
+    row.Arrow:Hide()
+
+    -- Icon
+    row.Icon:ClearAllPoints()
+    row.Icon:SetPoint("LEFT", 0, 0)
+    if item.icon then
+        row.Icon:SetTexture(item.icon)
+        row.Icon:Show()
+    else
+        row.Icon:Hide()
+    end
+
+    -- Label with quality color
+    local name = item.itemName
+    if not name or name == "" then
+        name = AC.L:Format("InventoryManager.SearchUnknownItemFormat", item.itemID or 0)
+    end
+
+    row.Label:ClearAllPoints()
+    row.Label:SetPoint("LEFT", EXPLORER_ICON_SIZE + EXPLORER_ICON_LABEL_GAP, 0)
+    row.Label:SetPoint("RIGHT", -60, 0)
+    row.Label:SetText(name)
+    row.Label:SetFontObject("GameFontNormalSmall")
+
+    -- Apply quality color
+    if item.quality and item.quality > 0 then
+        local qualityColor = ITEM_QUALITY_COLORS and ITEM_QUALITY_COLORS[item.quality]
+        if qualityColor then
+            row.Label:SetTextColor(qualityColor.r, qualityColor.g, qualityColor.b)
+        else
+            row.Label:SetTextColor(1, 1, 1)
+        end
+    else
+        row.Label:SetTextColor(1, 1, 1)
+    end
+
+    -- Quantity
+    row.Quantity:ClearAllPoints()
+    row.Quantity:SetPoint("RIGHT", -4, 0)
+    row.Quantity:SetWidth(56)
+    row.Quantity:SetText("x" .. (item.quantity or 0))
+    row.Quantity:SetTextColor(0.7, 0.7, 0.7)
+    row.Quantity:Show()
+
+    -- Store item reference for Blizzard GameTooltip (set in OnEnter/OnLeave)
+    row.ItemID = item.itemID
+    row.ItemLink = item.itemLink
+
+    -- No click handler for items
+    row:SetScript("OnClick", nil)
+
+    row:Show()
+
+    return yOffset - EXPLORER_ROW_HEIGHT - EXPLORER_ROW_GAP
+
+end
+
+function InventoryManager:BuildExplorerPage()
+
+    local page = self.Pages.Explorer
+    local data = self:GetExplorerData()
+
+    page.ExplorerData = data
+
+    self:LayoutPage(page, function(width)
+
+        page.ContentWidth = width
+
+        -- Hide all existing rows first (rebuild from scratch)
+        self:HideAllExplorerRows(page)
+
+        local yOffset = self:BeginPageHero(
+            page,
+            "InventoryManager.ExplorerHeroTitle",
+            "InventoryManager.ExplorerHeroCaption",
+            self:GetExplorerHeroValue(data)
+        )
+
+        if not data.enabled then
+
+            yOffset = Dashboard:AppendStatisticsSection(
+                page,
+                "ExplorerSummary",
+                "InventoryManager.SectionCategories",
+                yOffset,
+                {},
+                "InventoryManager.ExplorerDisabled"
+            )
+
+            return (-yOffset) + Layout.PAGE_BOTTOM_PADDING
+
+        end
+
+        if not data.hasSnapshot then
+
+            yOffset = Dashboard:AppendStatisticsSection(
+                page,
+                "ExplorerSummary",
+                "InventoryManager.SectionCategories",
+                yOffset,
+                {},
+                "InventoryManager.ExplorerNeedsScan"
+            )
+
+            return (-yOffset) + Layout.PAGE_BOTTOM_PADDING
+
+        end
+
+        local statistics = data.statistics or {}
+        local snapshotText = self:GetExplorerSnapshotText(data)
+
+        yOffset = Dashboard:LayoutStatisticsGrid(page, "ExplorerHeroStats", page.ScrollChild, yOffset, width,
+        {
+            { label = "InventoryManager.StatCategories", value = tostring(statistics.categoryCount or 0) },
+            { label = "InventoryManager.StatAggregateItemTypes", value = tostring(statistics.itemCount or 0) },
+            { label = "InventoryManager.StatAggregateStacks", value = tostring(statistics.quantity or 0) },
+            { label = "InventoryManager.StatLastScan", value = snapshotText },
+        })
+
+        if #data.categories == 0 then
+
+            yOffset = Dashboard:BeginSection(page.ScrollChild, "InventoryManager.SectionCategories", yOffset)
+            yOffset = Dashboard:ShowEmptyLine(page, page.ScrollChild, "ExplorerEmptyText", yOffset, width, "InventoryManager.ExplorerEmpty")
+            yOffset = Dashboard:EndSection(yOffset)
+
+            return (-yOffset) + Layout.PAGE_BOTTOM_PADDING
+
+        end
+
+        -- Render tree: categories -> subclasses -> items
+        for _, category in ipairs(data.categories) do
+
+            yOffset = self:LayoutExplorerCategoryRow(page, page.ScrollChild, category, yOffset, width)
+
+            if self:IsExplorerCategoryExpanded(page, category.id) then
+
+                for _, subclass in ipairs(category.subclasses) do
+
+                    yOffset = self:LayoutExplorerSubclassRow(page, page.ScrollChild, category.id, subclass, yOffset, width)
+
+                    if self:IsExplorerSubclassExpanded(page, category.id, subclass.name) then
+
+                        for _, item in ipairs(subclass.items) do
+                            yOffset = self:LayoutExplorerItemRow(page, page.ScrollChild, item, yOffset, width)
+                        end
+
+                    end
+
+                end
+
+            end
+
+        end
+
+        return (-yOffset) + Layout.PAGE_BOTTOM_PADDING
+
+    end)
+
+end
+
+function InventoryManager:GetExplorerStatusText()
+
+    local page = self.Pages and self.Pages.Explorer
+    local data = page and page.ExplorerData or self:GetExplorerData()
+    local statistics = data.statistics or {}
+
+    if not data.enabled then
+        return AC.L:Get("InventoryManager.ExplorerDisabled")
+    end
+
+    if not data.hasSnapshot then
+        return AC.L:Get("InventoryManager.ExplorerNeedsScan")
+    end
+
+    if data.freshness == "current" then
+        return AC.L:Format("InventoryManager.ExplorerFooterFormat", statistics.categoryCount or 0, statistics.itemCount or 0, statistics.quantity or 0)
+    end
+
+    local snapshotText = data.snapshotTimestamp and AC.Presentation.FormatDate(data.snapshotTimestamp, "shortTime") or AC.L:Get("Common.Unknown")
+
+    return AC.L:Format("InventoryManager.ExplorerFooterStaleFormat", statistics.categoryCount or 0, statistics.itemCount or 0, statistics.quantity or 0, snapshotText)
 
 end
 
@@ -1558,10 +3025,16 @@ function InventoryManager:RefreshPage(pageName)
         self:BuildOverviewPage()
     elseif pageName == "Categories" then
         self:BuildCategoriesPage()
+    elseif pageName == "Explorer" then
+        self:BuildExplorerPage()
     elseif pageName == "Search" then
         self:BuildSearchPage()
     elseif pageName == "ShoppingList" then
         self:BuildShoppingListPage()
+    elseif pageName == "Consumables" then
+        self:BuildConsumablesPage()
+    elseif pageName == "Loadouts" then
+        self:BuildLoadoutsPage()
     else
         self:BuildPlaceholderPage(pageName)
     end
@@ -1613,6 +3086,11 @@ function InventoryManager:UpdateFooterStatus()
         return
     end
 
+    if self.CurrentPage == "Explorer" then
+        self:SetStatusText(self:GetExplorerStatusText())
+        return
+    end
+
     if self.CurrentPage == "Search" then
         self:SetStatusText(self:GetSearchStatusText())
         return
@@ -1620,6 +3098,16 @@ function InventoryManager:UpdateFooterStatus()
 
     if self.CurrentPage == "ShoppingList" then
         self:SetStatusText(self:GetShoppingListStatusText())
+        return
+    end
+
+    if self.CurrentPage == "Consumables" then
+        self:SetStatusText(self:GetConsumablesStatusText())
+        return
+    end
+
+    if self.CurrentPage == "Loadouts" then
+        self:SetStatusText(self:GetLoadoutsStatusText())
         return
     end
 

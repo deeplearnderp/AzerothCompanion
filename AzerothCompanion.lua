@@ -17,3 +17,5 @@ AC.Modules = {}
 AC.Managers = {}
 
 _G.AzerothCompanion = AC
+
+AC.LoadoutService = AC.LoadoutService or {}

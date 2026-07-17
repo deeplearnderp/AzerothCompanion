@@ -768,6 +768,13 @@ function Dashboard:BuildHistoryRow(scrollChild)
     local row = CreateFrame("Button", nil, scrollChild)
     row:EnableMouse(true)
 
+    -- Clear default Button textures to ensure visual transparency
+    -- (WoW Buttons can have default visual styling even without a template)
+    row:SetNormalTexture("")
+    row:SetPushedTexture("")
+    row:SetHighlightTexture("")
+    row:SetDisabledTexture("")
+
     -- Hover feedback, same treatment as the Recommendations list's own
     -- clickable rows (BuildRecommendationRow) -- this row is clickable
     -- too (expands/collapses its detail line), so it gets the same
@@ -969,6 +976,13 @@ function Dashboard:BuildAccomplishmentRow(scrollChild)
 
     local row = CreateFrame("Button", nil, scrollChild)
     row:EnableMouse(true)
+
+    -- Clear default Button textures to ensure visual transparency
+    -- (WoW Buttons can have default visual styling even without a template)
+    row:SetNormalTexture("")
+    row:SetPushedTexture("")
+    row:SetHighlightTexture("")
+    row:SetDisabledTexture("")
 
     local background = row:CreateTexture(nil, "BACKGROUND")
     background:SetAllPoints()

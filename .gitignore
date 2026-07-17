@@ -21,3 +21,4 @@ Desktop.ini
 # WoW backup/temp files
 *.bak
 *.tmp
+.aider*

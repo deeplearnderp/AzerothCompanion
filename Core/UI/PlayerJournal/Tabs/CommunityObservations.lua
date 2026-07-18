@@ -39,10 +39,9 @@ function PlayerJournalWindow:BuildAddObservationButton(yOffset)
 
         button:SetScript("OnClick", function()
 
-            local journalModule = AC.Core and AC.Core:GetModule("PlayerJournal")
-            local record = journalModule and self.CurrentPlayerKey and journalModule:GetPlayerRecord(self.CurrentPlayerKey)
+            local identity = self.CurrentIdentity
 
-            AC.ObservationDialog:Show(self.CurrentPlayerKey, record and record.name, record and record.realm)
+            AC.ObservationDialog:Show(self.CurrentPlayerKey, identity and identity.name, identity and identity.realm)
 
         end)
 
@@ -109,7 +108,7 @@ function PlayerJournalWindow:BuildCommunityObservationsTab()
     -- an internal PlayerJournal field name, never shown to the player,
     -- left unrenamed to avoid a second, unrelated PlayerJournal schema
     -- migration in this same pass.
-    if record.hideCommunityNotes then
+    if record and record.hideCommunityNotes then
 
         for _, row in ipairs(self.ObservationRowPool) do
             row:Hide()

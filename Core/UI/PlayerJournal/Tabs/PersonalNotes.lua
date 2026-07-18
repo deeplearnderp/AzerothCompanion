@@ -115,6 +115,7 @@ function PlayerJournalWindow:SaveComposerNote()
     if self.EditingNoteID then
         journalModule:EditNote(self.CurrentPlayerKey, self.EditingNoteID, text)
     else
+        journalModule:RecordRelationship(self.CurrentIdentity, journalModule.RelationshipTypes.PersonalNote)
         journalModule:AddNote(self.CurrentPlayerKey, text)
     end
 
@@ -199,6 +200,11 @@ function PlayerJournalWindow:BuildTagGrid(yOffset)
         local tagID = tag.id
 
         button:SetScript("OnClick", function()
+            local relationshipType = tagID == "FavoritePlayer"
+                and journalModule.RelationshipTypes.Favorite
+                or journalModule.RelationshipTypes.PersonalTag
+
+            journalModule:RecordRelationship(self.CurrentIdentity, relationshipType)
             journalModule:ToggleTag(self.CurrentPlayerKey, tagID)
             self:ShowTab("PersonalNotes")
         end)
@@ -255,6 +261,12 @@ function PlayerJournalWindow:BuildPersonalNotesTab()
     local yOffset = self:BuildComposer(-4)
 
     yOffset = yOffset - 8
+
+    if not record then
+        local lines = { AC.L:Get("PlayerJournal.UntrackedNoteDescription") }
+        yOffset = self:LayoutLines("PersonalNotes", lines, yOffset, self.CONTENT_WIDTH)
+        return (-yOffset) + 16
+    end
 
     yOffset = self:BuildTagGrid(yOffset)
 

@@ -174,6 +174,8 @@ function ObservationDialog:RestoreNavigation(entry)
 
     local context = entry.Context or {}
     self.PlayerKey = context.playerKey
+    self.PlayerName = context.name
+    self.PlayerRealm = context.realm
 
     local displayName = (context.realm and context.realm ~= "") and (context.name .. "-" .. context.realm) or (context.name or "")
 
@@ -210,7 +212,20 @@ function ObservationDialog:Save()
 
     local function DoSave()
 
-        communityModule:AddObservation(self.PlayerKey, text)
+        local observation = communityModule:AddObservation(self.PlayerKey, text)
+
+        if not observation then
+            return
+        end
+
+        local journalModule = AC.Core and AC.Core:GetModule("PlayerJournal")
+
+        if journalModule then
+            journalModule:RecordRelationship(
+                { key = self.PlayerKey, name = self.PlayerName, realm = self.PlayerRealm, classFile = "" },
+                journalModule.RelationshipTypes.CommunityObservation)
+        end
+
         self:Hide()
 
         -- Refresh the Community Observations tab in place if it's already

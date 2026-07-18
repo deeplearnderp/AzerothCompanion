@@ -116,10 +116,8 @@ end
 -- data.playerKey/data.name/data.realm/data.classFile identify who this
 -- note is for -- passed through StaticPopup_Show's own data parameter,
 -- the same mechanism Storage's own Execute confirmation already uses.
--- Ensures a journal record exists first (GetOrCreatePlayerRecord, the
--- same call FinalizeCompletedRunForRoster already makes) so Quick Note
--- works for any right-clicked player, not only ones already tracked via
--- a completed dungeon run.
+-- Saving a note is explicit persistence intent, so the accept handler
+-- qualifies the player through PlayerJournalModule before writing the note.
 -------------------------------------------------------------------------------
 
 StaticPopupDialogs["AZEROTHCOMPANION_PLAYERJOURNAL_QUICKNOTE"] =
@@ -147,7 +145,9 @@ StaticPopupDialogs["AZEROTHCOMPANION_PLAYERJOURNAL_QUICKNOTE"] =
             return
         end
 
-        journalModule:GetOrCreatePlayerRecord({ key = data.playerKey, name = data.name, realm = data.realm, classFile = data.classFile or "" })
+        journalModule:RecordRelationship(
+            { key = data.playerKey, name = data.name, realm = data.realm, classFile = data.classFile or "" },
+            journalModule.RelationshipTypes.PersonalNote)
         journalModule:AddNote(data.playerKey, text)
 
     end,
@@ -214,23 +214,8 @@ local function AddPlayerJournalSubmenu(_, rootDescription, contextData)
 
         local journalWindow = AC.Core and AC.Core:GetModule("PlayerJournalWindow")
 
-        -- Ensures a journal record exists first (same GetOrCreatePlayerRecord
-        -- call Quick Note/Favorite/Add Observation already make) --
-        -- without it, a player with zero prior journal interaction (every
-        -- self-context menu, since nothing ever auto-tracks yourself, and
-        -- any other player never otherwise interacted with) has no record
-        -- yet, and the Journal's own shell-level "no player selected" gate
-        -- (PlayerJournalWindow:ShowTab) reads "no record" as "nobody
-        -- selected" -- opening to the wrong state even though a specific
-        -- player was clearly chosen.
-        local journalModule = AC.Core and AC.Core:GetModule("PlayerJournal")
-
-        if journalModule then
-            journalModule:GetOrCreatePlayerRecord({ key = playerKey, name = name, realm = realm, classFile = "" })
-        end
-
         if journalWindow then
-            journalWindow:Show(playerKey)
+            journalWindow:Show(playerKey, { key = playerKey, name = name, realm = realm, classFile = "" })
         end
 
     end)
@@ -264,32 +249,17 @@ local function AddPlayerJournalSubmenu(_, rootDescription, contextData)
 
             local journalWindow = AC.Core and AC.Core:GetModule("PlayerJournalWindow")
 
-            -- Same reasoning as "Open Player Journal" above -- ensures a
-            -- record exists before Show()/ShowTab() so the shell's "no
-            -- player selected" gate never fires for a player who was
-            -- clearly just chosen.
-            if journalModule then
-                journalModule:GetOrCreatePlayerRecord({ key = playerKey, name = name, realm = realm, classFile = "" })
-            end
-
             if journalWindow then
-                journalWindow:Show(playerKey)
+                journalWindow:Show(playerKey, { key = playerKey, name = name, realm = realm, classFile = "" })
                 journalWindow:NavigateTab("CommunityObservations")
             end
 
         end)
 
         -- "No hunting through windows" -- opens AC.ObservationDialog
-        -- directly, without opening the Journal at all. Ensures a journal
-        -- record exists first (same GetOrCreatePlayerRecord call Quick
-        -- Note/Favorite already make) so the "Hide" checkbox below and the
-        -- tab's own identity header have a record to attach to the moment
-        -- this observation is saved.
+        -- directly, without opening the Journal or persisting a record.
+        -- Saving the observation is the qualifying action, not opening it.
         communitySubmenu:CreateButton(addLabel, function()
-
-            if journalModule then
-                journalModule:GetOrCreatePlayerRecord({ key = playerKey, name = name, realm = realm, classFile = "" })
-            end
 
             AC.ObservationDialog:Show(playerKey, name, realm)
 
@@ -334,18 +304,31 @@ local function AddPlayerJournalSubmenu(_, rootDescription, contextData)
 
     end)
 
+    if journalModule and not journalModule:GetPlayerRecord(playerKey) then
+
+        submenu:CreateButton(AC.L:Get("PlayerJournal.MenuAddToJournal"), function()
+
+            journalModule:RecordRelationship(
+                { key = playerKey, name = name, realm = realm, classFile = "" },
+                journalModule.RelationshipTypes.Explicit)
+
+        end)
+
+    end
+
     -- CreateCheckbox(text, isSelectedFunc, setSelectedFunc) is confirmed
     -- real via Warcraft Wiki's own Blizzard Menu implementation guide
     -- (used there for an in-game reputation-panel checkbox with the same
-    -- 3-argument shape). Ensures a journal record exists first so
-    -- toggling Favorite works for any right-clicked player, not only
-    -- ones already tracked via a completed dungeon run.
+    -- 3-argument shape). Favorite is explicit persistence intent, so its
+    -- handler qualifies an untracked player before toggling the owned tag.
     submenu:CreateCheckbox(AC.L:Get("PlayerJournal.MenuFavoritePlayer"),
         function() return journalModule and journalModule:IsFavorite(playerKey) end,
         function()
 
             if journalModule then
-                journalModule:GetOrCreatePlayerRecord({ key = playerKey, name = name, realm = realm, classFile = "" })
+                journalModule:RecordRelationship(
+                    { key = playerKey, name = name, realm = realm, classFile = "" },
+                    journalModule.RelationshipTypes.Favorite)
                 journalModule:ToggleTag(playerKey, "FavoritePlayer")
             end
 

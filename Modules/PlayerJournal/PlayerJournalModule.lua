@@ -707,11 +707,9 @@ end
 -- Player Records
 -------------------------------------------------------------------------------
 
--- Low-level storage constructor retained temporarily for the Phase 2 removal
--- of legacy UI callers. New code must use RecordRelationship so persistence
--- always has an explicit qualifying reason.
-
-function PlayerJournalModule:GetOrCreatePlayerRecord(identity)
+-- Private storage constructor. RecordRelationship below is the only public
+-- qualification boundary; presentation code cannot create records directly.
+local function GetOrCreatePlayerRecord(self, identity)
 
     local journal = GetJournal()
     local record = journal.Players[identity.key]
@@ -782,7 +780,7 @@ function PlayerJournalModule:RecordRelationship(identity, relationshipType, evid
         return nil
     end
 
-    local record = self:GetOrCreatePlayerRecord(identity)
+    local record = GetOrCreatePlayerRecord(self, identity)
 
     if not record then
         return nil

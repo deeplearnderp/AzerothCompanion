@@ -141,9 +141,11 @@ function PlayerJournalWindow:Initialize()
 
         local journalModule = AC.Core and AC.Core:GetModule("PlayerJournal")
 
-        if journalModule and self.CurrentPlayerKey then
+        if journalModule and self.CurrentPlayerKey and self.CurrentIdentity then
+            journalModule:RecordRelationship(self.CurrentIdentity, journalModule.RelationshipTypes.Favorite)
             journalModule:ToggleTag(self.CurrentPlayerKey, "FavoritePlayer")
             self:RefreshIdentityHeader()
+            self:ShowTab(self.CurrentTab)
         end
 
     end)
@@ -367,8 +369,9 @@ function PlayerJournalWindow:RefreshIdentityHeader()
 
     local journalModule = AC.Core and AC.Core:GetModule("PlayerJournal")
     local record = journalModule and self.CurrentPlayerKey and journalModule:GetPlayerRecord(self.CurrentPlayerKey)
+    local identity = record or self.CurrentIdentity
 
-    if not record then
+    if not identity then
 
         -- StyleWindowTitle (Initialize) colors this gold by default, same
         -- as every other BaseWindow's static title -- but this title
@@ -384,12 +387,52 @@ function PlayerJournalWindow:RefreshIdentityHeader()
 
     end
 
-    self.IdentityText:SetText(record.name .. AC.L:Format("PlayerJournal.RealmSuffixFormat", record.realm))
+    self.IdentityText:SetText(identity.name .. AC.L:Format("PlayerJournal.RealmSuffixFormat", identity.realm))
     AC.DashboardFormat.SetHighlightColor(self.IdentityText)
 
-    local isFavorite = journalModule:IsFavorite(self.CurrentPlayerKey)
+    local isFavorite = record and journalModule:IsFavorite(self.CurrentPlayerKey)
     self.FavoriteButton:SetText(isFavorite and AC.L:Format("PlayerJournal.FavoriteOn", AC.DashboardFormat.STAR_FILLED) or AC.L:Get("PlayerJournal.FavoriteOff"))
     self.FavoriteButton:Show()
+
+end
+
+function PlayerJournalWindow:BuildUntrackedPlayerTab()
+
+    local lines =
+    {
+        { text = AC.L:Get("PlayerJournal.UntrackedTitle"), r = 1, g = 0.82, b = 0 },
+        AC.L:Get("PlayerJournal.UntrackedDescription"),
+    }
+
+    local yOffset = self:LayoutLines("UntrackedPlayer", lines, -4, self.CONTENT_WIDTH)
+
+    if not self.AddToJournalButton then
+
+        local button = CreateFrame("Button", nil, self.ScrollChild, "UIPanelButtonTemplate")
+        button:SetSize(130, 22)
+        button:SetText(AC.L:Get("PlayerJournal.AddToJournal"))
+
+        button:SetScript("OnClick", function()
+
+            local journalModule = AC.Core and AC.Core:GetModule("PlayerJournal")
+
+            if journalModule and self.CurrentIdentity then
+                journalModule:RecordRelationship(self.CurrentIdentity, journalModule.RelationshipTypes.Explicit)
+                self:RefreshIdentityHeader()
+                self:ShowTab(self.CurrentTab)
+            end
+
+        end)
+
+        self.AddToJournalButton = button
+
+    end
+
+    self.AddToJournalButton:ClearAllPoints()
+    self.AddToJournalButton:SetPoint("TOPLEFT", 6, yOffset - 4)
+    self.AddToJournalButton:Show()
+
+    return (-yOffset) + 42
 
 end
 
@@ -480,12 +523,18 @@ function PlayerJournalWindow:ShowTab(tabName)
 
     local journalModule = AC.Core and AC.Core:GetModule("PlayerJournal")
     local hasPlayer = journalModule and self.CurrentPlayerKey and journalModule:GetPlayerRecord(self.CurrentPlayerKey) ~= nil
+    local hasIdentity = self.CurrentIdentity ~= nil
+    local supportsUntracked = tabName == "PersonalNotes" or tabName == "CommunityObservations"
 
     local contentHeight = 1
 
-    if PLAYER_SCOPED_TABS[tabName] and not hasPlayer then
+    if PLAYER_SCOPED_TABS[tabName] and not hasIdentity then
 
         contentHeight = self:BuildNoPlayerSelectedTab()
+
+    elseif PLAYER_SCOPED_TABS[tabName] and not hasPlayer and not supportsUntracked then
+
+        contentHeight = self:BuildUntrackedPlayerTab()
 
     else
 
@@ -522,7 +571,8 @@ function PlayerJournalWindow:NavigateTab(tabName)
 
     self:ShowTab(tabName)
 
-    AC.NavigationService:Replace(AC.NavigationService.Windows.PlayerJournal, tabName, { playerKey = self.CurrentPlayerKey })
+    AC.NavigationService:Replace(AC.NavigationService.Windows.PlayerJournal, tabName,
+        { playerKey = self.CurrentPlayerKey, identity = self.CurrentIdentity })
 
 end
 
@@ -538,13 +588,15 @@ end
 -- half -- the actual render logic (RefreshIdentityHeader/ShowTab) lives
 -- there now, reached identically whether by a fresh Show(), GoBack(), or
 -- ESC.
-function PlayerJournalWindow:Show(playerKey)
+function PlayerJournalWindow:Show(playerKey, identity)
 
     local view = playerKey and AC.NavigationService.Views.PlayerJournal.Overview
         or self.CurrentTab
         or AC.NavigationService.Views.PlayerJournal.Overview
+    local targetIdentity = identity or (not playerKey and self.CurrentIdentity)
 
-    AC.NavigationService:Push(AC.NavigationService.Windows.PlayerJournal, view, { playerKey = playerKey or self.CurrentPlayerKey })
+    AC.NavigationService:Push(AC.NavigationService.Windows.PlayerJournal, view,
+        { playerKey = playerKey or self.CurrentPlayerKey, identity = targetIdentity })
 
 end
 
@@ -552,6 +604,10 @@ end
 function PlayerJournalWindow:RestoreNavigation(entry)
 
     self.CurrentPlayerKey = entry.Context and entry.Context.playerKey
+
+    local journalModule = AC.Core and AC.Core:GetModule("PlayerJournal")
+    local record = journalModule and self.CurrentPlayerKey and journalModule:GetPlayerRecord(self.CurrentPlayerKey)
+    self.CurrentIdentity = record or (entry.Context and entry.Context.identity)
 
     if entry.View == "Search" and entry.Context then
         if self.SearchBox and entry.Context.searchText ~= nil then
@@ -576,6 +632,7 @@ function PlayerJournalWindow:CaptureNavigation(entry)
 
     entry.Context = entry.Context or {}
     entry.Context.playerKey = self.CurrentPlayerKey
+    entry.Context.identity = self.CurrentIdentity
     entry.Context.scrollPosition = self.ScrollFrame and self.ScrollFrame:GetVerticalScroll() or 0
 
     if entry.View == "Search" then

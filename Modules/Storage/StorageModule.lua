@@ -102,7 +102,16 @@ local StorageModule =
 -- Global.DeveloperRuntime.ErrorCapture.SchemaVersion (DatabaseService.lua's
 -- own Defaults) already version their own persisted shapes independently
 -- of the database as a whole.
-local STORAGE_DATA_VERSION = 1
+--
+-- Bumped to 2 in Phase 3 (Storage Persistence): snapshot.items is new in
+-- this version. A version-1 record has no items field at all, and
+-- loading it as-is would silently leave item-level consumers with
+-- nothing rather than a clear "no persisted data" state -- exactly the
+-- unsafe-to-display-as-is case this version field exists to guard
+-- against. Bumping forces a version-1 record to be treated as absent
+-- (Initialize()'s load is version-gated) until the next real scan
+-- writes a version-2 record with items included.
+local STORAGE_DATA_VERSION = 2
 
 local STORAGE_CATEGORY_ORDER =
 {
@@ -1025,16 +1034,20 @@ end
 -------------------------------------------------------------------------------
 -- Storage Knowledge Base
 --
--- Persists a single historical record -- metadata, an aggregate-only
--- snapshot summary, and the RESULT of an analysis that already ran
--- against a live, verified bank scan. Never raw bank contents beyond
--- those aggregates (per-item records are Phase 3, not this pass), never
--- anything BankOpen/BankCacheReady/ActiveStorageSourceIDs-adjacent.
--- AnalyzeProfile (via GetPreparationStatus/GetInsights) is called here
--- exactly as it already is by any other presentation caller; this does
--- not introduce a second analysis path, it caches the output of the
--- existing one. One write, one record -- replaces the earlier
--- experimental LastAnalysis shape entirely, not alongside it.
+-- Persists a single historical record -- metadata, a snapshot summary
+-- (aggregate counts, source summaries, and raw per-item scan records --
+-- Phase 3), and the RESULT of an analysis that already ran against a
+-- live, verified bank scan. Item records are the minimum raw fields
+-- ScanBank itself already captures, never derived presentation data
+-- (names/icons/classification stay itemID-derived via
+-- GetAggregateItemMetadata/ClassifyAggregateItem, unchanged and not
+-- duplicated here) -- and never anything
+-- BankOpen/BankCacheReady/ActiveStorageSourceIDs-adjacent. AnalyzeProfile
+-- (via GetPreparationStatus/GetInsights) is called here exactly as it
+-- already is by any other presentation caller; this does not introduce a
+-- second analysis path, it caches the output of the existing one. One
+-- write, one record -- replaces the earlier experimental LastAnalysis
+-- shape entirely, not alongside it.
 --
 -- Triggered by STORAGE_SCAN_UPDATED rather than a new call inside
 -- ScanBank itself -- ScanBank's own success path already fires this
@@ -1082,6 +1095,46 @@ function StorageModule:OnStorageScanUpdated()
 
     end
 
+    -- Raw scan records only -- every field here already exists on
+    -- ScanBank's own item construction (self.LastSnapshot.items), nothing
+    -- synthesized. Deliberately excludes `name`/`iconFileID` (item names
+    -- and icons -- explicitly out of scope; GetAggregateItemMetadata
+    -- already re-derives both from itemID alone, via GetItemInfo, whether
+    -- the source item is live or persisted) and `isFavorite` (already
+    -- documented elsewhere in this file as non-functional and read by
+    -- nothing in the addon -- no reason to persist a field nobody uses).
+    -- Keyed "<sourceID>:<bagID>:<slot>", not the bare "<bagID>:<slot>"
+    -- self.BankItemsBySlot uses -- character_bank and warband_bank are
+    -- separate sources that are not guaranteed to use disjoint bagID
+    -- ranges, so the source prefix avoids a possible collision that bare
+    -- bagID:slot would not.
+    local function BuildRawItemRecords()
+
+        local items = {}
+
+        for _, item in ipairs(self.LastSnapshot and self.LastSnapshot.items or {}) do
+
+            local key = format("%s:%d:%d", item.sourceID or "", item.bagID or 0, item.slot or 0)
+
+            items[key] =
+            {
+                itemID = item.itemID,
+                count = item.count,
+                bagID = item.bagID,
+                slot = item.slot,
+                quality = item.quality,
+                link = item.link,
+                isBound = item.isBound,
+                sourceID = item.sourceID,
+                ownerType = item.ownerType,
+            }
+
+        end
+
+        return items
+
+    end
+
     local _, build = GetBuildInfo()
 
     character.Storage = character.Storage or {}
@@ -1103,6 +1156,7 @@ function StorageModule:OnStorageScanUpdated()
             distinctItems = self.LastSnapshot and self.LastSnapshot.distinctItems or 0,
             totalItems = self.LastSnapshot and self.LastSnapshot.totalItems or 0,
             sources = self.LastSnapshot and self.LastSnapshot.sources or {},
+            items = BuildRawItemRecords(),
         },
 
         analysis =

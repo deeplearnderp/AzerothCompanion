@@ -137,10 +137,25 @@ function InventoryManager:GetStorageContext()
 
 end
 
+-- Presentation-only three-way split over data StorageModule already
+-- exposes: never scanned (no snapshot at all) vs. scanned before but not
+-- currently live (bank closed/stale -- BankCacheReady semantics,
+-- confirmed intentional) vs. genuinely live and ready. No new backend
+-- state -- context.scanStatus.hasSnapshot and context.readiness.state
+-- already distinguish all three; this function just names them clearly
+-- instead of collapsing the last two into a shared "Unknown".
 function InventoryManager:GetReadiness(context)
 
-    if not context.enabled or not context.readiness or context.readiness.state ~= "known" then
+    if not context.enabled then
         return AC.L:Get("Common.Unknown")
+    end
+
+    if not context.scanStatus.hasSnapshot then
+        return AC.L:Get("InventoryManager.NoSnapshotTitle")
+    end
+
+    if not context.readiness or context.readiness.state ~= "known" then
+        return AC.L:Get("InventoryManager.BankNotConnected")
     end
 
     if context.readiness.ready then
@@ -148,24 +163,6 @@ function InventoryManager:GetReadiness(context)
     end
 
     return AC.L:Format("InventoryManager.ReadinessFormat", context.readiness.readinessPercent or 0)
-
-end
-
-function InventoryManager:GetSourceSummary(context)
-
-    if not context.scanStatus.hasSnapshot then
-        return AC.L:Get("Common.Unknown")
-    end
-
-    local available = 0
-
-    for _, source in ipairs(context.sources) do
-        if source.available then
-            available = available + 1
-        end
-    end
-
-    return AC.L:Format("InventoryManager.SourceCountFormat", available, #context.sources)
 
 end
 
@@ -388,11 +385,13 @@ function InventoryManager:BuildOverviewPage()
 
     local page = self.Pages.Overview
     local context = self:GetStorageContext()
+    local hasSnapshot = context.scanStatus.hasSnapshot
+    local isLive = context.scanStatus.freshness == "current"
     local readinessText = self:GetReadiness(context)
     local lastScanText = context.lastScan and AC.Presentation.FormatDate(context.lastScan.timestamp, "shortTime") or AC.L:Get("InventoryManager.LastScanUnknown")
     local insights = {}
 
-    if context.scanStatus.hasSnapshot and context.storageModule and context.storageModule.GetInsights then
+    if hasSnapshot and context.storageModule and context.storageModule.GetInsights then
         insights = context.storageModule:GetInsights()
     end
 
@@ -400,20 +399,73 @@ function InventoryManager:BuildOverviewPage()
 
         page.ContentWidth = width
 
-        local yOffset = self:BeginPageHero(page, "InventoryManager.Title", "InventoryManager.Description", readinessText)
+        -- Never scanned vs. scanned-but-not-live get their own hero caption
+        -- ("visit a bank once" vs. "here's what your last snapshot showed"),
+        -- same distinction GetReadiness() already makes for the big value.
+        local heroCaptionKey = hasSnapshot and "InventoryManager.OverviewHeroCaption" or "InventoryManager.NoSnapshotDescription"
+        local yOffset = self:BeginPageHero(page, "InventoryManager.OverviewHeroTitle", heroCaptionKey, readinessText)
+
+        -- Live Storage Status -- separates "can I execute prep work right
+        -- now" (BankCacheReady-gated, resets on bank close, unchanged
+        -- backend behavior) from the historical fields below it, which all
+        -- correctly survive a bank close already. Only shown once there is
+        -- something to report on (hasSnapshot); the never-scanned empty
+        -- state below covers the alternative.
+        if hasSnapshot then
+
+            yOffset = Dashboard:BeginSection(page.ScrollChild, "InventoryManager.LiveStatusSectionTitle", yOffset)
+
+            if isLive then
+
+                yOffset = Dashboard:ShowEmptyLine(page, page.ScrollChild, "LiveStatusLine", yOffset, width,
+                    AC.L:Format("InventoryManager.LiveStatusConnectedFormat", AC.DashboardFormat.CHECK_SUCCESS))
+
+                if page.LiveStatusDetail then
+                    page.LiveStatusDetail:Hide()
+                end
+
+            else
+
+                yOffset = Dashboard:ShowEmptyLine(page, page.ScrollChild, "LiveStatusLine", yOffset, width,
+                    AC.L:Format("InventoryManager.LiveStatusDisconnectedFormat", "|cffffcc00" .. AC.Presentation.WARNING_GLYPH .. "|r"))
+                yOffset = Dashboard:ShowEmptyLine(page, page.ScrollChild, "LiveStatusDetail", yOffset, width, "InventoryManager.LiveStatusDisconnectedDescription")
+
+            end
+
+            yOffset = Dashboard:EndSection(yOffset)
+
+        else
+
+            if page.LiveStatusLine then
+                page.LiveStatusLine:Hide()
+            end
+
+            if page.LiveStatusDetail then
+                page.LiveStatusDetail:Hide()
+            end
+
+            local headers = page.ScrollChild.SectionHeaders
+
+            if headers and headers["InventoryManager.LiveStatusSectionTitle"] then
+                headers["InventoryManager.LiveStatusSectionTitle"]:Hide()
+            end
+
+        end
+
         local profileText = context.profile and AC.L:Get(context.profile.label) or AC.L:Get("Storage.NoProfileSelected")
-        local sourceText = self:GetSourceSummary(context)
         local itemsText = context.lastScan and tostring(context.lastScan.distinctItems or 0) or AC.L:Get("Common.Unknown")
 
+        -- "Sources Available" removed -- it was a raw BankOpen-derived live
+        -- count that only meaningfully duplicated Live Storage Status above.
+        -- Per-source detail already lives in the Storage Sources list below.
         yOffset = Dashboard:LayoutStatisticsGrid(page, "OverviewHeroStats", page.ScrollChild, yOffset, width,
         {
             { label = "InventoryManager.StatCurrentProfile", value = profileText },
             { label = "InventoryManager.StatLastScan", value = lastScanText },
-            { label = "InventoryManager.StatSourcesAvailable", value = sourceText },
             { label = "InventoryManager.StatItemsScanned", value = itemsText },
         })
 
-        if context.scanStatus.hasSnapshot then
+        if hasSnapshot then
             self:HideNoScan(page)
         else
             yOffset = self:AppendNoScan(page, yOffset)
@@ -445,16 +497,32 @@ function InventoryManager:BuildOverviewPage()
 
         end
 
-        if context.scanStatus.hasSnapshot then
+        if hasSnapshot then
 
             yOffset = Dashboard:AppendTextSection(page, "StorageSources", "InventoryManager.SectionStorageSources", yOffset, sourceLines, "InventoryManager.NoSources", function(line)
                 return line
             end)
 
-            yOffset = Dashboard:AppendTextSection(page, "StorageRecommendations", "InventoryManager.SectionRecommendations", yOffset, insights, "Weekly.NoRecommendations", function(insight)
+            -- Recommendations survive a bank close already (gated on
+            -- hasSnapshot, not BankCacheReady) -- unchanged. Only addition
+            -- is the caption explaining why advice is still showing with no
+            -- bank open, built from the same BeginSection/ShowEmptyLine/
+            -- LayoutTextLines/EndSection primitives AppendTextSection
+            -- itself already composes, just with one extra line.
+            yOffset = Dashboard:BeginSection(page.ScrollChild, "InventoryManager.SectionRecommendations", yOffset)
+            yOffset = Dashboard:ShowEmptyLine(page, page.ScrollChild, "RecommendationsCaption", yOffset, width, "InventoryManager.RecommendationsCaption")
+
+            page.Pools = page.Pools or {}
+            page.Pools.StorageRecommendations = page.Pools.StorageRecommendations or {}
+
+            yOffset = Dashboard:LayoutTextLines(page.ScrollChild, page.Pools.StorageRecommendations, insights, yOffset, width, "Weekly.NoRecommendations", function(insight)
                 return insight.description or insight.title or AC.L:Get("Common.Unknown")
             end)
 
+            yOffset = Dashboard:EndSection(yOffset)
+
+        elseif page.RecommendationsCaption then
+            page.RecommendationsCaption:Hide()
         end
 
         return (-yOffset) + Layout.PAGE_BOTTOM_PADDING

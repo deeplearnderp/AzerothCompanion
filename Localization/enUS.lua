@@ -560,7 +560,6 @@ AC.Locales.enUS =
     ["InventoryManager.StatStorageReadiness"] = "Storage Readiness",
     ["InventoryManager.StatCurrentProfile"] = "Current Profile",
     ["InventoryManager.StatLastScan"] = "Last Scan",
-    ["InventoryManager.StatSourcesAvailable"] = "Sources Available",
     ["InventoryManager.StatItemsScanned"] = "Bank Item Types",
     ["InventoryManager.LastScanUnknown"] = "Not tracked",
     ["InventoryManager.SourceUnavailable"] = "Unavailable",
@@ -573,6 +572,19 @@ AC.Locales.enUS =
     ["InventoryManager.SourceLineFormat"] = "%s — %s • %d slots • %d item types",
     ["InventoryManager.Ready"] = "Ready",
     ["InventoryManager.ReadinessFormat"] = "%.0f%% Ready",
+    ["InventoryManager.BankNotConnected"] = "Bank Not Connected",
+
+    ["InventoryManager.OverviewHeroTitle"] = "Inventory Preparation",
+    ["InventoryManager.OverviewHeroCaption"] = "Based on your latest storage snapshot.",
+    ["InventoryManager.NoSnapshotTitle"] = "No Storage Snapshot",
+    ["InventoryManager.NoSnapshotDescription"] = "Visit a supported bank once so Azeroth Companion can learn your storage.",
+
+    ["InventoryManager.LiveStatusSectionTitle"] = "Live Storage Status",
+    ["InventoryManager.LiveStatusConnectedFormat"] = "%s Live Bank Connected",
+    ["InventoryManager.LiveStatusDisconnectedFormat"] = "%s Bank Not Connected",
+    ["InventoryManager.LiveStatusDisconnectedDescription"] = "Using your latest storage snapshot. Open your bank to refresh live storage information.",
+
+    ["InventoryManager.RecommendationsCaption"] = "Based on your latest storage snapshot.",
 
     ["InventoryManager.NoScanTitle"] = "No Storage Scan",
     ["InventoryManager.NoScanDescription"] = "Open a supported bank, then scan your inventory to begin.",

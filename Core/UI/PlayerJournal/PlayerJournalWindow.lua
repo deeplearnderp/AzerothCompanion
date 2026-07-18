@@ -613,9 +613,7 @@ function PlayerJournalWindow:RestoreNavigation(entry)
         if self.SearchBox and entry.Context.searchText ~= nil then
             self.SearchBox:SetText(entry.Context.searchText)
         end
-        if self.SearchFavoritesOnlyButton and entry.Context.favoritesOnly ~= nil then
-            self.SearchFavoritesOnlyButton:SetChecked(entry.Context.favoritesOnly)
-        end
+        self.SearchRelationshipFilter = entry.Context.relationshipFilter
     end
 
     self.Frame:Show()
@@ -637,7 +635,7 @@ function PlayerJournalWindow:CaptureNavigation(entry)
 
     if entry.View == "Search" then
         entry.Context.searchText = self.SearchBox and self.SearchBox:GetText() or ""
-        entry.Context.favoritesOnly = self.SearchFavoritesOnlyButton and self.SearchFavoritesOnlyButton:GetChecked() == true or false
+        entry.Context.relationshipFilter = self.SearchRelationshipFilter
     end
 
 end

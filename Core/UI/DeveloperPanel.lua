@@ -1027,6 +1027,7 @@ function DeveloperPanel:BuildOverviewTab()
     if journalStats then
 
         AddLine("Developer.PlayerJournalStoredPlayers", journalStats.storedPlayers)
+        AddLine("Developer.PlayerJournalIncidentalPlayers", journalStats.incidentalPlayers)
         AddLine("Developer.PlayerJournalFavoritePlayers", journalStats.favoritePlayers)
         AddLine("Developer.PlayerJournalTotalNotes", journalStats.totalNotes)
         AddLine("Developer.PlayerJournalCommunityObservations", journalStats.communityObservations)

@@ -1254,11 +1254,12 @@ function PlayerJournalModule:SearchPlayers(query, filters)
 
         end
 
-        if matches and filters.favoritesOnly and not record.tags["FavoritePlayer"] then
+        if matches and filters.tagID and not record.tags[filters.tagID] then
             matches = false
         end
 
-        if matches and filters.tagID and not record.tags[filters.tagID] then
+        if matches and filters.relationshipType
+        and not self:HasRelationship(key, filters.relationshipType) then
             matches = false
         end
 
@@ -1586,6 +1587,7 @@ function PlayerJournalModule:GetDeveloperStats()
     return
     {
         storedPlayers = storedPlayers,
+        incidentalPlayers = #self:GetIncidentalPlayerKeys(),
         favoritePlayers = favoritePlayers,
         totalNotes = totalNotes,
         communityObservations = communityObservationCount,

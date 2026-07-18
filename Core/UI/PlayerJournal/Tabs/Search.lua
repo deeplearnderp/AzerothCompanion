@@ -16,12 +16,139 @@ local AC = _G.AzerothCompanion
 
 local PlayerJournalWindow = AC.PlayerJournalWindow
 
+local RELATIONSHIP_FILTER_ORDER =
+{
+    "Favorite",
+    "PersonalNote",
+    "CommunityObservation",
+    "PersonalTag",
+    "Friend",
+    "Guild",
+    "MythicPlus",
+    "Raid",
+    "Delve",
+    "Dungeon",
+    "RandomQueue",
+    "Party",
+    "Whisper",
+    "Explicit",
+}
+
+local RELATIONSHIP_LABEL_KEYS =
+{
+    Favorite = "PlayerJournal.RelationshipFavorite",
+    PersonalNote = "PlayerJournal.RelationshipPersonalNote",
+    CommunityObservation = "PlayerJournal.RelationshipCommunityObservation",
+    PersonalTag = "PlayerJournal.RelationshipPersonalTag",
+    Friend = "PlayerJournal.RelationshipFriend",
+    Guild = "PlayerJournal.RelationshipGuild",
+    MythicPlus = "PlayerJournal.RelationshipMythicPlus",
+    Raid = "PlayerJournal.RelationshipRaid",
+    Delve = "PlayerJournal.RelationshipDelve",
+    Dungeon = "PlayerJournal.RelationshipDungeon",
+    RandomQueue = "PlayerJournal.RelationshipRandomQueue",
+    Party = "PlayerJournal.RelationshipParty",
+    Whisper = "PlayerJournal.RelationshipWhisper",
+    Explicit = "PlayerJournal.RelationshipExplicit",
+    Legacy = "PlayerJournal.RelationshipLegacy",
+}
+
+local COUNTED_RELATIONSHIPS =
+{
+    MythicPlus = "PlayerJournal.RelationshipRunsFormat",
+    Raid = "PlayerJournal.RelationshipActivitiesFormat",
+    Delve = "PlayerJournal.RelationshipActivitiesFormat",
+    Dungeon = "PlayerJournal.RelationshipActivitiesFormat",
+    RandomQueue = "PlayerJournal.RelationshipActivitiesFormat",
+    Party = "PlayerJournal.RelationshipActivitiesFormat",
+}
+
+local function GetRelationshipLabel(relationshipType)
+
+    local key = RELATIONSHIP_LABEL_KEYS[relationshipType]
+    return key and AC.L:Get(key) or relationshipType
+
+end
+
+local function FormatRelationship(relationship)
+
+    local label = GetRelationshipLabel(relationship.type)
+    local countFormat = COUNTED_RELATIONSHIPS[relationship.type]
+
+    if countFormat then
+        return AC.L:Format(countFormat, label, relationship.count or 0)
+    end
+
+    if relationship.type == "PersonalNote" and (relationship.count or 0) > 1 then
+        return AC.L:Format("PlayerJournal.RelationshipNotesFormat", relationship.count)
+    end
+
+    if relationship.type == "CommunityObservation" and (relationship.count or 0) > 1 then
+        return AC.L:Format("PlayerJournal.RelationshipObservationsFormat", relationship.count)
+    end
+
+    return label
+
+end
+
+function PlayerJournalWindow:GetRelationshipFilterOptions(journalModule)
+
+    local available = journalModule:GetAvailableRelationshipTypes()
+    local options = { { type = nil, label = AC.L:Get("PlayerJournal.FilterAllRelationships") } }
+
+    for _, relationshipType in ipairs(RELATIONSHIP_FILTER_ORDER) do
+        if available[relationshipType] then
+            table.insert(options, { type = relationshipType, label = GetRelationshipLabel(relationshipType) })
+        end
+    end
+
+    return options
+
+end
+
+function PlayerJournalWindow:RefreshRelationshipFilter(journalModule)
+
+    local options = self:GetRelationshipFilterOptions(journalModule)
+    local selectedType = self.SearchRelationshipFilter
+    local selectedLabel = options[1].label
+    local selectedAvailable = selectedType == nil
+
+    for _, option in ipairs(options) do
+        if option.type == selectedType then
+            selectedAvailable = true
+            selectedLabel = option.label
+            break
+        end
+    end
+
+    if not selectedAvailable then
+        self.SearchRelationshipFilter = nil
+        selectedLabel = options[1].label
+    end
+
+    self.SearchRelationshipDropdown:SetDefaultText(selectedLabel)
+    self.SearchRelationshipDropdown:SetupMenu(function(_, rootDescription)
+
+        for _, option in ipairs(options) do
+            local relationshipType = option.type
+            local label = option.label
+
+            rootDescription:CreateButton(label, function()
+                self.SearchRelationshipFilter = relationshipType
+                self:ShowTab("Search")
+            end)
+        end
+
+    end)
+
+end
+
 function PlayerJournalWindow:BuildSearchControls(yOffset)
 
     if not self.SearchBox then
 
         local searchBox = CreateFrame("EditBox", nil, self.ScrollChild, "InputBoxTemplate")
-        searchBox:SetSize(self.CONTENT_WIDTH - 100, 20)
+        searchBox:SetSize(self.CONTENT_WIDTH - 174, 20)
         searchBox:SetAutoFocus(false)
 
         searchBox:SetScript("OnTextChanged", function()
@@ -32,29 +159,11 @@ function PlayerJournalWindow:BuildSearchControls(yOffset)
 
         self.SearchBox = searchBox
 
-        -- Named (not anonymous) -- CreateFrame(..., nil, ...) makes
-        -- GetName() return nil (confirmed: Warcraft Wiki's own
-        -- CreateFrame/GetName reference), and UICheckButtonTemplate's own
-        -- label FontString is only reachable via the standard Blizzard
-        -- "$parentText" XML naming convention, which needs a real parent
-        -- name to resolve. Anonymous, this threw "attempt to concatenate
-        -- a nil value" the moment this line ran (confirmed live) -- not a
-        -- timing issue, a frame that could never have produced a name to
-        -- concatenate in the first place.
-        local favoritesOnlyButton = CreateFrame("CheckButton", "AzerothCompanionPlayerJournalFavoritesOnlyButton", self.ScrollChild, "UICheckButtonTemplate")
-        favoritesOnlyButton:SetSize(20, 20)
+        local relationshipDropdown = CreateFrame("DropdownButton", nil, self.ScrollChild, "WowStyle1DropdownTemplate")
+        relationshipDropdown:SetSize(164, 20)
 
-        favoritesOnlyButton.text = _G[favoritesOnlyButton:GetName() .. "Text"]
-
-        if favoritesOnlyButton.text then
-            favoritesOnlyButton.text:SetText(AC.L:Get("PlayerJournal.FavoritesOnly"))
-        end
-
-        favoritesOnlyButton:SetScript("OnClick", function()
-            self:ShowTab("Search")
-        end)
-
-        self.SearchFavoritesOnlyButton = favoritesOnlyButton
+        self.SearchRelationshipDropdown = relationshipDropdown
+        self.SearchRelationshipFilter = nil
 
     end
 
@@ -62,9 +171,15 @@ function PlayerJournalWindow:BuildSearchControls(yOffset)
     self.SearchBox:SetPoint("TOPLEFT", 6, yOffset)
     self.SearchBox:Show()
 
-    self.SearchFavoritesOnlyButton:ClearAllPoints()
-    self.SearchFavoritesOnlyButton:SetPoint("LEFT", self.SearchBox, "RIGHT", 8, 0)
-    self.SearchFavoritesOnlyButton:Show()
+    self.SearchRelationshipDropdown:ClearAllPoints()
+    self.SearchRelationshipDropdown:SetPoint("LEFT", self.SearchBox, "RIGHT", 8, 0)
+    self.SearchRelationshipDropdown:Show()
+
+    local journalModule = AC.Core and AC.Core:GetModule("PlayerJournal")
+
+    if journalModule then
+        self:RefreshRelationshipFilter(journalModule)
+    end
 
     return yOffset - 28
 
@@ -87,10 +202,14 @@ function PlayerJournalWindow:BuildSearchResultRow()
     local nameText = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     nameText:SetPoint("TOPLEFT", 4, 0)
     nameText:SetJustifyH("LEFT")
+    nameText:SetWidth(self.CONTENT_WIDTH - 8)
+    nameText:SetWordWrap(false)
 
     local metaText = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     metaText:SetPoint("TOPLEFT", nameText, "BOTTOMLEFT", 0, -2)
     metaText:SetJustifyH("LEFT")
+    metaText:SetWidth(self.CONTENT_WIDTH - 8)
+    metaText:SetWordWrap(false)
 
     row.NameText = nameText
     row.MetaText = metaText
@@ -121,9 +240,7 @@ function PlayerJournalWindow:BuildSearchTab()
     end
 
     local query = self.SearchBox:GetText()
-    local favoritesOnly = self.SearchFavoritesOnlyButton:GetChecked() == true
-
-    local resultKeys = journalModule:SearchPlayers(query, { favoritesOnly = favoritesOnly })
+    local resultKeys = journalModule:SearchPlayers(query, { relationshipType = self.SearchRelationshipFilter })
 
     if #resultKeys == 0 then
 
@@ -160,8 +277,18 @@ function PlayerJournalWindow:BuildSearchTab()
             end
 
             row:SetSize(self.CONTENT_WIDTH, 32)
-            row.NameText:SetText(record.name .. AC.L:Format("PlayerJournal.RealmSuffixFormat", record.realm) .. (record.tags["FavoritePlayer"] and " " .. AC.DashboardFormat.STAR_FILLED or ""))
-            row.MetaText:SetText(AC.L:Format("PlayerJournal.SearchResultMetaFormat", record.stats.runsTogether, AC.Presentation.FormatDate(record.lastSeen, "short")))
+            row.NameText:SetText(record.name .. AC.L:Format("PlayerJournal.RealmSuffixFormat", record.realm))
+
+            local summaries = {}
+
+            for relationshipIndex, relationship in ipairs(journalModule:GetRelationships(playerKey)) do
+                if relationshipIndex > 3 then
+                    break
+                end
+                table.insert(summaries, FormatRelationship(relationship))
+            end
+
+            row.MetaText:SetText(table.concat(summaries, "   "))
 
             row:ClearAllPoints()
             row:SetPoint("TOPLEFT", 0, yOffset)

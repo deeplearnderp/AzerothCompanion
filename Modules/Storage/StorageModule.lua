@@ -90,16 +90,19 @@ local StorageModule =
     Name = "Storage",
 }
 
--- Storage Memory -- bumped only when the shape/meaning of a persisted
--- LastAnalysis (character.Storage.LastAnalysis) changes in a way that
--- would make an old cached analysis unsafe to display as-is. Not the
--- SavedVariables schema version (DatabaseService.SchemaVersion) -- this
--- one is scoped to this single cached record, the same way
+-- Storage Knowledge Base -- bumped only when the shape/meaning of a
+-- persisted LastKnownStorage (character.Storage.LastKnownStorage)
+-- changes in a way that would make an old cached record unsafe to
+-- display as-is. Covers the whole persisted structure (metadata,
+-- snapshot, analysis alike), not just the recommendation algorithm --
+-- renamed from the earlier STORAGE_ANALYSIS_VERSION for that reason. Not
+-- the SavedVariables schema version (DatabaseService.SchemaVersion) --
+-- this one is scoped to this single cached record, the same way
 -- Global.PlayerJournal.SchemaVersion and
 -- Global.DeveloperRuntime.ErrorCapture.SchemaVersion (DatabaseService.lua's
 -- own Defaults) already version their own persisted shapes independently
 -- of the database as a whole.
-local STORAGE_ANALYSIS_VERSION = 1
+local STORAGE_DATA_VERSION = 1
 
 local STORAGE_CATEGORY_ORDER =
 {
@@ -174,12 +177,13 @@ function StorageModule:ResetState()
     self.BankSlotsScanned = 0
     self.BankCacheReady = false
 
-    -- Storage Memory -- reloaded fresh from character.Storage.LastAnalysis
-    -- in Initialize() below, right after this reset. Deliberately a
-    -- separate field from every live-scan structure above/below it: never
-    -- read by AnalyzeProfile/CountMatchingInBank/ExecutePreparation, only
-    -- by presentation code as a fallback when nothing above is live.
-    self.PersistedAnalysis = nil
+    -- Storage Knowledge Base -- reloaded fresh from
+    -- character.Storage.LastKnownStorage in Initialize() below, right
+    -- after this reset. Deliberately a separate field from every live-scan
+    -- structure above/below it: never read by
+    -- AnalyzeProfile/CountMatchingInBank/ExecutePreparation, only by
+    -- presentation code as a fallback when nothing above is live.
+    self.LastKnownStorage = nil
 
     self.BankOpen = false
     self.StorageSources = {}
@@ -214,17 +218,18 @@ function StorageModule:Initialize()
 
     self:ResetState()
 
-    -- Storage Memory -- same lazy-field load pattern InventoryModule's own
-    -- Initialize()/LoadSnapshot already uses for character.Inventory. Only
-    -- ever populates self.PersistedAnalysis (see ResetState above), never
-    -- LastSnapshot/BankItemsBySlot/StorageSources/BankOpen/BankCacheReady/
-    -- ActiveStorageSourceIDs -- those stay exactly as ResetState just set
-    -- them, untouched by anything persisted.
+    -- Storage Knowledge Base -- same lazy-field load pattern
+    -- InventoryModule's own Initialize()/LoadSnapshot already uses for
+    -- character.Inventory. Only ever populates self.LastKnownStorage (see
+    -- ResetState above), never LastSnapshot/BankItemsBySlot/StorageSources/
+    -- BankOpen/BankCacheReady/ActiveStorageSourceIDs -- those stay exactly
+    -- as ResetState just set them, untouched by anything persisted.
     local character = AC.DatabaseService and AC.DatabaseService:GetCharacter()
 
-    if character and character.Storage and character.Storage.LastAnalysis
-    and character.Storage.LastAnalysis.analysisVersion == STORAGE_ANALYSIS_VERSION then
-        self.PersistedAnalysis = character.Storage.LastAnalysis
+    if character and character.Storage and character.Storage.LastKnownStorage
+    and character.Storage.LastKnownStorage.metadata
+    and character.Storage.LastKnownStorage.metadata.storageDataVersion == STORAGE_DATA_VERSION then
+        self.LastKnownStorage = character.Storage.LastKnownStorage
     end
 
     AC.ConfigurationManager:Register("Storage", Defaults)
@@ -291,7 +296,7 @@ function StorageModule:Enable()
     AC.Events:Register("SETTINGS_CHANGED", self, "OnSettingsChanged")
     AC.Events:Register("INVENTORY_SNAPSHOT_UPDATED", self, "OnInventorySnapshotUpdated")
 
-    -- Storage Memory -- STORAGE_SCAN_UPDATED already fires at the end of
+    -- Storage Knowledge Base -- STORAGE_SCAN_UPDATED already fires at the end of
     -- ScanBank's existing success path (and from CloseStorageAccess/
     -- FailScan/OnSettingsChanged-disable) -- reusing it here instead of
     -- adding a call inside ScanBank itself. OnStorageScanUpdated's own
@@ -1018,14 +1023,18 @@ function StorageModule:GetLastScan()
 end
 
 -------------------------------------------------------------------------------
--- Storage Memory
+-- Storage Knowledge Base
 --
--- Persists the RESULT of an analysis that already ran against a live,
--- verified bank scan -- never raw bank contents, never anything
--- BankOpen/BankCacheReady/ActiveStorageSourceIDs-adjacent. AnalyzeProfile
--- (via GetPreparationStatus/GetInsights) is called here exactly as it
--- already is by any other presentation caller; this does not introduce a
--- second analysis path, it caches the output of the existing one.
+-- Persists a single historical record -- metadata, an aggregate-only
+-- snapshot summary, and the RESULT of an analysis that already ran
+-- against a live, verified bank scan. Never raw bank contents beyond
+-- those aggregates (per-item records are Phase 3, not this pass), never
+-- anything BankOpen/BankCacheReady/ActiveStorageSourceIDs-adjacent.
+-- AnalyzeProfile (via GetPreparationStatus/GetInsights) is called here
+-- exactly as it already is by any other presentation caller; this does
+-- not introduce a second analysis path, it caches the output of the
+-- existing one. One write, one record -- replaces the earlier
+-- experimental LastAnalysis shape entirely, not alongside it.
 --
 -- Triggered by STORAGE_SCAN_UPDATED rather than a new call inside
 -- ScanBank itself -- ScanBank's own success path already fires this
@@ -1073,13 +1082,19 @@ function StorageModule:OnStorageScanUpdated()
 
     end
 
+    local _, build = GetBuildInfo()
+
     character.Storage = character.Storage or {}
 
-    character.Storage.LastAnalysis =
+    character.Storage.LastKnownStorage =
     {
-        analysisVersion = STORAGE_ANALYSIS_VERSION,
-        timestamp = time(),
-        profileID = profile.id,
+        metadata =
+        {
+            storageDataVersion = STORAGE_DATA_VERSION,
+            timestamp = time(),
+            profileID = profile.id,
+            gameVersion = build,
+        },
 
         snapshot =
         {
@@ -1090,25 +1105,28 @@ function StorageModule:OnStorageScanUpdated()
             sources = self.LastSnapshot and self.LastSnapshot.sources or {},
         },
 
-        preparation =
+        analysis =
         {
-            ready = preparation.ready,
-            readinessPercent = preparation.readinessPercent,
-            actionsNeeded = preparation.actionsNeeded,
-            missing = StripRule(preparation.missing),
-            withdrawals = StripRule(preparation.withdrawals),
-        },
+            preparation =
+            {
+                ready = preparation.ready,
+                readinessPercent = preparation.readinessPercent,
+                actionsNeeded = preparation.actionsNeeded,
+                missing = StripRule(preparation.missing),
+                withdrawals = StripRule(preparation.withdrawals),
+            },
 
-        recommendations = self:GetInsights(),
+            recommendations = self:GetInsights(),
+        },
     }
 
 end
 
 -- Presentation-facing only -- returns the cached record as-is (or nil).
 -- Never consulted by AnalyzeProfile/CountMatchingInBank/ExecutePreparation.
-function StorageModule:GetPersistedAnalysis()
+function StorageModule:GetLastKnownStorage()
 
-    return self.PersistedAnalysis
+    return self.LastKnownStorage
 
 end
 

@@ -123,7 +123,7 @@ function InventoryManager:GetStorageContext()
     local lastScan = enabled and storageModule.GetLastScan and storageModule:GetLastScan() or nil
     local sources = enabled and storageModule.GetStorageSources and storageModule:GetStorageSources() or {}
     local readiness = enabled and profile and storageModule.GetStorageReadiness and storageModule:GetStorageReadiness(profile.id) or nil
-    local persistedAnalysis = enabled and storageModule.GetPersistedAnalysis and storageModule:GetPersistedAnalysis() or nil
+    local lastKnownStorage = enabled and storageModule.GetLastKnownStorage and storageModule:GetLastKnownStorage() or nil
 
     return
     {
@@ -134,7 +134,7 @@ function InventoryManager:GetStorageContext()
         lastScan = lastScan,
         sources = sources,
         readiness = readiness,
-        persistedAnalysis = persistedAnalysis,
+        lastKnownStorage = lastKnownStorage,
     }
 
 end
@@ -144,11 +144,12 @@ end
 -- closed/stale -- BankCacheReady semantics, confirmed intentional) vs.
 -- genuinely live and ready. No new backend state -- context.scanStatus.
 -- hasSnapshot and context.readiness.state already distinguish the live
--- cases; Storage Memory adds one more source for the "not live" case --
--- context.persistedAnalysis, a cached GetPreparationStatus() result from
--- the last successful scan (possibly a prior login), never recomputed
--- here. Same Ready/ReadinessFormat wording either way, since both are a
--- real readiness percentage, just from different moments in time.
+-- cases; the Storage Knowledge Base adds one more source for the "not
+-- live" case -- context.lastKnownStorage.analysis.preparation, a cached
+-- GetPreparationStatus() result from the last successful scan (possibly
+-- a prior login), never recomputed here. Same Ready/ReadinessFormat
+-- wording either way, since both are a real readiness percentage, just
+-- from different moments in time.
 function InventoryManager:GetReadiness(context)
 
     if not context.enabled then
@@ -169,13 +170,15 @@ function InventoryManager:GetReadiness(context)
 
     end
 
-    if context.persistedAnalysis and context.persistedAnalysis.preparation then
+    local preparation = context.lastKnownStorage and context.lastKnownStorage.analysis and context.lastKnownStorage.analysis.preparation
 
-        if context.persistedAnalysis.preparation.ready then
+    if preparation then
+
+        if preparation.ready then
             return AC.L:Get("InventoryManager.Ready")
         end
 
-        return AC.L:Format("InventoryManager.ReadinessFormat", context.persistedAnalysis.preparation.readinessPercent or 0)
+        return AC.L:Format("InventoryManager.ReadinessFormat", preparation.readinessPercent or 0)
 
     end
 
@@ -404,39 +407,39 @@ function InventoryManager:BuildOverviewPage()
     local context = self:GetStorageContext()
     local hasLiveSnapshot = context.scanStatus.hasSnapshot
     local isLive = context.scanStatus.freshness == "current"
-    local persistedAnalysis = context.persistedAnalysis
-    local hasPersistedAnalysis = persistedAnalysis ~= nil
+    local lastKnownStorage = context.lastKnownStorage
+    local hasLastKnownStorage = lastKnownStorage ~= nil
 
-    -- Storage Memory -- "amnesia" only when there is genuinely nothing to
-    -- show, live or carried over from a prior login. hasLiveSnapshot alone
-    -- already covers everything within a single session (including a
-    -- same-session bank close, unchanged from before); persistedAnalysis
-    -- only ever fills the gap on a fresh login where nothing has been
-    -- scanned yet this session.
-    local hasAnyData = hasLiveSnapshot or hasPersistedAnalysis
+    -- Storage Knowledge Base -- "amnesia" only when there is genuinely
+    -- nothing to show, live or carried over from a prior login.
+    -- hasLiveSnapshot alone already covers everything within a single
+    -- session (including a same-session bank close, unchanged from
+    -- before); lastKnownStorage only ever fills the gap on a fresh login
+    -- where nothing has been scanned yet this session.
+    local hasAnyData = hasLiveSnapshot or hasLastKnownStorage
 
     -- Only meaningful once there is no live snapshot to answer instead --
     -- a same-session profile switch after a live scan is already reflected
     -- correctly by context.readiness (recomputed live, not cached).
-    local profileMismatch = hasPersistedAnalysis and (not hasLiveSnapshot)
-        and context.profile and persistedAnalysis.profileID ~= context.profile.id
+    local profileMismatch = hasLastKnownStorage and (not hasLiveSnapshot)
+        and context.profile and lastKnownStorage.metadata.profileID ~= context.profile.id
 
     local readinessText = self:GetReadiness(context)
 
     local lastScanTimestamp = context.lastScan and context.lastScan.timestamp
-        or (persistedAnalysis and persistedAnalysis.timestamp)
+        or (lastKnownStorage and lastKnownStorage.metadata.timestamp)
     local lastScanText = lastScanTimestamp and AC.Presentation.FormatDate(lastScanTimestamp, "shortTime") or AC.L:Get("InventoryManager.LastScanUnknown")
 
     local distinctItems = context.lastScan and context.lastScan.distinctItems
-        or (persistedAnalysis and persistedAnalysis.snapshot and persistedAnalysis.snapshot.distinctItems)
+        or (lastKnownStorage and lastKnownStorage.snapshot and lastKnownStorage.snapshot.distinctItems)
     local itemsText = distinctItems and tostring(distinctItems) or AC.L:Get("Common.Unknown")
 
     local insights = {}
 
     if hasLiveSnapshot and context.storageModule and context.storageModule.GetInsights then
         insights = context.storageModule:GetInsights()
-    elseif (not hasLiveSnapshot) and persistedAnalysis then
-        insights = persistedAnalysis.recommendations or {}
+    elseif (not hasLiveSnapshot) and lastKnownStorage then
+        insights = (lastKnownStorage.analysis and lastKnownStorage.analysis.recommendations) or {}
     end
 
     self:LayoutPage(page, function(width)
@@ -454,10 +457,10 @@ function InventoryManager:BuildOverviewPage()
         -- now" (BankCacheReady-gated, resets on bank close, unchanged
         -- backend behavior) from the historical fields below it, which all
         -- correctly survive a bank close already, whether that history is
-        -- this session's own stale scan or Storage Memory's carried-over
-        -- persistedAnalysis. Only fully hidden when there is truly nothing
-        -- to report (hasAnyData false) -- the never-scanned empty state
-        -- below covers that case instead.
+        -- this session's own stale scan or the Storage Knowledge Base's
+        -- carried-over lastKnownStorage. Only fully hidden when there is
+        -- truly nothing to report (hasAnyData false) -- the never-scanned
+        -- empty state below covers that case instead.
         if hasAnyData then
 
             yOffset = Dashboard:BeginSection(page.ScrollChild, "InventoryManager.LiveStatusSectionTitle", yOffset)
@@ -485,12 +488,12 @@ function InventoryManager:BuildOverviewPage()
 
                     -- Same built-in profile list StorageModule itself reads
                     -- (AC.StorageProfiles.BuiltIn) -- looked up by id here
-                    -- since persistedAnalysis only stored the id, not a
+                    -- since lastKnownStorage only stored the id, not a
                     -- live profile object reference.
-                    local oldProfileLabel = persistedAnalysis.profileID
+                    local oldProfileLabel = lastKnownStorage.metadata.profileID
 
                     for _, candidate in ipairs(AC.StorageProfiles and AC.StorageProfiles.BuiltIn or {}) do
-                        if candidate.id == persistedAnalysis.profileID then
+                        if candidate.id == lastKnownStorage.metadata.profileID then
                             oldProfileLabel = AC.L:Get(candidate.label)
                             break
                         end
@@ -552,13 +555,13 @@ function InventoryManager:BuildOverviewPage()
         end
 
         -- Same per-source line format either way -- persisted source
-        -- entries (Storage Memory) simply lack the live-only
+        -- entries (Storage Knowledge Base) simply lack the live-only
         -- .freshness/.available fields GetStorageSources() adds on top, so
         -- they fall straight to the "Last scanned <time>" branch below,
         -- which is the factually correct thing to show for carried-over
         -- data regardless.
         local sourceList = hasLiveSnapshot and context.sources
-            or (persistedAnalysis and persistedAnalysis.snapshot and persistedAnalysis.snapshot.sources)
+            or (lastKnownStorage and lastKnownStorage.snapshot and lastKnownStorage.snapshot.sources)
             or {}
 
         local sourceLines = {}
@@ -593,7 +596,7 @@ function InventoryManager:BuildOverviewPage()
 
             -- Recommendations survive a bank close already (gated on
             -- hasAnyData, not BankCacheReady) -- unchanged, now also true
-            -- across a fresh login via persistedAnalysis. Only addition is
+            -- across a fresh login via lastKnownStorage. Only addition is
             -- the caption explaining why advice is still showing with no
             -- bank open, built from the same BeginSection/ShowEmptyLine/
             -- LayoutTextLines/EndSection primitives AppendTextSection

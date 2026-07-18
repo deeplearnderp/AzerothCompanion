@@ -585,6 +585,7 @@ AC.Locales.enUS =
     ["InventoryManager.LiveStatusDisconnectedDescription"] = "Using your latest storage snapshot. Open your bank to refresh live storage information.",
 
     ["InventoryManager.RecommendationsCaption"] = "Based on your latest storage snapshot.",
+    ["InventoryManager.ProfileMismatchFormat"] = "Analysis was generated using the %s profile. Current profile: %s. Open your bank to refresh.",
 
     ["InventoryManager.NoScanTitle"] = "No Storage Scan",
     ["InventoryManager.NoScanDescription"] = "Open a supported bank, then scan your inventory to begin.",

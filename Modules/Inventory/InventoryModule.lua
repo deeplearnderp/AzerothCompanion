@@ -111,24 +111,30 @@ function InventoryModule:Initialize()
     AC.ConfigurationManager:Register("Inventory", Defaults)
 
     AC.Settings:RegisterPage("Inventory",
-    {
-        title = "Inventory",
-        module = "Inventory",
-        order = 30,
-    })
+            {
+                title = "Inventory",
+                module = "Inventory",
+                order = 30,
+            })
 
     AC.Settings:RegisterSection("Inventory", "General",
-    {
-        title = "General",
-    })
+            {
+                title = "General",
+            })
 
     AC.Settings:AddCheckbox("Inventory", "General",
-    {
-        key = "enabled",
-        text = "Enable Inventory Module",
-        default = true,
-        tooltip = "Track bag contents and equipped items in memory.",
-    })
+            {
+                key = "enabled",
+                text = "Enable Inventory Module",
+                default = true,
+                tooltip = "Track bag contents and equipped items in memory.",
+            })
+
+    local character = AC.DatabaseService and AC.DatabaseService:GetCharacter()
+
+    if character and character.Inventory then
+        self:LoadSnapshot(character.Inventory)
+    end
 
 end
 
@@ -144,10 +150,10 @@ function InventoryModule:Enable()
     AC.Events:Register("UPDATE_INVENTORY_DURABILITY", self)
     AC.Events:Register("SETTINGS_CHANGED", self, "OnSettingsChanged")
 
-    if self:IsModuleEnabled() then
+    --[[if self:IsModuleEnabled() then
         self:ScanInventory()
         self:ScanEquipment()
-    end
+    end]]
 
 end
 
@@ -217,6 +223,7 @@ function InventoryModule:OnBagUpdate(bagID)
     end
 
     self:ScanBag(bagID)
+    self:SaveSnapshot()
     self:MarkInventorySnapshotUpdated()
 
 end
@@ -378,7 +385,7 @@ function InventoryModule:ScanInventory()
     self:IterateBagIDs(function(bagID)
         self:ScanBag(bagID)
     end)
-
+    
     self:MarkInventorySnapshotUpdated()
 
 end
@@ -420,6 +427,8 @@ function InventoryModule:ScanEquipmentSlot(slotID)
         durabilityMax = durabilityMax,
     }
 
+    self:SaveSnapshot()
+
 end
 
 function InventoryModule:ScanEquipment()
@@ -434,6 +443,84 @@ function InventoryModule:ScanEquipment()
     end
 
 end
+
+
+
+-------------------------------------------------------------------------------
+-- Snapshot Persistence
+-------------------------------------------------------------------------------
+
+function InventoryModule:BuildSnapshot()
+
+    local snapshot =
+    {
+        timestamp = time(),
+        bags = {},
+        equipment = {},
+    }
+
+    for key, item in pairs(self.ItemsBySlot) do
+        snapshot.bags[key] =
+        {
+            itemID = item.itemID,
+            count = item.count,
+            bagID = item.bagID,
+            slot = item.slot,
+            link = item.link,
+            quality = item.quality,
+        }
+    end
+
+    for slotID, item in pairs(self.Equipment) do
+        snapshot.equipment[slotID] = item
+    end
+
+    return snapshot
+
+end
+
+function InventoryModule:SaveSnapshot()
+
+    local character = AC.DatabaseService and AC.DatabaseService:GetCharacter()
+
+    if not character then
+        return
+    end
+
+    character.Inventory = self:BuildSnapshot()
+
+end
+
+function InventoryModule:LoadSnapshot(snapshot)
+
+    if type(snapshot) ~= "table" then
+        return
+    end
+
+    self.ItemsBySlot = {}
+    self.ItemCounts = {}
+    self.Equipment = {}
+
+    for key, item in pairs(snapshot.bags or {}) do
+        self.ItemsBySlot[key] = item
+        if item.itemID then
+            self.ItemCounts[item.itemID] =
+            (self.ItemCounts[item.itemID] or 0) + (item.count or 1)
+        end
+    end
+
+    for slotID, item in pairs(snapshot.equipment or {}) do
+        self.Equipment[slotID] = item
+    end
+
+    --[[self.InventorySnapshotTimestamp = snapshot.timestamp
+    self.InventorySnapshotSequence = (self.InventorySnapshotSequence or 0) + 1]]
+    self.InventorySnapshotTimestamp = snapshot.timestamp
+    self.InventorySnapshotSequence = (self.InventorySnapshotSequence or 0) + 1
+
+    AC.Events:Fire("INVENTORY_SNAPSHOT_UPDATED")
+end
+
 
 -------------------------------------------------------------------------------
 -- Public API
@@ -464,14 +551,14 @@ function InventoryModule:GetInventorySnapshot()
     for _, item in pairs(self.ItemsBySlot) do
 
         table.insert(items,
-        {
-            itemID = item.itemID,
-            count = item.count,
-            bagID = item.bagID,
-            slot = item.slot,
-            link = item.link,
-            quality = item.quality,
-        })
+                {
+                    itemID = item.itemID,
+                    count = item.count,
+                    bagID = item.bagID,
+                    slot = item.slot,
+                    link = item.link,
+                    quality = item.quality,
+                })
 
     end
 
@@ -763,46 +850,46 @@ function InventoryModule:GetInsights()
     -- Bags over 90% full
     if percentage >= 90 then
         table.insert(insights,
-        {
-            title = "Bags Almost Full",
-            description = string.format("Your bags are %.0f%% full (%d / %d slots used).", percentage, usedSlots, totalSlots),
-            priority = 70,
-            category = "Inventory",
-            timestamp = time(),
-            expiresAt = 0,
-            dismissible = false,
-            data = {},
-        })
+                {
+                    title = "Bags Almost Full",
+                    description = string.format("Your bags are %.0f%% full (%d / %d slots used).", percentage, usedSlots, totalSlots),
+                    priority = 70,
+                    category = "Inventory",
+                    timestamp = time(),
+                    expiresAt = 0,
+                    dismissible = false,
+                    data = {},
+                })
     end
 
     -- Bags over 75% full
     if percentage >= 75 and percentage < 90 then
         table.insert(insights,
-        {
-            title = "Bags Filling Up",
-            description = string.format("Your bags are %.0f%% full (%d / %d slots used).", percentage, usedSlots, totalSlots),
-            priority = 40,
-            category = "Inventory",
-            timestamp = time(),
-            expiresAt = 0,
-            dismissible = false,
-            data = {},
-        })
+                {
+                    title = "Bags Filling Up",
+                    description = string.format("Your bags are %.0f%% full (%d / %d slots used).", percentage, usedSlots, totalSlots),
+                    priority = 40,
+                    category = "Inventory",
+                    timestamp = time(),
+                    expiresAt = 0,
+                    dismissible = false,
+                    data = {},
+                })
     end
 
     -- Hearthstone missing
     if not self:HasItem(AC.HEARTHSTONE_ITEM_ID) then
         table.insert(insights,
-        {
-            title = "Hearthstone Missing",
-            description = "You do not have a Hearthstone in your bags.",
-            priority = 50,
-            category = "Inventory",
-            timestamp = time(),
-            expiresAt = 0,
-            dismissible = false,
-            data = {},
-        })
+                {
+                    title = "Hearthstone Missing",
+                    description = "You do not have a Hearthstone in your bags.",
+                    priority = 50,
+                    category = "Inventory",
+                    timestamp = time(),
+                    expiresAt = 0,
+                    dismissible = false,
+                    data = {},
+                })
     end
 
     -- Equipment needs repair -- now detectable anywhere (Equipment Health
@@ -818,22 +905,22 @@ function InventoryModule:GetInsights()
 
     if equipmentHealth.needsRepair then
         table.insert(insights,
-        {
-            title = "Repairs Needed",
-            description = "Your equipment needs repair.",
-            priority = equipmentHealth.brokenItems > 0 and 80 or 60,
-            category = "Inventory",
-            timestamp = time(),
-            expiresAt = 0,
-            dismissible = false,
-            data =
-            {
-                brokenItems = equipmentHealth.brokenItems,
-                damagedItems = equipmentHealth.damagedItems,
-                worstDurability = equipmentHealth.worstDurability,
-                repairCost = equipmentHealth.repairCost,
-            },
-        })
+                {
+                    title = "Repairs Needed",
+                    description = "Your equipment needs repair.",
+                    priority = equipmentHealth.brokenItems > 0 and 80 or 60,
+                    category = "Inventory",
+                    timestamp = time(),
+                    expiresAt = 0,
+                    dismissible = false,
+                    data =
+                    {
+                        brokenItems = equipmentHealth.brokenItems,
+                        damagedItems = equipmentHealth.damagedItems,
+                        worstDurability = equipmentHealth.worstDurability,
+                        repairCost = equipmentHealth.repairCost,
+                    },
+                })
     end
 
     return insights

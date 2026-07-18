@@ -2529,10 +2529,44 @@ end
 -- GetPreparationStatus contract remains unchanged for recommendation and
 -- diagnostics consumers that already control their own evidence gating.
 function StorageModule:GetStorageReadiness(profileID)
-
+    print("GetStorageReadiness() CALLED")
     local scanStatus = self:GetScanStatus()
 
+    print(
+            "Storage Scan:",
+            scanStatus.hasSnapshot,
+            scanStatus.state,
+            scanStatus.freshness
+    )
+
+    local inventoryModule = AC.Core and AC.Core:GetModule("Inventory")
+    local inventorySnapshot = inventoryModule
+            and inventoryModule.GetInventorySnapshot
+            and inventoryModule:GetInventorySnapshot()
+    print("Inventory Snapshot:", inventorySnapshot)
+    print("Available:", inventorySnapshot and inventorySnapshot.available)
+    print("Freshness:", inventorySnapshot and inventorySnapshot.freshness)
+    print("Timestamp:", inventorySnapshot and inventorySnapshot.timestamp)
+
+    --[[if not scanStatus.hasSnapshot then
+        return
+        {
+            state = "unknown",
+            freshness = scanStatus.freshness,
+            reason = scanStatus.failureReason or scanStatus.refreshReason,
+        }
+    end]]
     if not scanStatus.hasSnapshot then
+
+        if inventorySnapshot and inventorySnapshot.available then
+            return
+            {
+                state = "partial",
+                freshness = inventorySnapshot.freshness,
+                reason = "bank_not_scanned",
+            }
+        end
+
         return
         {
             state = "unknown",

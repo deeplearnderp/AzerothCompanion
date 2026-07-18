@@ -2,13 +2,21 @@
 -- Azeroth Companion
 -- Dashboard Navigation
 --
--- In-window page switching, the Show/Hide/Toggle window lifecycle, and
--- the final Dashboard service registration. Loaded last among the
--- Dashboard files: ShowPage dispatches to every page's Update*Page method
--- by name, which only ever runs at user-triggered navigation time (well
--- after every Dashboard file has loaded), so this file has no load-order
--- dependency on the Pages/*.lua files beyond all of them existing by the
--- time the player actually opens the window.
+-- In-window page switching, the Toggle entry point, and the final
+-- Dashboard service registration. Loaded last among the Dashboard files:
+-- ShowPage dispatches to every page's Update*Page method by name, which
+-- only ever runs at user-triggered navigation time (well after every
+-- Dashboard file has loaded), so this file has no load-order dependency
+-- on the Pages/*.lua files beyond all of them existing by the time the
+-- player actually opens the window.
+--
+-- Navigation System -- Dashboard's own NavigationHistory/GoBack/CanGoBack
+-- and its hand-rolled ESC handler (formerly Home.lua) are retired.
+-- AC.NavigationService (Core/UI/Shared/NavigationService.lua) now owns
+-- history and ESC/Back for the whole addon, not just Dashboard; this file
+-- keeps only what's genuinely Dashboard-specific -- ShowPage's rendering,
+-- and RestoreNavigation, the one method NavigationService dispatches to
+-- when Dashboard is the entry on top of the stack.
 -------------------------------------------------------------------------------
 
 local AC = _G.AzerothCompanion
@@ -88,6 +96,13 @@ function Dashboard:ShowPage(pageName)
 
 end
 
+-- Navigation System -- the one call every card/nav button uses to drill
+-- into a page. Pushes through AC.NavigationService (Core/UI/Shared/
+-- NavigationService.lua) rather than maintaining its own history array --
+-- Dashboard used to be the only window with real back-navigation; now it's
+-- one of several controllers the shared service dispatches to. RestoreNavigation
+-- (below) is the only other half of this -- ShowPage itself stays pure
+-- rendering, untouched.
 function Dashboard:Navigate(pageName)
 
     if not self:IsValidPage(pageName) then
@@ -98,33 +113,25 @@ function Dashboard:Navigate(pageName)
         return
     end
 
-    table.insert(self.NavigationHistory, self.CurrentPage)
-    self.CurrentPage = pageName
-
-    self:ShowPage(pageName)
+    AC.NavigationService:Push(AC.NavigationService.Windows.Dashboard, pageName)
 
 end
 
--- Navigation UX Sprint -- the one place "is there anywhere to go back to"
--- is decided, so GoBack() and the keyboard handler below (and anything
--- else that ever needs to ask) read one real answer instead of each
--- re-checking #NavigationHistory itself.
-function Dashboard:CanGoBack()
+-- Dispatched here by AC.NavigationService:Restore() -- the one place
+-- Dashboard turns a NavigationEntry back into pixels, whether reached via
+-- GoBack(), a fresh Push, or ESC. entry.Context only carries a payload for
+-- RecommendationDetails (see ShowRecommendationDetails below); every other
+-- Dashboard page needs nothing beyond its own name.
+function Dashboard:RestoreNavigation(entry)
 
-    return #self.NavigationHistory > 0
+    self.Frame:Show()
+    self.CurrentPage = entry.View
 
-end
+    self:ShowPage(entry.View)
 
-function Dashboard:GoBack()
-
-    if not self:CanGoBack() then
-        return
+    if entry.View == AC.NavigationService.Views.Dashboard.RecommendationDetails and entry.Context then
+        self.CurrentRecommendationDetails = entry.Context.recommendation
     end
-
-    local previousPage = table.remove(self.NavigationHistory)
-    self.CurrentPage = previousPage
-
-    self:ShowPage(previousPage)
 
 end
 
@@ -135,14 +142,13 @@ end
 -- have no stable persisted identity (rebuilt from scratch every
 -- RecommendationEngine:Refresh()), so there is nothing to look up by page
 -- name alone the way every other page reads its own module's state --
--- this stashes the actual clicked snapshot on the Dashboard itself, then
--- navigates completely normally through the same Navigate() every other
--- page uses. This is the one deliberate exception to "Navigate(pageName)
--- takes no payload," not a second navigation system -- NavigationHistory,
--- ShowPage, and GoBack all still work exactly as they do for every other
--- page; CurrentRecommendationDetails is just an extra piece of state this
--- one page happens to need, read only by
--- Dashboard:UpdateRecommendationDetailsPage (Pages/RecommendationDetails.lua).
+-- this stashes the actual clicked snapshot as NavigationEntry Context,
+-- pushed directly rather than through Navigate() (see that function's own
+-- header comment for why). Not a second navigation system -- AC.
+-- NavigationService's stack, RestoreNavigation, and ShowPage all still
+-- work exactly as they do for every other page; CurrentRecommendationDetails
+-- is just an extra piece of state this one page happens to need, read
+-- only by Dashboard:UpdateRecommendationDetailsPage (Pages/RecommendationDetails.lua).
 -------------------------------------------------------------------------------
 
 function Dashboard:ShowRecommendationDetails(recommendation)
@@ -150,8 +156,6 @@ function Dashboard:ShowRecommendationDetails(recommendation)
     if not recommendation then
         return
     end
-
-    self.CurrentRecommendationDetails = recommendation
 
     -- Companion Intelligence vNext -- opening Recommendation Details is
     -- the one real, observable signal this addon has that the player
@@ -161,47 +165,35 @@ function Dashboard:ShowRecommendationDetails(recommendation)
         AC.RecommendationHistoryService:MarkAcknowledged(recommendation.id)
     end
 
-    self:Navigate("RecommendationDetails")
-
-end
-
--------------------------------------------------------------------------------
--- Show
--------------------------------------------------------------------------------
-
-function Dashboard:Show()
-
-    if not self.Frame then
-        self.Frame = self:Create()
-    end
-
-    self:ShowPage(self.CurrentPage)
-    self.Frame:Show()
-
-end
-
--------------------------------------------------------------------------------
--- Hide
--------------------------------------------------------------------------------
-
-function Dashboard:Hide()
-
-    if self.Frame then
-        self.Frame:Hide()
-    end
+    -- Pushes directly rather than through Navigate() -- Navigate() carries
+    -- no payload by design (see this section's own header comment);
+    -- RestoreNavigation applies entry.Context.recommendation to
+    -- CurrentRecommendationDetails, so it's set once, in the one place
+    -- that turns entries back into state, not written here too.
+    AC.NavigationService:Push(AC.NavigationService.Windows.Dashboard, AC.NavigationService.Views.Dashboard.RecommendationDetails, { recommendation = recommendation })
 
 end
 
 -------------------------------------------------------------------------------
 -- Toggle
+--
+-- The one external entry point (minimap left-click, /ac, /ac dashboard).
+-- Show()/Hide() as standalone methods are retired along with the old
+-- history array -- nothing outside this file called them directly
+-- (confirmed via a repo-wide grep) -- RestoreNavigation above and
+-- AC.NavigationService's own Close() cover everything they used to do.
+-- IsOpen() -- not this Frame's own IsShown() -- decides the branch,
+-- because "Azeroth Companion is open" can mean a completely different
+-- window is currently on top of the navigation stack; toggling the
+-- minimap icon closes the whole app in that case, not just Dashboard.
 -------------------------------------------------------------------------------
 
 function Dashboard:Toggle()
 
-    if self.Frame and self.Frame:IsShown() then
-        self:Hide()
+    if AC.NavigationService:IsOpen() then
+        AC.NavigationService:Close()
     else
-        self:Show()
+        AC.NavigationService:Push(AC.NavigationService.Windows.Dashboard, self.CurrentPage or AC.NavigationService.Views.Dashboard.Home)
     end
 
 end
@@ -211,5 +203,6 @@ end
 -------------------------------------------------------------------------------
 
 AC.ServiceManager:Register("Dashboard", Dashboard)
+AC.NavigationService:RegisterWindow(AC.NavigationService.Windows.Dashboard, Dashboard)
 
 return Dashboard

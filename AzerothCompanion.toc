@@ -67,6 +67,8 @@ Core/Commands/SlashCommandManager.lua
 
 Core/UI/WindowManager.lua
 Core/UI/BaseWindow.lua
+Core/UI/Shared/ScrollFrame.lua
+Core/UI/Shared/NavigationService.lua
 
 Core/UI/Widgets/BaseWidget.lua
 Core/UI/Widgets/Label.lua
@@ -114,11 +116,12 @@ Core/UI/InventoryManager.lua
 Core/UI/DeveloperPanel.lua
 
 Core/UI/PlayerJournal/PlayerJournalWindow.lua
+Core/UI/PlayerJournal/ObservationDialog.lua
 Core/UI/PlayerJournal/Tabs/Overview.lua
 Core/UI/PlayerJournal/Tabs/History.lua
 Core/UI/PlayerJournal/Tabs/Statistics.lua
 Core/UI/PlayerJournal/Tabs/PersonalNotes.lua
-Core/UI/PlayerJournal/Tabs/CommunityNotes.lua
+Core/UI/PlayerJournal/Tabs/CommunityObservations.lua
 Core/UI/PlayerJournal/Tabs/Timeline.lua
 Core/UI/PlayerJournal/Tabs/Search.lua
 Core/UI/PlayerJournalContextMenu.lua

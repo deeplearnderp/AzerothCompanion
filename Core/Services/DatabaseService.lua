@@ -59,10 +59,16 @@ DatabaseService.Defaults =
             TotalPruned = 0,
         },
 
+        -- Schema 2 (Community Observations): Notes renamed/reshaped to
+        -- Observations -- see CommunityModule:Initialize()'s own migration,
+        -- which upgrades any account still on schema 1 in place. A fresh
+        -- install has no old Notes table to migrate, so it starts directly
+        -- on schema 2 with an empty Observations table.
         PlayerJournalCommunity =
         {
-            SchemaVersion = 1,
-            Notes = {},
+            SchemaVersion = 2,
+            Observations = {},
+            NextObservationSequence = 0,
             CodeOfConductAccepted = false,
             TrustedSources = {},
         },

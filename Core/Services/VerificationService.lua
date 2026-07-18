@@ -217,7 +217,7 @@ local REGISTRY =
     { id = "devpanel.events", module = "DeveloperPanel", api = "PLAYER_ALIVE / BAG_UPDATE_DELAYED / BANKFRAME_OPENED / BANKFRAME_CLOSED (Event Monitor's own monitored list)", status = S.WIKI, confidence = "High",
       citation = "Warcraft Wiki", notes = "Not individually re-fetched this pass -- long-standing stable events; every other event on the monitored list is already covered by its owning module's own registry row above." },
 
-    -- Player Journal & Community Notes -------------------------------------------
+    -- Player Journal & Community Observations -------------------------------------------
     { id = "pj.rosterUnitAccessors", module = "PlayerJournal", api = "UnitFullName / UnitGUID / UnitClass / UnitGroupRolesAssigned (party1-4)", status = S.WIKI, confidence = "High",
       citation = "Warcraft Wiki (same API family as char.unitAccessors, applied to party unit tokens instead of \"player\")",
       expected = "Real identity/role facts for present party members; UnitExists gates each slot first." },
@@ -232,9 +232,15 @@ local REGISTRY =
       expected = "MythicPlusModule:RecordCompletedRun() has already appended its ActivityHistoryService record by the time PlayerJournalModule's deferred read runs." },
     { id = "ctxmenu.modifyMenu", module = "PlayerJournal", api = "Menu.ModifyMenu(tag, callback) + submenu auto-promotion (CreateButton then CreateButton again on the result)", status = S.WIKI, confidence = "Medium",
       citation = "Warcraft Wiki's own Blizzard Menu implementation guide", expected = "Exactly one \"Azeroth Companion\" submenu appended to the target menu, never replacing existing entries." },
+    { id = "ctxmenu.nestedSubmenu", module = "PlayerJournal", api = "The same CreateButton-called-twice submenu-promotion mechanic as ctxmenu.modifyMenu, applied one level deeper (Community Observations submenu created from inside the already-promoted \"Azeroth Companion\" submenu, not from rootDescription directly)", status = S.NEEDS_LIVE, confidence = "Medium",
+      citation = "Reasoned by extension of ctxmenu.modifyMenu's own confirmed mechanic -- the Wiki guide describes ElementDescription generically, with no stated restriction on nesting depth, but nesting one level deeper than the guide's own example has not been independently observed.",
+      expected = "Right-clicking a party member shows \"Azeroth Companion\" -> \"Community Observations\" as a working nested submenu (View Observations / Add Observation / Hide Observations), not a broken or flattened menu entry." },
     { id = "ctxmenu.unitMenuTags", module = "PlayerJournal", api = "Exact MENU_UNIT_* tag name(s) for \"any party member\"", status = S.NEEDS_LIVE, confidence = "Low",
       citation = "Warcraft Wiki confirms the MENU_UNIT_<UNIT_TYPE> format with PARTY1 as one example, not whether a slot-independent tag also exists -- registered defensively against multiple plausible tags, each pcall-wrapped.",
       expected = "At least one of the registered tags fires when right-clicking a real party member in a live client." },
+    { id = "ctxmenu.selfMenuTag", module = "PlayerJournal", api = "MENU_UNIT_SELF -- the tag for the player's own frame and the target frame while self-targeted", status = S.WIKI, confidence = "High",
+      citation = "Confirmed against Blizzard's own current client source (12.0.7, build 68182), not the tag-name pattern: UnitPopupManager:OpenMenu() (Interface/AddOns/Blizzard_UnitPopupShared/UnitPopupShared.lua) builds the Menu.ModifyMenu tag as \"MENU_UNIT_\"..which; UnitPopupSharedMenus.lua registers UnitPopupManager:RegisterMenu(\"SELF\", UnitPopupMenuSelf) as a menu genuinely separate from RegisterMenu(\"PLAYER\", UnitPopupMenuPlayer); and TargetFrame's own dropdown init explicitly checks UnitIsUnit(\"target\", \"player\") and switches to \"SELF\" instead of \"TARGET\" when true. Root cause of a live-testing failure: MENU_UNIT_SELF was missing from TAGS_TO_HOOK entirely, so the submenu never appeared for either self-context case.",
+      expected = "Right-clicking your own player frame, and right-clicking your target frame while self-targeted, both now show the Azeroth Companion submenu with the self-specific wording (View My Observations / Add Observation About Myself, no Hide entry)." },
     { id = "ctxmenu.createCheckbox", module = "PlayerJournal", api = "ElementDescription:CreateCheckbox(text, isSelectedFunc, setSelectedFunc)", status = S.WIKI, confidence = "Medium",
       citation = "Warcraft Wiki's own Blizzard Menu implementation guide (shown with an identical 3-argument example, a reputation-panel checkbox)", expected = "A checkbox menu entry reflecting IsFavorite's current value, toggling it on click." },
     { id = "ctxmenu.contextDataUnitSecretValue", module = "PlayerJournal", api = "ResolvePlayerKey's contextData.unit, passed to UnitExists()/UnitFullName() from inside a Menu.ModifyMenu callback (Core/UI/PlayerJournalContextMenu.lua)", status = S.NEEDS_LIVE, confidence = "Medium",
@@ -297,10 +303,10 @@ local CHECKLIST =
     { id = "CurrencyGain", labelKey = "Developer.ChecklistCurrencyGain", relatedIds = {} },
     { id = "WeeklyReset", labelKey = "Developer.ChecklistWeeklyReset", relatedIds = { "weekly.progressUnits", "weekly.activities" } },
 
-    -- Player Journal & Community Notes -------------------------------------------
+    -- Player Journal & Community Observations -------------------------------------------
     { id = "PlayerJournalRun", labelKey = "Developer.ChecklistPlayerJournalRun", relatedIds = { "pj.rosterUnitAccessors", "pj.eventOrderingDefer", "pj.unitDiedCombatLog" } },
     { id = "PlayerJournalLeave", labelKey = "Developer.ChecklistPlayerJournalLeave", relatedIds = { "pj.rosterLeaveDetection" } },
-    { id = "PlayerJournalContextMenu", labelKey = "Developer.ChecklistPlayerJournalContextMenu", relatedIds = { "ctxmenu.modifyMenu", "ctxmenu.unitMenuTags", "ctxmenu.createCheckbox", "ctxmenu.contextDataUnitSecretValue" } },
+    { id = "PlayerJournalContextMenu", labelKey = "Developer.ChecklistPlayerJournalContextMenu", relatedIds = { "ctxmenu.modifyMenu", "ctxmenu.nestedSubmenu", "ctxmenu.unitMenuTags", "ctxmenu.selfMenuTag", "ctxmenu.createCheckbox", "ctxmenu.contextDataUnitSecretValue" } },
     { id = "PlayerJournalTooltip", labelKey = "Developer.ChecklistPlayerJournalTooltip", relatedIds = { "tooltip.postCall", "pj.knownUnitsCache", "pj.tooltipLineTextSafe" } },
 }
 

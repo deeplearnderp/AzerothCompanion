@@ -169,11 +169,25 @@ local function SafeCall(capability, methodName)
 
 end
 
+-- Register()/Unregister() are deferred one frame via C_Timer.After(0, ...)
+-- rather than called synchronously here. This handler runs AS a listener
+-- of AC.Events:Fire("DEVELOPER_MODE_CHANGED", ...) -- EventManager holds
+-- IsDispatching true for that Fire call's entire listener loop, and
+-- Events:Register()/Unregister() correctly refuse to run (logging
+-- "called during dispatch") while that flag is set, so calling either one
+-- straight from this handler always tripped the guard. A timer (even
+-- 0-delay) only ever fires on OnUpdate, strictly after the current
+-- frame's event-dispatch loop has completed, so by the time this runs,
+-- DEVELOPER_MODE_CHANGED's dispatch is long finished -- same "let the
+-- current event pipeline unwind first" idiom PlayerJournalModule already
+-- uses for the same reason.
 function DeveloperRuntime:OnDeveloperModeChanged(enabled)
 
     if enabled then
 
-        AC.Events:Register("PLAYER_REGEN_ENABLED", self, "OnPlayerRegenEnabled")
+        C_Timer.After(0, function()
+            AC.Events:Register("PLAYER_REGEN_ENABLED", self, "OnPlayerRegenEnabled")
+        end)
 
         for _, capability in ipairs(self.CapabilityOrder) do
             SafeCall(capability, "Install")
@@ -185,7 +199,9 @@ function DeveloperRuntime:OnDeveloperModeChanged(enabled)
             SafeCall(capability, "Remove")
         end
 
-        AC.Events:Unregister("PLAYER_REGEN_ENABLED", self, "OnPlayerRegenEnabled")
+        C_Timer.After(0, function()
+            AC.Events:Unregister("PLAYER_REGEN_ENABLED", self, "OnPlayerRegenEnabled")
+        end)
 
     end
 

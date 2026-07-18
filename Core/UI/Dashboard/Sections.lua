@@ -29,72 +29,41 @@ local Dashboard = AC.Dashboard
 local Layout = AC.DashboardLayout
 
 -------------------------------------------------------------------------------
--- Page ScrollFrame (Dashboard Scrollbar Standardization)
+-- Page ScrollFrame (Dashboard Scrollbar Standardization; Scrollbar Extraction)
 --
--- The single, true owner of every Dashboard page's ScrollFrame: creates
--- it, positions it, and strips Blizzard's default chrome from it. Used by
--- CreateDataPage below (every secondary page) AND Home.lua -- previously
--- Home built its own copy of this inline (a second, independently-drifted
--- version that used the correct right inset but never hid the arrow
--- buttons), which is exactly why the scrollbar used to sit in a
--- different place, and look different, depending on which page you were
--- on. There is exactly one place left that calls CreateFrame("ScrollFrame",
--- ..., "UIPanelScrollFrameTemplate") for a real Dashboard page -- this
--- function -- and no page should ever call SetPoint on the ScrollFrame or
--- its ScrollBar itself again.
+-- Dashboard's own thin wrapper over AC.SharedScrollFrame:Create
+-- (Core/UI/Shared/ScrollFrame.lua) -- the actual scrollFrame/scrollChild
+-- creation, positioning, and arrow-hiding now lives there, shared with
+-- Player Journal and Developer Panel, since none of that behavior is
+-- actually Dashboard-specific. This function's only remaining job is
+-- supplying Dashboard's own default insets (PAGE_HEADER_HEIGHT/
+-- PAGE_PADDING/PAGE_BOTTOM_INSET) and content-width formula, used by
+-- CreateDataPage below (every secondary page) AND Home.lua. There is
+-- exactly one place left that calls AC.SharedScrollFrame:Create for a
+-- real Dashboard page -- this function -- and no page should ever call
+-- SetPoint on the ScrollFrame or its ScrollBar itself again.
 --
 -- Right inset is always SCROLLBAR_RESERVE, unconditionally, on every
 -- page -- not narrower when a page doesn't currently need to scroll (see
 -- Layout.lua's own comment on PAGE_CONTENT_WIDTH_FULL for why: a
 -- scrollbar that only sometimes reserves its footprint is a scrollbar
 -- that can appear to move). Bottom inset is always PAGE_BOTTOM_INSET.
--- topInset/leftInset are the only two things that legitimately differ
--- between page shapes -- Home has no Back/Title/Updated header above its
--- content (topInset 0, not PAGE_HEADER_HEIGHT) and sizes its scrollChild
--- off an absolute WINDOW_WIDTH-based formula rather than a page-relative
--- one (leftInset 0, not PAGE_PADDING) -- both are genuine content-shape
--- differences, not scrollbar-position drift, so both stay parameters
--- rather than being forced identical.
+-- topInset/leftInset/contentWidth are the only things that legitimately
+-- differ between page shapes -- Home has no Back/Title/Updated header
+-- above its content (topInset 0, not PAGE_HEADER_HEIGHT) and sizes its
+-- scrollChild off an absolute WINDOW_WIDTH-based formula rather than a
+-- page-relative one (leftInset 0, not PAGE_PADDING) -- both are genuine
+-- content-shape differences, not scrollbar-position drift, so both stay
+-- parameters rather than being forced identical.
 -------------------------------------------------------------------------------
 
-function Dashboard:CreatePageScrollFrame(parent, topInset, leftInset)
+function Dashboard:CreatePageScrollFrame(parent, topInset, leftInset, contentWidth)
 
     topInset = topInset or Layout.PAGE_HEADER_HEIGHT
     leftInset = leftInset or Layout.PAGE_PADDING
+    contentWidth = contentWidth or AC.SharedScrollFrame:ContentWidth(Layout.WINDOW_WIDTH, leftInset)
 
-    local scrollFrame = CreateFrame("ScrollFrame", nil, parent, "UIPanelScrollFrameTemplate")
-
-    scrollFrame:SetPoint("TOPLEFT", leftInset, -topInset)
-    scrollFrame:SetPoint("BOTTOMRIGHT", -Layout.SCROLLBAR_RESERVE, Layout.PAGE_BOTTOM_INSET)
-
-    -- Scrollbar Polish Pass -- UIPanelScrollFrameTemplate's ScrollBar
-    -- (UIPanelScrollBarTemplate) ships its own ScrollUpButton/
-    -- ScrollDownButton, stock Blizzard parchment-skinned arrow buttons
-    -- that clash with this addon's dark custom aesthetic -- most visible
-    -- as the odd button sitting at the very bottom of the track. Hidden
-    -- once, here, for every page built through this one function.
-    -- Mouse-wheel scrolling (bound to scrollFrame itself) and thumb-drag
-    -- (bound to the ScrollBar/Slider) are both untouched -- neither
-    -- depends on these buttons, only on incrementing/decrementing the
-    -- Slider's value, which the buttons' own OnClick did on top of, not
-    -- instead of. Guarded the same way ApplyPageScrolling already treats
-    -- scrollFrame.ScrollBar, so a future template swap degrades to
-    -- "buttons stay visible" rather than an error.
-    local scrollBar = scrollFrame.ScrollBar
-
-    if scrollBar then
-
-        if scrollBar.ScrollUpButton then
-            scrollBar.ScrollUpButton:Hide()
-        end
-
-        if scrollBar.ScrollDownButton then
-            scrollBar.ScrollDownButton:Hide()
-        end
-
-    end
-
-    return scrollFrame
+    return AC.SharedScrollFrame:Create(parent, contentWidth, topInset, leftInset, Layout.PAGE_BOTTOM_INSET)
 
 end
 
@@ -134,7 +103,7 @@ function Dashboard:CreateDataPage(parent, pageTitle)
     backButton:SetText(AC.L:Get("Dashboard.Back"))
 
     backButton:SetScript("OnClick", function()
-        Dashboard:GoBack()
+        AC.NavigationService:GoBack()
     end)
 
     local titleText = page:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
@@ -166,13 +135,7 @@ function Dashboard:CreateDataPage(parent, pageTitle)
     headerDivider:SetPoint("TOPLEFT", Layout.PAGE_PADDING, -(Layout.PAGE_HEADER_HEIGHT - Layout.DIVIDER_MARGIN_BOTTOM))
     headerDivider:SetPoint("TOPRIGHT", -Layout.PAGE_PADDING, -(Layout.PAGE_HEADER_HEIGHT - Layout.DIVIDER_MARGIN_BOTTOM))
 
-    local scrollFrame = self:CreatePageScrollFrame(page)
-
-    local scrollChild = CreateFrame("Frame", nil, scrollFrame)
-    scrollChild:SetWidth(Layout.PAGE_CONTENT_WIDTH_FULL)
-    scrollChild:SetHeight(1)
-
-    scrollFrame:SetScrollChild(scrollChild)
+    local scrollFrame, scrollChild = self:CreatePageScrollFrame(page)
 
     page.BackButton = backButton
     page.Title = titleText
@@ -565,7 +528,13 @@ end
 -- duplicated a third time).
 -------------------------------------------------------------------------------
 
-function Dashboard:ShowEmptyLine(container, scrollChild, cacheKey, yOffset, width, textKey)
+-- Takes literal display text rather than resolving a key itself -- the
+-- one place that positions/measures the pooled FontString, so both
+-- ShowEmptyLine (a plain localized key) and any caller that has already
+-- built its own dynamic sentence (AC.L:Format(...) results, e.g. the
+-- Dashboard Storage page's historical-note line) share this instead of
+-- each hand-rolling the same pooling/measuring logic a second time.
+function Dashboard:ShowEmptyLineText(container, scrollChild, cacheKey, yOffset, width, text)
 
     if not container[cacheKey] then
 
@@ -584,7 +553,7 @@ function Dashboard:ShowEmptyLine(container, scrollChild, cacheKey, yOffset, widt
     container[cacheKey]:ClearAllPoints()
     container[cacheKey]:SetPoint("TOPLEFT", Layout.ROW_INDENT, yOffset)
     container[cacheKey]:SetWidth(width - Layout.ROW_INDENT)
-    container[cacheKey]:SetText(AC.L:Get(textKey))
+    container[cacheKey]:SetText(text)
     container[cacheKey]:Show()
 
     -- Accordion Polish Pass -- was a hardcoded Layout.ROW_HEIGHT
@@ -596,6 +565,15 @@ function Dashboard:ShowEmptyLine(container, scrollChild, cacheKey, yOffset, widt
     -- used elsewhere in this file (e.g. BuildHeroSection's GetStringHeight
     -- fallbacks).
     return yOffset - (container[cacheKey]:GetStringHeight() or Layout.ROW_HEIGHT)
+
+end
+
+-- Thin wrapper over ShowEmptyLineText for the common case: a plain
+-- localization key, resolved here so every other existing call site
+-- (~30 across the addon) keeps working unchanged.
+function Dashboard:ShowEmptyLine(container, scrollChild, cacheKey, yOffset, width, textKey)
+
+    return self:ShowEmptyLineText(container, scrollChild, cacheKey, yOffset, width, AC.L:Get(textKey))
 
 end
 

@@ -63,7 +63,6 @@ AC.Dashboard = Dashboard
 function Dashboard:Initialize()
 
     self.CurrentPage = "Home"
-    self.NavigationHistory = {}
 
     self.Frame = self:Create()
 

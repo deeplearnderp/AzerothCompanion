@@ -12,14 +12,20 @@ local AC = _G.AzerothCompanion
 
 local PlayerJournalWindow = AC.PlayerJournalWindow
 
+-- No "not record" branch here -- PlayerJournalWindow:ShowTab() already
+-- guarantees a valid record before ever calling this (see
+-- PLAYER_SCOPED_TABS/BuildNoPlayerSelectedTab in PlayerJournalWindow.lua).
+-- "No run history with this player yet." now only ever means what it
+-- says -- a real, selected player with zero runs -- never a stand-in for
+-- "nobody is selected."
 function PlayerJournalWindow:BuildHistoryTab()
 
     local journalModule = AC.Core and AC.Core:GetModule("PlayerJournal")
-    local record = journalModule and self.CurrentPlayerKey and journalModule:GetPlayerRecord(self.CurrentPlayerKey)
+    local record = journalModule:GetPlayerRecord(self.CurrentPlayerKey)
 
     local lines = {}
 
-    if not record or #record.runs == 0 then
+    if #record.runs == 0 then
 
         table.insert(lines, AC.L:Get("PlayerJournal.NoRunHistory"))
 

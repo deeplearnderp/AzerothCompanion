@@ -250,10 +250,10 @@ local function OnUnitTooltip(tooltip, data)
 
     if communityModule and communityModule:IsModuleEnabled() and not record.hideCommunityNotes then
 
-        local communityNoteCount = #communityModule:GetNotesForPlayer(playerKey)
+        local communityObservationCount = #communityModule:GetObservationsForPlayer(playerKey)
 
-        if communityNoteCount > 0 then
-            tooltip:AddDoubleLine(AC.L:Get("PlayerJournal.TooltipCommunityNotes"), tostring(communityNoteCount), 0.7, 0.7, 0.7, 0.9, 0.9, 0.9)
+        if communityObservationCount > 0 then
+            tooltip:AddDoubleLine(AC.L:Get("PlayerJournal.TooltipCommunityObservations"), tostring(communityObservationCount), 0.7, 0.7, 0.7, 0.9, 0.9, 0.9)
         end
 
     end

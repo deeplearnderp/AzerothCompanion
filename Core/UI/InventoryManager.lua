@@ -122,8 +122,8 @@ function InventoryManager:GetStorageContext()
     local scanStatus = enabled and storageModule.GetScanStatus and storageModule:GetScanStatus() or nil
     local lastScan = enabled and storageModule.GetLastScan and storageModule:GetLastScan() or nil
     local sources = enabled and storageModule.GetStorageSources and storageModule:GetStorageSources() or {}
-    local readiness = enabled and profile and storageModule.GetStorageReadiness and storageModule:GetStorageReadiness(profile.id) or nil
     local lastKnownStorage = enabled and storageModule.GetLastKnownStorage and storageModule:GetLastKnownStorage() or nil
+    local facts = enabled and storageModule.GetReadinessFacts and storageModule:GetReadinessFacts(profile and profile.id) or { enabled = false }
 
     return
     {
@@ -133,56 +133,18 @@ function InventoryManager:GetStorageContext()
         scanStatus = scanStatus or { state = "unknown", freshness = "unknown", hasSnapshot = false, available = false },
         lastScan = lastScan,
         sources = sources,
-        readiness = readiness,
+        facts = facts,
         lastKnownStorage = lastKnownStorage,
     }
 
 end
 
--- Presentation-only split over data StorageModule already exposes: never
--- scanned at all vs. scanned before but not currently live (bank
--- closed/stale -- BankCacheReady semantics, confirmed intentional) vs.
--- genuinely live and ready. No new backend state -- context.scanStatus.
--- hasSnapshot and context.readiness.state already distinguish the live
--- cases; the Storage Knowledge Base adds one more source for the "not
--- live" case -- context.lastKnownStorage.analysis.preparation, a cached
--- GetPreparationStatus() result from the last successful scan (possibly
--- a prior login), never recomputed here. Same Ready/ReadinessFormat
--- wording either way, since both are a real readiness percentage, just
--- from different moments in time.
+-- Thin delegator -- AC.DashboardFormat.GetStorageReadinessText owns the
+-- actual branch logic, shared with the Dashboard Storage page so both
+-- surfaces always render the same wording for the same facts.
 function InventoryManager:GetReadiness(context)
 
-    if not context.enabled then
-        return AC.L:Get("Common.Unknown")
-    end
-
-    if context.scanStatus.hasSnapshot then
-
-        if not context.readiness or context.readiness.state ~= "known" then
-            return AC.L:Get("InventoryManager.BankNotConnected")
-        end
-
-        if context.readiness.ready then
-            return AC.L:Get("InventoryManager.Ready")
-        end
-
-        return AC.L:Format("InventoryManager.ReadinessFormat", context.readiness.readinessPercent or 0)
-
-    end
-
-    local preparation = context.lastKnownStorage and context.lastKnownStorage.analysis and context.lastKnownStorage.analysis.preparation
-
-    if preparation then
-
-        if preparation.ready then
-            return AC.L:Get("InventoryManager.Ready")
-        end
-
-        return AC.L:Format("InventoryManager.ReadinessFormat", preparation.readinessPercent or 0)
-
-    end
-
-    return AC.L:Get("InventoryManager.NoSnapshotTitle")
+    return AC.DashboardFormat.GetStorageReadinessText(context.facts)
 
 end
 
@@ -420,7 +382,7 @@ function InventoryManager:BuildOverviewPage()
 
     -- Only meaningful once there is no live snapshot to answer instead --
     -- a same-session profile switch after a live scan is already reflected
-    -- correctly by context.readiness (recomputed live, not cached).
+    -- correctly by context.facts (recomputed live, not cached).
     local profileMismatch = hasLastKnownStorage and (not hasLiveSnapshot)
         and context.profile and lastKnownStorage.metadata.profileID ~= context.profile.id
 
@@ -467,7 +429,7 @@ function InventoryManager:BuildOverviewPage()
 
             if isLive then
 
-                yOffset = Dashboard:ShowEmptyLine(page, page.ScrollChild, "LiveStatusLine", yOffset, width,
+                yOffset = Dashboard:ShowEmptyLineText(page, page.ScrollChild, "LiveStatusLine", yOffset, width,
                     AC.L:Format("InventoryManager.LiveStatusConnectedFormat", AC.DashboardFormat.CHECK_SUCCESS))
 
                 if page.LiveStatusDetail then
@@ -480,7 +442,7 @@ function InventoryManager:BuildOverviewPage()
 
             else
 
-                yOffset = Dashboard:ShowEmptyLine(page, page.ScrollChild, "LiveStatusLine", yOffset, width,
+                yOffset = Dashboard:ShowEmptyLineText(page, page.ScrollChild, "LiveStatusLine", yOffset, width,
                     AC.L:Format("InventoryManager.LiveStatusDisconnectedFormat", "|cffffcc00" .. AC.Presentation.WARNING_GLYPH .. "|r"))
                 yOffset = Dashboard:ShowEmptyLine(page, page.ScrollChild, "LiveStatusDetail", yOffset, width, "InventoryManager.LiveStatusDisconnectedDescription")
 
@@ -501,7 +463,7 @@ function InventoryManager:BuildOverviewPage()
 
                     local newProfileLabel = context.profile and AC.L:Get(context.profile.label) or AC.L:Get("Common.Unknown")
 
-                    yOffset = Dashboard:ShowEmptyLine(page, page.ScrollChild, "ProfileMismatchLine", yOffset, width,
+                    yOffset = Dashboard:ShowEmptyLineText(page, page.ScrollChild, "ProfileMismatchLine", yOffset, width,
                         AC.L:Format("InventoryManager.ProfileMismatchFormat", oldProfileLabel, newProfileLabel))
 
                 elseif page.ProfileMismatchLine then
@@ -2645,10 +2607,9 @@ function InventoryManager:GetExplorerData()
 
         -- Sourced from the shared provider's own availability signal
         -- (GetAggregateStorage()'s hasStorageData), not scanStatus.hasSnapshot
-        -- (StorageModule:GetScanStatus(), live-bank-only -- the exact
-        -- bypass the Phase 4 architecture review found and this replaces).
-        -- Explorer doesn't need to know whether that data is live or
-        -- carried over from a prior login -- it just trusts the provider.
+        -- (StorageModule:GetScanStatus(), live-bank-only). Explorer doesn't
+        -- need to know whether that data is live or carried over from a
+        -- prior login -- it just trusts the provider.
         hasSnapshot = aggregate.hasStorageData == true,
     }
 

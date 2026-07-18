@@ -223,16 +223,7 @@ end
 
 function PlayerJournalWindow:BuildNoteRow()
 
-    local row = CreateFrame("Frame", nil, self.ScrollChild)
-
-    local textLine = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    textLine:SetPoint("TOPLEFT", 6, 0)
-    textLine:SetJustifyH("LEFT")
-    textLine:SetWordWrap(true)
-
-    local metaLine = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    metaLine:SetPoint("TOPLEFT", textLine, "BOTTOMLEFT", 0, -2)
-    metaLine:SetJustifyH("LEFT")
+    local row = self:BuildTextMetaRow()
 
     local editButton = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
     editButton:SetSize(50, 18)
@@ -242,8 +233,6 @@ function PlayerJournalWindow:BuildNoteRow()
     deleteButton:SetSize(50, 18)
     deleteButton:SetText(AC.L:Get("PlayerJournal.DeleteNote"))
 
-    row.TextLine = textLine
-    row.MetaLine = metaLine
     row.EditButton = editButton
     row.DeleteButton = deleteButton
 
@@ -251,36 +240,16 @@ function PlayerJournalWindow:BuildNoteRow()
 
 end
 
+-- No "not record" branch here -- PlayerJournalWindow:ShowTab() already
+-- guarantees a valid record before ever calling this (see
+-- PLAYER_SCOPED_TABS/BuildNoPlayerSelectedTab in PlayerJournalWindow.lua).
 function PlayerJournalWindow:BuildPersonalNotesTab()
 
     local journalModule = AC.Core and AC.Core:GetModule("PlayerJournal")
-    local record = journalModule and self.CurrentPlayerKey and journalModule:GetPlayerRecord(self.CurrentPlayerKey)
+    local record = journalModule:GetPlayerRecord(self.CurrentPlayerKey)
 
     if not self.NoteRowPool then
         self.NoteRowPool = {}
-    end
-
-    if not record then
-
-        if self.NoteComposer then
-            self.NoteComposer:Hide()
-            self.NoteSaveButton:Hide()
-            self.NoteCancelButton:Hide()
-        end
-
-        if self.TagGridHeader then
-            self.TagGridHeader:Hide()
-        end
-
-        for _, button in ipairs(self.TagButtonPool or {}) do
-            button:Hide()
-        end
-
-        local lines = { AC.L:Get("PlayerJournal.NoPlayerSelected") }
-        local yOffset = self:LayoutLines("PersonalNotes", lines, -4, self.CONTENT_WIDTH)
-
-        return (-yOffset) + 16
-
     end
 
     local yOffset = self:BuildComposer(-4)

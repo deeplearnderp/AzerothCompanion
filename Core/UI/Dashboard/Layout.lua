@@ -94,12 +94,20 @@ DashboardLayout.CARD_ACTION_BUTTON_GAP = 6
 -- reserves SCROLLBAR_RESERVE unconditionally, so there is only one
 -- content width left -- not a FULL/SCROLLABLE pair to measure and choose
 -- between.
+--
+-- Scrollbar Extraction -- PAGE_PADDING/SCROLLBAR_RESERVE are no longer
+-- Dashboard's own numbers; they're re-derived from AC.SharedScrollFrame
+-- (Core/UI/Shared/ScrollFrame.lua), the neutral home for the generic
+-- "how much room does a scrollFrame need" fact every standalone window
+-- shares. PAGE_PADDING stays a real Dashboard-scoped name (headers,
+-- dividers, and field rows all key off it beyond just the scrollframe),
+-- it just no longer independently chooses its own value.
 
-DashboardLayout.PAGE_PADDING = 16
+DashboardLayout.PAGE_PADDING = AC.SharedScrollFrame.PADDING
 DashboardLayout.PAGE_HEADER_HEIGHT = 46
 DashboardLayout.PAGE_BOTTOM_INSET = 8
 DashboardLayout.PAGE_BOTTOM_PADDING = 12
-DashboardLayout.SCROLLBAR_RESERVE = 24
+DashboardLayout.SCROLLBAR_RESERVE = AC.SharedScrollFrame.SCROLLBAR_RESERVE
 
 -- Page Header (UI Polish Pass -- Navigation Audit, then Header Polish Pass)
 -- -- the one Back/Title/Updated header every secondary page shares via
@@ -128,7 +136,7 @@ DashboardLayout.PAGE_HEADER_SIDE_TOP = 8
 -- from PAGE_PADDING (left inset) and SCROLLBAR_RESERVE (right inset,
 -- reserved unconditionally -- see the comment above), matching exactly
 -- what Dashboard:CreatePageScrollFrame's default insets produce.
-DashboardLayout.PAGE_CONTENT_WIDTH_FULL = DashboardLayout.WINDOW_WIDTH - DashboardLayout.PAGE_PADDING - DashboardLayout.SCROLLBAR_RESERVE
+DashboardLayout.PAGE_CONTENT_WIDTH_FULL = AC.SharedScrollFrame:ContentWidth(DashboardLayout.WINDOW_WIDTH, DashboardLayout.PAGE_PADDING)
 
 -- Field Rows ------------------------------------------------------------------
 

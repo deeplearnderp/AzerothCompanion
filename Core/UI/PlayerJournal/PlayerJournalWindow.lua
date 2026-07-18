@@ -3,7 +3,7 @@
 -- Player Journal Window
 --
 -- The standalone BaseWindow for the Player Journal -- seven tabs
--- (Overview, History, Statistics, Personal Notes, Community Notes,
+-- (Overview, History, Statistics, Personal Notes, Community Observations,
 -- Timeline, Search), matching Dashboard styling. This file is the spine
 -- only (window shell, tab bar, ScrollFrame, pooled-row helpers, tab
 -- dispatch) -- one Build<X>Tab() method per tab lives in its own file
@@ -47,7 +47,7 @@ StaticPopupDialogs["AZEROTHCOMPANION_PLAYERJOURNAL_ENDOFRUN"] =
     button2 = _G.NO or "No",
     OnAccept = function()
         PlayerJournalWindow:Show()
-        PlayerJournalWindow:ShowTab("Search")
+        PlayerJournalWindow:NavigateTab("Search")
     end,
     timeout = 0,
     whileDead = true,
@@ -61,12 +61,16 @@ StaticPopupDialogs["AZEROTHCOMPANION_PLAYERJOURNAL_ENDOFRUN"] =
 
 local WINDOW_WIDTH = 520
 local WINDOW_HEIGHT = 600
-local CONTENT_PADDING = 16
-local SCROLLBAR_RESERVE = 24
-local CONTENT_WIDTH = WINDOW_WIDTH - (CONTENT_PADDING * 2) - SCROLLBAR_RESERVE
+local CONTENT_PADDING = AC.SharedScrollFrame.PADDING
+local CONTENT_WIDTH = AC.SharedScrollFrame:ContentWidth(WINDOW_WIDTH, CONTENT_PADDING)
 local TAB_BAR_HEIGHT = 26
 
-local TABS = { "Overview", "History", "Statistics", "PersonalNotes", "CommunityNotes", "Timeline", "Search" }
+local TABS = { "Overview", "History", "Statistics", "PersonalNotes", "CommunityObservations", "Timeline", "Search" }
+
+-- Exposed so AC.NavigationService can derive Views.PlayerJournal from this
+-- same list at its own Initialize() (Core/UI/Shared/NavigationService.lua)
+-- rather than a second, independently-typed copy of these seven names.
+PlayerJournalWindow.Tabs = TABS
 
 local TAB_LABEL_KEY =
 {
@@ -74,7 +78,7 @@ local TAB_LABEL_KEY =
     History = "PlayerJournal.TabHistory",
     Statistics = "PlayerJournal.TabStatistics",
     PersonalNotes = "PlayerJournal.TabPersonalNotes",
-    CommunityNotes = "PlayerJournal.TabCommunityNotes",
+    CommunityObservations = "PlayerJournal.TabCommunityObservations",
     Timeline = "PlayerJournal.TabTimeline",
     Search = "PlayerJournal.TabSearch",
 }
@@ -89,7 +93,18 @@ function PlayerJournalWindow:Initialize()
 
     self.Frame = BaseWindow:Create("AzerothCompanionPlayerJournal", AC.L:Get("PlayerJournal.WindowTitle"), WINDOW_WIDTH, WINDOW_HEIGHT)
 
+    -- Atmosphere Pass -- the one standalone window that never picked up
+    -- Dashboard/Settings/DeveloperPanel/InventoryManager's own shared
+    -- ApplyWindowBackground/StyleWindowTitle pairing (Core/Presentation/
+    -- Presentation.lua). Not a Player-Journal-specific visual choice --
+    -- the same two calls every other BaseWindow already makes.
+    AC.Presentation.ApplyWindowBackground(self.Frame)
+    AC.Presentation.StyleWindowTitle(self.Frame.Title)
+
+    AC.NavigationService:RegisterWindow(AC.NavigationService.Windows.PlayerJournal, self)
+
     BaseWindow:AddCloseButton(self.Frame, self)
+    BaseWindow:AddBackButton(self.Frame, self)
 
     -----------------------------------------------------------------------
     -- Identity Header -- name/realm/class of whichever player this
@@ -103,10 +118,18 @@ function PlayerJournalWindow:Initialize()
     -- this used to create, which duplicated it.
     -----------------------------------------------------------------------
 
+    -- Navigation System -- BaseWindow:AddBackButton (below) claims the top
+    -- left corner this title used to start flush against; BACK_BUTTON_RESERVE
+    -- shifts the title right by the Back button's own footprint so the two
+    -- never overlap, only when a Back button is actually showing (Player
+    -- Journal is always reached through AC.NavigationService now, so one
+    -- effectively always is once any navigation exists).
+    local BACK_BUTTON_RESERVE = 62
+
     self.Frame.Title:ClearAllPoints()
-    self.Frame.Title:SetPoint("TOPLEFT", CONTENT_PADDING, -16)
+    self.Frame.Title:SetPoint("TOPLEFT", CONTENT_PADDING + BACK_BUTTON_RESERVE, -16)
     self.Frame.Title:SetJustifyH("LEFT")
-    self.Frame.Title:SetWidth(WINDOW_WIDTH - (CONTENT_PADDING * 2) - 60)
+    self.Frame.Title:SetWidth(WINDOW_WIDTH - (CONTENT_PADDING * 2) - 60 - BACK_BUTTON_RESERVE)
 
     self.IdentityText = self.Frame.Title
 
@@ -149,7 +172,7 @@ function PlayerJournalWindow:Initialize()
         button:SetText(AC.L:Get(TAB_LABEL_KEY[tabName]))
 
         button:SetScript("OnClick", function()
-            self:ShowTab(tabName)
+            self:NavigateTab(tabName)
         end)
 
         self.TabButtons[tabName] = button
@@ -161,15 +184,14 @@ function PlayerJournalWindow:Initialize()
     -- Content Area
     -----------------------------------------------------------------------
 
-    local scrollFrame = CreateFrame("ScrollFrame", nil, self.Frame, "UIPanelScrollFrameTemplate")
-    scrollFrame:SetPoint("TOPLEFT", CONTENT_PADDING, -42 - TAB_BAR_HEIGHT)
-    scrollFrame:SetPoint("BOTTOMRIGHT", -CONTENT_PADDING, CONTENT_PADDING)
-
-    local scrollChild = CreateFrame("Frame", nil, scrollFrame)
-    scrollChild:SetWidth(CONTENT_WIDTH)
-    scrollChild:SetHeight(1)
-
-    scrollFrame:SetScrollChild(scrollChild)
+    -- Scrollbar Extraction -- was a hand-rolled scrollFrame whose right
+    -- anchor only reserved CONTENT_PADDING, never SCROLLBAR_RESERVE, even
+    -- though CONTENT_WIDTH already assumed both were reserved -- a dead
+    -- gutter inside the window AND a scrollbar with nowhere to render but
+    -- past the window's true edge. AC.SharedScrollFrame:Create
+    -- (Core/UI/Shared/ScrollFrame.lua) is now the single owner of that
+    -- math, shared with Dashboard and Developer Panel.
+    local scrollFrame, scrollChild = AC.SharedScrollFrame:Create(self.Frame, CONTENT_WIDTH, 42 + TAB_BAR_HEIGHT, CONTENT_PADDING, CONTENT_PADDING)
 
     self.ScrollFrame = scrollFrame
     self.ScrollChild = scrollChild
@@ -263,16 +285,76 @@ function PlayerJournalWindow:LayoutLines(tabName, lines, yOffset, contentWidth, 
 
 end
 
-function PlayerJournalWindow:HideOtherTabs(activeTab)
+-------------------------------------------------------------------------------
+-- Text/Meta Row
+--
+-- Shared shell for "a word-wrapped text line with a dimmed meta line
+-- underneath it" -- Personal Notes' own note rows and Community
+-- Observations' observation rows were two hand-written copies of this
+-- exact same frame/anchor layout (the only difference between them is
+-- which extra buttons, if any, each caller attaches afterward). One
+-- shared builder here on the spine, since both are tabs of this same
+-- window -- not promoted further up into Dashboard's generic Sections.lua,
+-- where no consumer outside PlayerJournal exists today.
+-------------------------------------------------------------------------------
 
-    for tabName, pool in pairs(self.Pools) do
+function PlayerJournalWindow:BuildTextMetaRow()
 
-        if tabName ~= activeTab then
-            for _, row in ipairs(pool) do
-                row:Hide()
-            end
-        end
+    local row = CreateFrame("Frame", nil, self.ScrollChild)
 
+    local textLine = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    textLine:SetPoint("TOPLEFT", 6, 0)
+    textLine:SetJustifyH("LEFT")
+    textLine:SetWordWrap(true)
+
+    local metaLine = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    metaLine:SetPoint("TOPLEFT", textLine, "BOTTOMLEFT", 0, -2)
+    metaLine:SetJustifyH("LEFT")
+
+    row.TextLine = textLine
+    row.MetaLine = metaLine
+
+    return row
+
+end
+
+-- UX Audit -- rendering/lifecycle fix. Confirmed live: switching tabs left
+-- every previous tab's own widgets fully visible, overlapping the new
+-- tab's content (Search's result rows and Favorites checkbox, Personal
+-- Notes' tag grid, all still shown on top of Community Observations).
+--
+-- Root cause: this function used to only hide self.Pools[tabName] rows --
+-- the bare FontString lines LayoutLines/GetPool manage. Every tab's OWN
+-- dynamically-created widgets (buttons, edit boxes, checkboxes, and the
+-- Frame-based rows BuildTextMetaRow/BuildSearchResultRow build) are
+-- stored under their own tab-specific fields (self.SearchBox,
+-- self.TagButtonPool, self.ObservationRowPool, etc.), entirely outside
+-- self.Pools -- this function never knew they existed, so nothing ever
+-- hid them on a tab switch. Not a Community Observations bug, or a
+-- Search/Personal Notes bug -- every tab that creates anything other
+-- than plain LayoutLines text independently falls into this same gap.
+--
+-- Fix: hide everything ScrollChild owns, unconditionally, before the
+-- newly active tab's own Build<Tab>Tab() runs -- both GetChildren()
+-- (Frame-type widgets: buttons, edit boxes, checkboxes, pooled row
+-- frames) and GetRegions() (bare Region-type widgets: LayoutLines'
+-- FontStrings, Personal Notes' TagGridHeader). This replaces the old
+-- self.Pools-only sweep entirely rather than layering alongside it, since
+-- it's a strict superset of what that sweep did. Safe even for the
+-- soon-to-be-active tab's own widgets: every Build<Tab>Tab() already
+-- re-:Show()s exactly what it currently needs on every single call
+-- (that's how re-rendering the same tab already worked), so nothing
+-- legitimate is lost -- only stale leftovers from whichever tab was
+-- previously active. GetPool/LayoutLines' own reuse-across-refreshes
+-- pooling (self.Pools) is unrelated to this and stays untouched.
+function PlayerJournalWindow:ClearTabContent()
+
+    for _, child in ipairs({ self.ScrollChild:GetChildren() }) do
+        child:Hide()
+    end
+
+    for _, region in ipairs({ self.ScrollChild:GetRegions() }) do
+        region:Hide()
     end
 
 end
@@ -288,7 +370,14 @@ function PlayerJournalWindow:RefreshIdentityHeader()
 
     if not record then
 
+        -- StyleWindowTitle (Initialize) colors this gold by default, same
+        -- as every other BaseWindow's static title -- but this title
+        -- doubles as a status line, and gold reads as "a real selection,"
+        -- not "nothing selected." Reset to the same plain white the tab
+        -- bar's own unselected buttons use (ShowTab, below) whenever
+        -- there's no record to highlight gold for.
         self.IdentityText:SetText(AC.L:Get("PlayerJournal.NoPlayerSelected"))
+        self.IdentityText:SetTextColor(1, 1, 1)
         self.FavoriteButton:Hide()
 
         return
@@ -301,6 +390,71 @@ function PlayerJournalWindow:RefreshIdentityHeader()
     local isFavorite = journalModule:IsFavorite(self.CurrentPlayerKey)
     self.FavoriteButton:SetText(isFavorite and AC.L:Format("PlayerJournal.FavoriteOn", AC.DashboardFormat.STAR_FILLED) or AC.L:Get("PlayerJournal.FavoriteOff"))
     self.FavoriteButton:Show()
+
+end
+
+-- Every tab except Search is scoped to whichever player CurrentPlayerKey
+-- names -- Search is the one tab that browses the whole journal rather
+-- than a single player, and is exactly where the shared "No Player
+-- Selected" state below points.
+local PLAYER_SCOPED_TABS =
+{
+    Overview = true,
+    History = true,
+    Statistics = true,
+    PersonalNotes = true,
+    CommunityObservations = true,
+    Timeline = true,
+}
+
+-------------------------------------------------------------------------------
+-- No Player Selected
+--
+-- UX Audit -- shell-owned. Every player-scoped tab used to duplicate this
+-- exact check independently: Overview/Statistics/PersonalNotes each
+-- rendered their own copy of "No player selected"; History/Timeline
+-- instead conflated it with their own "nothing recorded yet" empty state
+-- ("No run history with this player yet." reads as if a player IS
+-- selected but has none -- misleading when nobody is selected at all);
+-- Community Observations had no gate whatsoever, showing its own empty
+-- state and a live Add Observation button with no player to act on. One
+-- fact -- deciding whether a player is currently selected only ever
+-- needs to happen once, here, before any player-scoped tab renders.
+-------------------------------------------------------------------------------
+
+function PlayerJournalWindow:BuildNoPlayerSelectedTab()
+
+    local lines =
+    {
+        { text = AC.L:Get("PlayerJournal.NoPlayerSelectedTitle"), r = 1, g = 0.82, b = 0 },
+        AC.L:Get("PlayerJournal.NoPlayerSelectedDescription"),
+    }
+
+    local yOffset = self:LayoutLines("NoPlayerSelected", lines, -4, self.CONTENT_WIDTH)
+
+    yOffset = yOffset - 4
+
+    if not self.NoPlayerGoToSearchButton then
+
+        local button = CreateFrame("Button", nil, self.ScrollChild, "UIPanelButtonTemplate")
+        button:SetSize(130, 22)
+        button:SetText(AC.L:Get("PlayerJournal.GoToSearch"))
+
+        button:SetScript("OnClick", function()
+            self:NavigateTab("Search")
+        end)
+
+        self.NoPlayerGoToSearchButton = button
+
+    end
+
+    self.NoPlayerGoToSearchButton:ClearAllPoints()
+    self.NoPlayerGoToSearchButton:SetPoint("TOPLEFT", 6, yOffset)
+    self.NoPlayerGoToSearchButton:Show()
+
+    yOffset = yOffset - 22
+
+    return (-yOffset) + 16
 
 end
 
@@ -322,24 +476,35 @@ function PlayerJournalWindow:ShowTab(tabName)
 
     end
 
-    self:HideOtherTabs(tabName)
+    self:ClearTabContent()
+
+    local journalModule = AC.Core and AC.Core:GetModule("PlayerJournal")
+    local hasPlayer = journalModule and self.CurrentPlayerKey and journalModule:GetPlayerRecord(self.CurrentPlayerKey) ~= nil
 
     local contentHeight = 1
 
-    if tabName == "Overview" and self.BuildOverviewTab then
-        contentHeight = self:BuildOverviewTab()
-    elseif tabName == "History" and self.BuildHistoryTab then
-        contentHeight = self:BuildHistoryTab()
-    elseif tabName == "Statistics" and self.BuildStatisticsTab then
-        contentHeight = self:BuildStatisticsTab()
-    elseif tabName == "PersonalNotes" and self.BuildPersonalNotesTab then
-        contentHeight = self:BuildPersonalNotesTab()
-    elseif tabName == "CommunityNotes" and self.BuildCommunityNotesTab then
-        contentHeight = self:BuildCommunityNotesTab()
-    elseif tabName == "Timeline" and self.BuildTimelineTab then
-        contentHeight = self:BuildTimelineTab()
-    elseif tabName == "Search" and self.BuildSearchTab then
-        contentHeight = self:BuildSearchTab()
+    if PLAYER_SCOPED_TABS[tabName] and not hasPlayer then
+
+        contentHeight = self:BuildNoPlayerSelectedTab()
+
+    else
+
+        if tabName == "Overview" and self.BuildOverviewTab then
+            contentHeight = self:BuildOverviewTab()
+        elseif tabName == "History" and self.BuildHistoryTab then
+            contentHeight = self:BuildHistoryTab()
+        elseif tabName == "Statistics" and self.BuildStatisticsTab then
+            contentHeight = self:BuildStatisticsTab()
+        elseif tabName == "PersonalNotes" and self.BuildPersonalNotesTab then
+            contentHeight = self:BuildPersonalNotesTab()
+        elseif tabName == "CommunityObservations" and self.BuildCommunityObservationsTab then
+            contentHeight = self:BuildCommunityObservationsTab()
+        elseif tabName == "Timeline" and self.BuildTimelineTab then
+            contentHeight = self:BuildTimelineTab()
+        elseif tabName == "Search" and self.BuildSearchTab then
+            contentHeight = self:BuildSearchTab()
+        end
+
     end
 
     self.ScrollChild:SetHeight(math.max(contentHeight or 1, 1))
@@ -347,19 +512,50 @@ function PlayerJournalWindow:ShowTab(tabName)
 
 end
 
+-- Sibling-tab switch (the tab bar, the shell's own "Go to Search" button)
+-- -- Overview/History/Statistics/etc. for the SAME player are lateral, not
+-- a drill-down, so this updates the navigation stack's current entry
+-- in place (AC.NavigationService:Replace) rather than pushing a new one.
+-- A later cross-window GoBack still lands on whichever tab was actually
+-- last viewed, without every tab click becoming its own back-step.
+function PlayerJournalWindow:NavigateTab(tabName)
+
+    self:ShowTab(tabName)
+
+    AC.NavigationService:Replace(AC.NavigationService.Windows.PlayerJournal, tabName, { playerKey = self.CurrentPlayerKey })
+
+end
+
 -------------------------------------------------------------------------------
 -- Show / Hide / Toggle
 -------------------------------------------------------------------------------
 
+-- The one entry point every external caller (context menu, the end-of-run
+-- popup) and Search's own result-row click already use -- always a real
+-- drill-down (a specific player, possibly a different one from whatever
+-- was showing before), so this always pushes through AC.NavigationService
+-- rather than rendering directly. RestoreNavigation below is the other
+-- half -- the actual render logic (RefreshIdentityHeader/ShowTab) lives
+-- there now, reached identically whether by a fresh Show(), GoBack(), or
+-- ESC.
 function PlayerJournalWindow:Show(playerKey)
 
     if playerKey then
         self.CurrentPlayerKey = playerKey
     end
 
-    self:RefreshIdentityHeader()
-    self:ShowTab(self.CurrentTab or "Overview")
+    AC.NavigationService:Push(AC.NavigationService.Windows.PlayerJournal, self.CurrentTab or AC.NavigationService.Views.PlayerJournal.Overview, { playerKey = self.CurrentPlayerKey })
+
+end
+
+-- Dispatched here by AC.NavigationService:Restore().
+function PlayerJournalWindow:RestoreNavigation(entry)
+
+    self.CurrentPlayerKey = entry.Context and entry.Context.playerKey
+
     self.Frame:Show()
+    self:RefreshIdentityHeader()
+    self:ShowTab(entry.View)
 
 end
 
@@ -374,7 +570,7 @@ end
 function PlayerJournalWindow:Toggle(playerKey)
 
     if self.Frame and self.Frame:IsShown() and not playerKey then
-        self:Hide()
+        AC.NavigationService:GoBack()
     else
         self:Show(playerKey)
     end

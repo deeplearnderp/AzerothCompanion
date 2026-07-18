@@ -217,59 +217,15 @@ function Dashboard:Create()
     frame.SettingsButton = settingsButton
 
     -----------------------------------------------------------------------
-    -- Keyboard Navigation (Navigation UX Sprint)
+    -- Keyboard Navigation
     --
-    -- EnableKeyboard(true) is set once, here, for the lifetime of this
-    -- frame -- it does NOT globally capture keys: WoW does not dispatch
-    -- OnKeyDown to a hidden frame, so this only ever intercepts anything
-    -- while the Dashboard itself is actually shown, which is exactly
-    -- "only while Azeroth Companion has focus." Every key this handler
-    -- doesn't explicitly recognize is propagated (SetPropagateKeyboardInput(true))
-    -- so normal keybinds/movement/chat are never affected while the
-    -- Dashboard happens to be open.
-    --
-    -- Both branches call the exact same Dashboard:GoBack()/CanGoBack()
-    -- the Back button itself calls (Sections.lua's CreateDataPage) -- no
-    -- second copy of "is there anywhere to go back to."
-    --
-    -- NOT independently verified against a live client this pass: whether
-    -- an open chat EditBox's own keyboard focus takes priority over this
-    -- frame's EnableKeyboard for Backspace while both are active at once
-    -- (e.g. Dashboard open, player typing a chat message). WoW's EditBox
-    -- focus and plain-Frame EnableKeyboard are understood to be separate
-    -- mechanisms, but this specific interaction needs an in-game check,
-    -- not an assumption -- see the live verification checklist.
-    -----------------------------------------------------------------------
-
-    frame:EnableKeyboard(true)
-
-    frame:SetScript("OnKeyDown", function(self, key)
-
-        if key == "ESCAPE" then
-
-            if Dashboard:CanGoBack() then
-                Dashboard:GoBack()
-            else
-                Dashboard:Hide()
-            end
-
-            self:SetPropagateKeyboardInput(false)
-
-        elseif key == "BACKSPACE" and Dashboard:CanGoBack() then
-
-            -- Backspace has no defined action when there's nowhere to go
-            -- back to (unlike Escape, which always does something) --
-            -- propagate in that case rather than silently swallowing a
-            -- key that did nothing.
-            Dashboard:GoBack()
-            self:SetPropagateKeyboardInput(false)
-
-        else
-            self:SetPropagateKeyboardInput(true)
-        end
-
-    end)
-
+    -- Retired -- ESC/ back is no longer Dashboard's own concern. AC.
+    -- NavigationService (Core/UI/Shared/NavigationService.lua) now runs
+    -- one shared keyboard listener for the whole addon, not one per
+    -- window, and Dashboard's Back button (Sections.lua's CreateDataPage)
+    -- calls the same NavigationService:GoBack() that listener does. Backspace-
+    -- as-back was this frame's own addition, not something requested
+    -- elsewhere -- it is not carried forward into the shared listener.
     -----------------------------------------------------------------------
     -- Content Area
     --
@@ -310,13 +266,10 @@ function Dashboard:Create()
     local homePage = CreateFrame("Frame", nil, contentArea)
     homePage:SetAllPoints(contentArea)
 
-    local homeScrollFrame = Dashboard:CreatePageScrollFrame(homePage, 0, 0)
-
-    local homeScrollChild = CreateFrame("Frame", nil, homeScrollFrame)
-    homeScrollChild:SetWidth(Layout.WINDOW_WIDTH - Layout.SCROLLBAR_RESERVE)
-    homeScrollChild:SetHeight(1)
-
-    homeScrollFrame:SetScrollChild(homeScrollChild)
+    -- Content width omitted -- CreatePageScrollFrame's own default
+    -- (leftInset 0) already produces WINDOW_WIDTH - SCROLLBAR_RESERVE, the
+    -- exact formula this used to compute by hand here.
+    local homeScrollFrame, homeScrollChild = Dashboard:CreatePageScrollFrame(homePage, 0, 0)
 
     homePage.ScrollFrame = homeScrollFrame
     homePage.ScrollChild = homeScrollChild
@@ -1184,9 +1137,15 @@ function Dashboard:UpdateContent(frame)
     -----------------------------------------------------------------------
     -- Storage Card
     --
-    -- Storage readiness is only shown while StorageModule confirms that
-    -- bank data is currently accessible. The module has no persisted scan
-    -- marker yet, so a closed bank is unknown rather than an empty bank.
+    -- Shares StorageModule:GetReadinessFacts() with Inventory Manager and
+    -- the Dashboard Storage page -- live-preferred, falling back to the
+    -- Storage Knowledge Base's persisted analysis when nothing has been
+    -- scanned yet this session (same one/other-never-merged rule
+    -- GetSnapshot/GetStorageReadinessText already follow). This card
+    -- renders its own richer layout (bar value, shopping-list/withdraw
+    -- detail sections) rather than AC.DashboardFormat.GetStorageReadinessText's
+    -- plain string, but reads the exact same facts object as that string
+    -- would -- no second readiness computation.
     -----------------------------------------------------------------------
 
     local storageModule = AC.Core and AC.Core:GetModule("Storage")
@@ -1197,33 +1156,34 @@ function Dashboard:UpdateContent(frame)
 
         if storageProfile then
 
-            local bankSummary = storageModule:GetBankSummary()
+            local facts = storageModule.GetReadinessFacts and storageModule:GetReadinessFacts(storageProfile.id) or { enabled = false }
+            local readiness = facts.live or facts.historical
 
             frame.StorageCard:SetPrimaryValue(AC.L:Get(storageProfile.label))
 
-            if bankSummary.accessible then
+            if readiness then
 
-                local analysis = storageModule:AnalyzeProfile(storageProfile.id)
-                local ready = #analysis.missing == 0 and #analysis.withdrawals == 0
+                local missing = readiness.missing or {}
+                local withdrawals = readiness.withdrawals or {}
 
-                if ready then
+                if readiness.ready then
                     frame.StorageCard:SetSecondaryText(AC.L:Get("Dashboard.StorageReady"))
                     frame.StorageCard:SetStatus("Normal", AC.L:Get("Dashboard.StatusHealthy"))
-                    frame.StorageCard:SetBarValue(analysis.readinessPercent or 100, unpack(AC.Presentation.GetSemanticColor("success")))
+                    frame.StorageCard:SetBarValue(readiness.readinessPercent or 100, unpack(AC.Presentation.GetSemanticColor("success")))
                 else
-                    frame.StorageCard:SetSecondaryText(AC.L:Format("Dashboard.StorageMissingFormat", #analysis.missing + #analysis.withdrawals))
+                    frame.StorageCard:SetSecondaryText(AC.L:Format("Dashboard.StorageMissingFormat", #missing + #withdrawals))
                     frame.StorageCard:SetStatus("Warning", "")
-                    frame.StorageCard:SetBarValue(analysis.readinessPercent or 0, unpack(AC.Presentation.GetSemanticColor("warning")))
+                    frame.StorageCard:SetBarValue(readiness.readinessPercent or 0, unpack(AC.Presentation.GetSemanticColor("warning")))
                 end
 
                 local sections = {}
 
-                if #analysis.withdrawals > 0 then
-                    table.insert(sections, { label = AC.L:Get("Dashboard.SectionItemsMissing"), text = AC.L:Format("Dashboard.StorageWithdrawCountFormat", #analysis.withdrawals) })
+                if #withdrawals > 0 then
+                    table.insert(sections, { label = AC.L:Get("Dashboard.SectionItemsMissing"), text = AC.L:Format("Dashboard.StorageWithdrawCountFormat", #withdrawals) })
                 end
 
-                if #analysis.missing > 0 then
-                    table.insert(sections, { label = AC.L:Get("Dashboard.SectionShoppingList"), text = AC.L:Format("Dashboard.StorageShoppingCountFormat", #analysis.missing) })
+                if #missing > 0 then
+                    table.insert(sections, { label = AC.L:Get("Dashboard.SectionShoppingList"), text = AC.L:Format("Dashboard.StorageShoppingCountFormat", #missing) })
                 end
 
                 frame.StorageCard:SetDetailSections(sections)

@@ -3,8 +3,11 @@
 -- Dashboard Page: Storage Summary
 --
 -- The Dashboard answers "How prepared am I?" and links to the dedicated
--- Inventory Manager workspace. StorageModule remains the owner of every fact;
--- this page renders only a live, authoritative summary.
+-- Inventory Manager workspace. StorageModule remains the owner of every
+-- fact; this page renders a live summary when one exists this session, and
+-- falls back to the Storage Knowledge Base's persisted snapshot otherwise
+-- (same live/historical distinction as the Overview page, just compact --
+-- see AC.DashboardFormat.GetStorageReadinessText).
 -------------------------------------------------------------------------------
 
 local AC = _G.AzerothCompanion
@@ -25,31 +28,29 @@ function Dashboard:UpdateStoragePage(frame)
     local storageModule = AC.Core and AC.Core:GetModule("Storage")
     local enabled = storageModule and storageModule.IsModuleEnabled and storageModule:IsModuleEnabled()
     local profile = enabled and storageModule:GetActiveProfile() or nil
-    local bankSummary = enabled and storageModule:GetBankSummary() or { accessible = false }
-    local hasLiveScan = bankSummary.accessible == true
+    local facts = enabled and storageModule.GetReadinessFacts and storageModule:GetReadinessFacts(profile and profile.id) or { enabled = false }
+    local lastKnownStorage = enabled and storageModule:GetLastKnownStorage() or nil
     local lastScan = enabled and storageModule:GetLastScan() or nil
-    local preparation = hasLiveScan and profile and storageModule:GetPreparationStatus(profile.id) or nil
+    local lastScanTimestamp = lastScan and lastScan.timestamp or (lastKnownStorage and lastKnownStorage.metadata.timestamp)
+
+    -- Same "is there anything to show at all, live or carried over from a
+    -- prior login" distinction the Inventory Manager Overview page makes
+    -- (see BuildOverviewPage's hasAnyData) -- this compact summary should
+    -- never disagree with that page about whether data exists.
+    local hasAnyData = facts.hasLiveScan or lastKnownStorage ~= nil
     local recommendations = {}
 
-    if hasLiveScan then
+    if facts.hasLiveScan then
         recommendations = self:GetCategorizedRecommendationsAndInsights("Storage")
+    elseif lastKnownStorage then
+        recommendations = (lastKnownStorage.analysis and lastKnownStorage.analysis.recommendations) or {}
     end
 
     local function Layout_(width)
 
         page.ContentWidth = width
 
-        local readinessText = AC.L:Get("Common.Unknown")
-
-        if preparation then
-
-            if preparation.ready then
-                readinessText = AC.L:Get("InventoryManager.Ready")
-            else
-                readinessText = AC.L:Format("InventoryManager.ReadinessFormat", preparation.readinessPercent or 0)
-            end
-
-        end
+        local readinessText = AC.DashboardFormat.GetStorageReadinessText(facts)
 
         local _, _, _, yOffset = self:BuildHeroSection(
             page,
@@ -64,10 +65,10 @@ function Dashboard:UpdateStoragePage(frame)
         yOffset = self:LayoutStatisticsGrid(page, "StorageSummary", page.ScrollChild, yOffset, width,
         {
             { label = "InventoryManager.StatCurrentProfile", value = profile and AC.L:Get(profile.label) or AC.L:Get("Storage.NoProfileSelected") },
-            { label = "InventoryManager.StatLastScan", value = lastScan and AC.Presentation.FormatDate(lastScan.timestamp, "shortTime") or AC.L:Get("InventoryManager.LastScanUnknown") },
+            { label = "InventoryManager.StatLastScan", value = lastScanTimestamp and AC.Presentation.FormatDate(lastScanTimestamp, "shortTime") or AC.L:Get("InventoryManager.LastScanUnknown") },
         })
 
-        if not hasLiveScan then
+        if not hasAnyData then
             yOffset = self:BeginSection(page.ScrollChild, "InventoryManager.NoScanTitle", yOffset)
             yOffset = self:ShowEmptyLine(page, page.ScrollChild, "NoScanText", yOffset, width, "InventoryManager.NoScanDescription")
             yOffset = self:EndSection(yOffset)
@@ -85,7 +86,19 @@ function Dashboard:UpdateStoragePage(frame)
 
         end
 
-        yOffset = self:AppendDynamicSection(page, "Recommendations", "InventoryManager.SectionRecommendations", yOffset, recommendations, hasLiveScan and "Weekly.NoRecommendations" or "InventoryManager.DataRequiresScan", true)
+        -- Compact stand-in for Overview's full "Live Storage Status"
+        -- section -- this page's role is a summary (Progressive
+        -- Disclosure), so relying on carried-over Storage Knowledge Base
+        -- data instead of a fresh scan this session gets one line, not an
+        -- entire section.
+        if hasAnyData and not facts.hasLiveScan and lastScanTimestamp then
+            yOffset = self:ShowEmptyLineText(page, page.ScrollChild, "HistoricalNote", yOffset, width,
+                AC.L:Format("InventoryManager.StaleDataAvailable", AC.Presentation.FormatDate(lastScanTimestamp, "shortTime")))
+        elseif page.HistoricalNote then
+            page.HistoricalNote:Hide()
+        end
+
+        yOffset = self:AppendDynamicSection(page, "Recommendations", "InventoryManager.SectionRecommendations", yOffset, recommendations, hasAnyData and "Weekly.NoRecommendations" or "InventoryManager.DataRequiresScan", true)
 
         yOffset = self:BeginSection(page.ScrollChild, "InventoryManager.WorkspaceSection", yOffset)
         yOffset = self:ShowEmptyLine(page, page.ScrollChild, "WorkspaceText", yOffset, width, "InventoryManager.WorkspaceDescription")

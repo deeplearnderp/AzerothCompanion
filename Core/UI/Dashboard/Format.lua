@@ -156,6 +156,52 @@ function DashboardFormat.GetEquipmentHealthTier(worstDurability, brokenItems)
 end
 
 -------------------------------------------------------------------------------
+-- Storage Readiness Text
+--
+-- Turns StorageModule:GetReadinessFacts() (live readiness, historical
+-- Storage-Knowledge-Base readiness, no wording) into the actual
+-- "Ready" / "62% Ready" / "Bank Not Connected" / "No Storage Snapshot"
+-- string -- same module-owns-data / Dashboard-owns-presentation split as
+-- GetEquipmentHealthTier above. Single home for this branch logic,
+-- shared by InventoryManager and the Dashboard Storage page so both
+-- always render the same wording for the same facts.
+-------------------------------------------------------------------------------
+
+function DashboardFormat.GetStorageReadinessText(facts)
+
+    if not facts or not facts.enabled then
+        return AC.L:Get("Common.Unknown")
+    end
+
+    if facts.hasLiveScan then
+
+        if not facts.live then
+            return AC.L:Get("InventoryManager.BankNotConnected")
+        end
+
+        if facts.live.ready then
+            return AC.L:Get("InventoryManager.Ready")
+        end
+
+        return AC.L:Format("InventoryManager.ReadinessFormat", facts.live.readinessPercent or 0)
+
+    end
+
+    if facts.historical then
+
+        if facts.historical.ready then
+            return AC.L:Get("InventoryManager.Ready")
+        end
+
+        return AC.L:Format("InventoryManager.ReadinessFormat", facts.historical.readinessPercent or 0)
+
+    end
+
+    return AC.L:Get("InventoryManager.NoSnapshotTitle")
+
+end
+
+-------------------------------------------------------------------------------
 -- Accordion Disclosure Glyphs
 --
 -- Accordion Polish Pass -- expand/collapse indicators for

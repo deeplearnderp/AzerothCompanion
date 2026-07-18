@@ -22,6 +22,16 @@
 -- VerificationService's registry. Nothing else in this feature depends
 -- on this hook succeeding -- the Journal window opens via the minimap
 -- icon, slash command, and Dashboard regardless.
+--
+-- MENU_UNIT_SELF -- live testing (Retail 12.0.7) showed the submenu
+-- never appears when right-clicking your own player frame, or your
+-- target frame while self-targeted. Traced against Blizzard's own
+-- current client source rather than guessed: right-clicking yourself
+-- resolves to a "SELF" which-value, a genuinely separate UnitPopup
+-- registration from "PLAYER" (used for other, out-of-group players) --
+-- see TAGS_TO_HOOK's own comment below for the full trace. MENU_UNIT_PLAYER
+-- was never going to fire for a self-context menu; it was never wired to
+-- the wrong condition, it was just never the right tag to begin with.
 -------------------------------------------------------------------------------
 
 local AC = _G.AzerothCompanion
@@ -78,6 +88,21 @@ local function ResolvePlayerKey(contextData)
     local resolvedRealm = (realm and realm ~= "") and realm or (GetRealmName and GetRealmName()) or ""
 
     return name .. "-" .. resolvedRealm, name, resolvedRealm
+
+end
+
+-- "Is the right-clicked player the current character?" -- compared
+-- against the already-resolved name/realm above, not a second read of
+-- contextData.unit. Not every hooked tag guarantees a live unit token
+-- (see ResolvePlayerKey's own name/server fallback branch), so a
+-- UnitIsUnit(contextData.unit, "player") check would only work for the
+-- subset that does; this covers every tag uniformly with values already
+-- in hand. UnitName("player")/GetRealmName() are ordinary, always-safe
+-- calls -- a literal "player" token, never a value read from inside this
+-- secure callback -- unlike contextData.unit itself.
+local function IsCurrentPlayer(name, realm)
+
+    return name == UnitName("player") and realm == GetRealmName()
 
 end
 
@@ -176,6 +201,8 @@ local function AddPlayerJournalSubmenu(_, rootDescription, contextData)
         return
     end
 
+    local isSelf = IsCurrentPlayer(name, realm)
+
     -- Calling :CreateButton() again on the element CreateButton just
     -- returned turns it into a submenu automatically (confirmed via
     -- Warcraft Wiki's Blizzard Menu implementation guide) -- exactly one
@@ -187,6 +214,21 @@ local function AddPlayerJournalSubmenu(_, rootDescription, contextData)
 
         local journalWindow = AC.Core and AC.Core:GetModule("PlayerJournalWindow")
 
+        -- Ensures a journal record exists first (same GetOrCreatePlayerRecord
+        -- call Quick Note/Favorite/Add Observation already make) --
+        -- without it, a player with zero prior journal interaction (every
+        -- self-context menu, since nothing ever auto-tracks yourself, and
+        -- any other player never otherwise interacted with) has no record
+        -- yet, and the Journal's own shell-level "no player selected" gate
+        -- (PlayerJournalWindow:ShowTab) reads "no record" as "nobody
+        -- selected" -- opening to the wrong state even though a specific
+        -- player was clearly chosen.
+        local journalModule = AC.Core and AC.Core:GetModule("PlayerJournal")
+
+        if journalModule then
+            journalModule:GetOrCreatePlayerRecord({ key = playerKey, name = name, realm = realm, classFile = "" })
+        end
+
         if journalWindow then
             journalWindow:Show(playerKey)
         end
@@ -194,8 +236,95 @@ local function AddPlayerJournalSubmenu(_, rootDescription, contextData)
     end)
 
     local journalModule = AC.Core and AC.Core:GetModule("PlayerJournal")
+    local communityModule = AC.Core and AC.Core:GetModule("Community")
 
-    submenu:CreateButton(AC.L:Get("PlayerJournal.MenuQuickNote"), function()
+    -- Community Observations submenu -- gated on the whole feature being
+    -- enabled (not on the player already having observations, unlike the
+    -- old flat "Hide Community Notes" checkbox this replaces) since
+    -- "Add Observation" must be reachable for a player with zero
+    -- observations too. Nested one level deeper than
+    -- AddPlayerJournalSubmenu's own top-level button -- the same
+    -- CreateButton-called-twice submenu-promotion mechanic (see this
+    -- function's own header comment), not yet independently confirmed at
+    -- this nesting depth; flagged alongside ctxmenu.modifyMenu in
+    -- VerificationService.
+    if communityModule and communityModule:IsModuleEnabled() then
+
+        local communitySubmenu = submenu:CreateButton(AC.L:Get("PlayerJournal.MenuCommunityObservations"))
+
+        -- Self-observations are a first-class case, not a special mode --
+        -- "View"/"Add" call the exact same click handlers either way (a
+        -- self-observation is stored, retrieved, and dialog-filled through
+        -- the identical CommunityModule/ObservationDialog API as any other
+        -- player's), only the label text differs. No duplicate code path.
+        local viewLabel = isSelf and AC.L:Get("PlayerJournal.MenuViewMyObservations") or AC.L:Get("PlayerJournal.MenuViewObservations")
+        local addLabel = isSelf and AC.L:Get("PlayerJournal.MenuAddObservationAboutMyself") or AC.L:Get("PlayerJournal.MenuAddObservation")
+
+        communitySubmenu:CreateButton(viewLabel, function()
+
+            local journalWindow = AC.Core and AC.Core:GetModule("PlayerJournalWindow")
+
+            -- Same reasoning as "Open Player Journal" above -- ensures a
+            -- record exists before Show()/ShowTab() so the shell's "no
+            -- player selected" gate never fires for a player who was
+            -- clearly just chosen.
+            if journalModule then
+                journalModule:GetOrCreatePlayerRecord({ key = playerKey, name = name, realm = realm, classFile = "" })
+            end
+
+            if journalWindow then
+                journalWindow:Show(playerKey)
+                journalWindow:NavigateTab("CommunityObservations")
+            end
+
+        end)
+
+        -- "No hunting through windows" -- opens AC.ObservationDialog
+        -- directly, without opening the Journal at all. Ensures a journal
+        -- record exists first (same GetOrCreatePlayerRecord call Quick
+        -- Note/Favorite already make) so the "Hide" checkbox below and the
+        -- tab's own identity header have a record to attach to the moment
+        -- this observation is saved.
+        communitySubmenu:CreateButton(addLabel, function()
+
+            if journalModule then
+                journalModule:GetOrCreatePlayerRecord({ key = playerKey, name = name, realm = realm, classFile = "" })
+            end
+
+            AC.ObservationDialog:Show(playerKey, name, realm)
+
+        end)
+
+        -- Hiding your own observations from yourself makes no sense --
+        -- omitted entirely for self rather than shown and disabled, the
+        -- same "don't show a control that can't mean anything" discipline
+        -- the rest of this addon already follows.
+        if not isSelf and #communityModule:GetObservationsForPlayer(playerKey) > 0 then
+
+            -- Explicit, per-player wording -- "Hide Observations" alone is
+            -- ambiguous (hide this player's observations? ignore this
+            -- author? hide the whole section? disable the feature?). This
+            -- toggle is specifically "don't show me THIS player's
+            -- observations," so it names the player directly, the same
+            -- way Blizzard's own unit-context-menu items do (Whisper
+            -- <name>, Invite <name> to Party).
+            communitySubmenu:CreateCheckbox(AC.L:Format("PlayerJournal.MenuHideObservationsFormat", name),
+                function() return journalModule and journalModule:GetPlayerRecord(playerKey) and journalModule:GetPlayerRecord(playerKey).hideCommunityNotes == true end,
+                function()
+
+                    local record = journalModule and journalModule:GetPlayerRecord(playerKey)
+
+                    if record then
+                        record.hideCommunityNotes = not record.hideCommunityNotes
+                    end
+
+                end)
+
+        end
+
+    end
+
+    submenu:CreateButton(AC.L:Get("PlayerJournal.MenuPersonalNotes"), function()
 
         local dialog = StaticPopup_Show("AZEROTHCOMPANION_PLAYERJOURNAL_QUICKNOTE")
 
@@ -222,25 +351,6 @@ local function AddPlayerJournalSubmenu(_, rootDescription, contextData)
 
         end)
 
-    local communityModule = AC.Core and AC.Core:GetModule("Community")
-    local hasCommunityNotes = communityModule and communityModule:IsModuleEnabled() and #communityModule:GetNotesForPlayer(playerKey) > 0
-
-    if hasCommunityNotes then
-
-        submenu:CreateCheckbox(AC.L:Get("PlayerJournal.MenuHideCommunityNotes"),
-            function() return journalModule and journalModule:GetPlayerRecord(playerKey) and journalModule:GetPlayerRecord(playerKey).hideCommunityNotes == true end,
-            function()
-
-                local record = journalModule and journalModule:GetPlayerRecord(playerKey)
-
-                if record then
-                    record.hideCommunityNotes = not record.hideCommunityNotes
-                end
-
-            end)
-
-    end
-
     submenu:CreateButton(AC.L:Get("PlayerJournal.MenuCopyCharacterLink"), function()
 
         local link = name .. (realm and realm ~= "" and ("-" .. realm) or "")
@@ -259,8 +369,23 @@ end
 -- Registration
 -------------------------------------------------------------------------------
 
+-- MENU_UNIT_SELF -- confirmed via Blizzard's own current (12.0.7, build
+-- 68182) client source, not guessed from the tag-name pattern:
+-- UnitPopupManager:OpenMenu() (Interface/AddOns/Blizzard_UnitPopupShared/
+-- UnitPopupShared.lua) builds the Menu.ModifyMenu tag as literally
+-- "MENU_UNIT_" .. which, and UnitPopupSharedMenus.lua registers a SELF
+-- menu ("SELF", UnitPopupMenuSelf) that is a genuinely separate
+-- registration from PLAYER ("PLAYER", UnitPopupMenuPlayer) -- right-
+-- clicking your own player frame, and right-clicking your target frame
+-- while self-targeted (TargetFrame's own dropdown init explicitly checks
+-- UnitIsUnit("target", "player") and switches to "SELF" instead of
+-- "TARGET" when true), both resolve to this one tag. Previously missing
+-- from this list entirely -- Menu.ModifyMenu on an unregistered tag is a
+-- silent no-op, so the submenu never appeared for either self-context
+-- case, not because AddPlayerJournalSubmenu ran and bailed out.
 local TAGS_TO_HOOK =
 {
+    "MENU_UNIT_SELF",
     "MENU_UNIT_PARTY",
     "MENU_UNIT_PLAYER",
     "MENU_UNIT_RAID_PLAYER",

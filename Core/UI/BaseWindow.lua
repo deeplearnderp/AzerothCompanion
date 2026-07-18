@@ -84,11 +84,22 @@ end
 --
 -- The standard top-right close button every standalone window
 -- (DiagnosticsWindow, SettingsWindow, PlayerJournalWindow,
--- DeveloperPanel) wired up identically -- extracted here once a fourth
--- window repeated the exact same five lines. `owner` is whichever object
--- the window's own Show/Hide lifecycle lives on (almost always the same
--- table that called BaseWindow:Create) -- clicking Close calls
--- `owner:Hide()`, never assumes it's `frame` itself.
+-- DeveloperPanel, InventoryManager, ObservationDialog) wired up
+-- identically -- extracted here once a fourth window repeated the exact
+-- same five lines. `owner` is whichever object the window's own Show/Hide
+-- lifecycle lives on (almost always the same table that called
+-- BaseWindow:Create).
+--
+-- Navigation System -- clicking Close is a dismissal exactly like ESC or
+-- a Back button, not a special third behavior: if this window is what
+-- AC.NavigationService currently has on top of its stack, Close routes
+-- through the same GoBack() ESC/Back already call, so the stack and what's
+-- actually on screen never disagree (a plain owner:Hide() would leave the
+-- stack still thinking this window is current, breaking the next ESC
+-- press). Falls back to the original owner:Hide() when this window isn't
+-- the tracked top -- e.g. DiagnosticsWindow, which never registers with
+-- NavigationService at all -- so a window that hasn't opted into the
+-- shared navigation system keeps working exactly as it did before.
 -------------------------------------------------------------------------------
 
 function BaseWindow:AddCloseButton(frame, owner)
@@ -97,12 +108,50 @@ function BaseWindow:AddCloseButton(frame, owner)
     close:SetPoint("TOPRIGHT", -4, -4)
 
     close:SetScript("OnClick", function()
-        owner:Hide()
+
+        if not (AC.NavigationService and AC.NavigationService:GoBackIfCurrent(owner)) then
+            owner:Hide()
+        end
+
     end)
 
     frame.CloseButton = close
 
     return close
+
+end
+
+-------------------------------------------------------------------------------
+-- Add Back Button
+--
+-- The standard top-left Back button for any standalone window that
+-- participates in AC.NavigationService -- calls the exact same GoBack()
+-- ESC and Close already call (there is never a second "go back"
+-- implementation). Visibility is tied to the frame's own OnShow rather
+-- than updated by hand at every navigation call site: every
+-- RestoreNavigation already calls frame:Show() as part of restoring a
+-- screen, so this is correct automatically, for any window, with zero
+-- per-window bookkeeping.
+-------------------------------------------------------------------------------
+
+function BaseWindow:AddBackButton(frame, owner)
+
+    local back = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    back:SetSize(70, 20)
+    back:SetPoint("TOPLEFT", 4, -4)
+    back:SetText(AC.L:Get("App.Back"))
+
+    back:SetScript("OnClick", function()
+        AC.NavigationService:GoBack()
+    end)
+
+    frame:HookScript("OnShow", function()
+        back:SetShown(AC.NavigationService:CanGoBack())
+    end)
+
+    frame.BackButton = back
+
+    return back
 
 end
 

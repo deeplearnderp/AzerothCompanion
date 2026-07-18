@@ -57,8 +57,7 @@ local TABS = { "Overview", "Modules", "Events", "Errors", "SecretValues", "LiveA
 -- Layout Constants
 -------------------------------------------------------------------------------
 
-local CONTENT_PADDING = 16
-local SCROLLBAR_RESERVE = 24
+local CONTENT_PADDING = AC.SharedScrollFrame.PADDING
 
 -- Tab bar geometry -- named here so the width formula below and the tab
 -- button loop in Initialize() both read from the same numbers, instead of
@@ -87,7 +86,7 @@ local TAB_BAR_REQUIRED_WIDTH = CONTENT_PADDING + (#TABS * TAB_BUTTON_WIDTH) + ((
 
 local WINDOW_WIDTH = TAB_BAR_REQUIRED_WIDTH
 local WINDOW_HEIGHT = 620
-local CONTENT_WIDTH = WINDOW_WIDTH - (CONTENT_PADDING * 2) - SCROLLBAR_RESERVE
+local CONTENT_WIDTH = AC.SharedScrollFrame:ContentWidth(WINDOW_WIDTH, CONTENT_PADDING)
 local TAB_BAR_HEIGHT = 26
 local FOOTER_HEIGHT = 68
 local ROW_HEIGHT = 16
@@ -421,15 +420,13 @@ function DeveloperPanel:Initialize()
     contentPanel:SetPoint("BOTTOMRIGHT", -CONTENT_PADDING + 6, FOOTER_HEIGHT - 4)
     AC.Presentation.ApplyCardBackdrop(contentPanel)
 
-    local scrollFrame = CreateFrame("ScrollFrame", nil, self.Frame, "UIPanelScrollFrameTemplate")
-    scrollFrame:SetPoint("TOPLEFT", CONTENT_PADDING, tabTop - TAB_BAR_HEIGHT)
-    scrollFrame:SetPoint("BOTTOMRIGHT", -CONTENT_PADDING, FOOTER_HEIGHT)
-
-    local scrollChild = CreateFrame("Frame", nil, scrollFrame)
-    scrollChild:SetWidth(CONTENT_WIDTH)
-    scrollChild:SetHeight(1)
-
-    scrollFrame:SetScrollChild(scrollChild)
+    -- Scrollbar Extraction -- was a hand-rolled scrollFrame whose right
+    -- anchor only reserved CONTENT_PADDING, never SCROLLBAR_RESERVE, even
+    -- though CONTENT_WIDTH already assumed both were reserved -- the same
+    -- bug Player Journal had. AC.SharedScrollFrame:Create
+    -- (Core/UI/Shared/ScrollFrame.lua) is now the single owner of that
+    -- math, shared with Dashboard and Player Journal.
+    local scrollFrame, scrollChild = AC.SharedScrollFrame:Create(self.Frame, CONTENT_WIDTH, TAB_BAR_HEIGHT - tabTop, CONTENT_PADDING, FOOTER_HEIGHT)
 
     self.ScrollFrame = scrollFrame
     self.ScrollChild = scrollChild
@@ -1029,7 +1026,7 @@ function DeveloperPanel:BuildOverviewTab()
         AddLine("Developer.PlayerJournalStoredPlayers", journalStats.storedPlayers)
         AddLine("Developer.PlayerJournalFavoritePlayers", journalStats.favoritePlayers)
         AddLine("Developer.PlayerJournalTotalNotes", journalStats.totalNotes)
-        AddLine("Developer.PlayerJournalCommunityNotes", journalStats.communityNotes)
+        AddLine("Developer.PlayerJournalCommunityObservations", journalStats.communityObservations)
         AddLine("Developer.PlayerJournalOldestEntry", journalStats.oldestEntry and AC.Presentation.FormatDate(journalStats.oldestEntry, "short") or AC.L:Get("Common.Unknown"))
         AddLine("Developer.PlayerJournalNewestEntry", journalStats.newestEntry and AC.Presentation.FormatDate(journalStats.newestEntry, "short") or AC.L:Get("Common.Unknown"))
         AddLine("Developer.PlayerJournalDatabaseSize", string.format("%.1f KB", journalStats.databaseSize / 1024))

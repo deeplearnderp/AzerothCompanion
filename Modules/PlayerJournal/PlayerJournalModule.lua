@@ -681,14 +681,18 @@ function PlayerJournalModule:GetOrCreatePlayerRecord(identity)
             timelineEvents = {},
             nextNoteID = 1,
 
-            -- Set only via the context menu's "Hide Community Notes"
+            -- Set only via the context menu's "Hide Observations"
             -- checkbox (Core/UI/PlayerJournalContextMenu.lua) -- read by
-            -- the Community Notes tab (Core/UI/PlayerJournal/Tabs/
-            -- CommunityNotes.lua) to skip rendering that player's
-            -- Community Notes. A per-viewer preference, not a moderation
+            -- the Community Observations tab (Core/UI/PlayerJournal/Tabs/
+            -- CommunityObservations.lua) to skip rendering that player's
+            -- observations. A per-viewer preference, not a moderation
             -- action -- it never affects what CommunityModule itself
             -- stores or what any other account would see from a real
-            -- sync backend.
+            -- sync backend. Field name kept as hideCommunityNotes (an
+            -- internal, never-displayed identifier) rather than renamed
+            -- to match Community Observations Phase 1's terminology --
+            -- renaming it would need its own PlayerJournal schema
+            -- migration, unrelated to Community's own.
             hideCommunityNotes = false,
         }
 
@@ -1234,14 +1238,14 @@ function PlayerJournalModule:GetDeveloperStats()
     end
 
     local communityModule = AC.Core and AC.Core:GetModule("Community")
-    local communityNoteCount = communityModule and communityModule.GetTotalNoteCount and communityModule:GetTotalNoteCount() or 0
+    local communityObservationCount = communityModule and communityModule.GetTotalObservationCount and communityModule:GetTotalObservationCount() or 0
 
     return
     {
         storedPlayers = storedPlayers,
         favoritePlayers = favoritePlayers,
         totalNotes = totalNotes,
-        communityNotes = communityNoteCount,
+        communityObservations = communityObservationCount,
         oldestEntry = oldestEntry,
         newestEntry = newestEntry,
         databaseSize = databaseSize,

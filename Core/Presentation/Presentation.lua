@@ -351,7 +351,8 @@ end
 -------------------------------------------------------------------------------
 -- Application Window Background
 --
--- The single decorative identity shared by Dashboard, Settings, and Developer.
+-- The single decorative identity shared by every standalone window
+-- (Dashboard, Settings, Developer Panel, Inventory Manager, Player Journal).
 -- ApplyWindowBackground uses texture-coordinate cropping rather than stretching
 -- the portrait artwork or sizing it beyond a wide window's bounds. The same
 -- helper therefore works for Dashboard's narrow frame and the much wider
@@ -370,16 +371,29 @@ end
 -- WINDOW_BACKGROUND_ASPECT_RATIO (width / height) -- the artwork is confirmed
 -- 957x1643px (read directly from the PNG header), giving 957/1643 =
 -- 0.5825. This is centralized presentation metadata, not window layout.
+--
+-- Atmosphere Pass -- a single flat WINDOW_BACKGROUND_ALPHA competed equally
+-- with every part of every window, including the title bar and tab row,
+-- which is exactly the part of the window that can least afford to lose
+-- contrast. Replaced with a vertical gradient (TextureBase:SetGradient,
+-- confirmed current API as of Patch 10.0.0 -- the old SetGradientAlpha(
+-- orientation, minR,minG,minB,minA, maxR,maxG,maxB,maxA) form was merged
+-- into it and no longer exists) -- darker/near-invisible at the top where
+-- title/tab text lives, a little more present toward the bottom where a
+-- window's content has usually thinned out. "VERTICAL" orientation places
+-- minColor at the texture's bottom and maxColor at its top (confirmed via
+-- Warcraft Wiki, not assumed) -- ALPHA_BOTTOM/ALPHA_TOP are named for what
+-- they visually mean, not for which SetGradient argument slot they land in.
 -------------------------------------------------------------------------------
 
 Presentation.WINDOW_BACKGROUND_TEXTURE = "Interface\\AddOns\\AzerothCompanion\\Images\\background1.png"
-Presentation.WINDOW_BACKGROUND_ALPHA = 0.15
+Presentation.WINDOW_BACKGROUND_ALPHA_TOP = 0.08
+Presentation.WINDOW_BACKGROUND_ALPHA_BOTTOM = 0.22
 Presentation.WINDOW_BACKGROUND_ASPECT_RATIO = 957 / 1643
 
 -- Backward-compatible names for any developer tooling that inspected the
 -- original Dashboard-specific constants directly.
 Presentation.DASHBOARD_BACKGROUND_TEXTURE = Presentation.WINDOW_BACKGROUND_TEXTURE
-Presentation.DASHBOARD_BACKGROUND_ALPHA = Presentation.WINDOW_BACKGROUND_ALPHA
 Presentation.DASHBOARD_BACKGROUND_ASPECT_RATIO = Presentation.WINDOW_BACKGROUND_ASPECT_RATIO
 
 function Presentation.ApplyWindowBackground(frame)
@@ -431,7 +445,13 @@ function Presentation.ApplyWindowBackground(frame)
     end
 
     background:SetTexture(Presentation.WINDOW_BACKGROUND_TEXTURE)
-    background:SetAlpha(Presentation.WINDOW_BACKGROUND_ALPHA)
+
+    -- VERTICAL places minColor at the bottom, maxColor at the top -- the
+    -- bottom gets the higher (more visible) alpha, the top gets the lower
+    -- one, so title bars and tab rows keep their contrast.
+    background:SetGradient("VERTICAL",
+        CreateColor(1, 1, 1, Presentation.WINDOW_BACKGROUND_ALPHA_BOTTOM),
+        CreateColor(1, 1, 1, Presentation.WINDOW_BACKGROUND_ALPHA_TOP))
 
     if not frame.AzerothCompanionWindowBackgroundHooked then
 

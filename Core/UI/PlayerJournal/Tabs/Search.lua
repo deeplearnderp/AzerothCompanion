@@ -32,7 +32,16 @@ function PlayerJournalWindow:BuildSearchControls(yOffset)
 
         self.SearchBox = searchBox
 
-        local favoritesOnlyButton = CreateFrame("CheckButton", nil, self.ScrollChild, "UICheckButtonTemplate")
+        -- Named (not anonymous) -- CreateFrame(..., nil, ...) makes
+        -- GetName() return nil (confirmed: Warcraft Wiki's own
+        -- CreateFrame/GetName reference), and UICheckButtonTemplate's own
+        -- label FontString is only reachable via the standard Blizzard
+        -- "$parentText" XML naming convention, which needs a real parent
+        -- name to resolve. Anonymous, this threw "attempt to concatenate
+        -- a nil value" the moment this line ran (confirmed live) -- not a
+        -- timing issue, a frame that could never have produced a name to
+        -- concatenate in the first place.
+        local favoritesOnlyButton = CreateFrame("CheckButton", "AzerothCompanionPlayerJournalFavoritesOnlyButton", self.ScrollChild, "UICheckButtonTemplate")
         favoritesOnlyButton:SetSize(20, 20)
 
         favoritesOnlyButton.text = _G[favoritesOnlyButton:GetName() .. "Text"]

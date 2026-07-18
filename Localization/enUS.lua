@@ -14,6 +14,7 @@ AC.Locales.enUS =
     -----------------------------------------------------------------------
 
     ["App.Title"] = "Azeroth Companion",
+    ["App.Back"] = "Back",
 
     -----------------------------------------------------------------------
     -- Settings
@@ -1417,13 +1418,13 @@ AC.Locales.enUS =
     ["Developer.ChecklistWeeklyReset"] = "Weekly Reset",
 
     -----------------------------------------------------------------------
-    -- Player Journal & Community Notes
+    -- Player Journal & Community Observations
     -----------------------------------------------------------------------
 
     ["Developer.PlayerJournalStoredPlayers"] = "Player Journal: Stored Players",
     ["Developer.PlayerJournalFavoritePlayers"] = "Player Journal: Favorite Players",
     ["Developer.PlayerJournalTotalNotes"] = "Player Journal: Total Notes",
-    ["Developer.PlayerJournalCommunityNotes"] = "Player Journal: Community Notes",
+    ["Developer.PlayerJournalCommunityObservations"] = "Player Journal: Community Observations",
     ["Developer.PlayerJournalOldestEntry"] = "Player Journal: Oldest Entry",
     ["Developer.PlayerJournalNewestEntry"] = "Player Journal: Newest Entry",
     ["Developer.PlayerJournalDatabaseSize"] = "Player Journal: Database Size",
@@ -1441,11 +1442,14 @@ AC.Locales.enUS =
     ["PlayerJournal.TabHistory"] = "History",
     ["PlayerJournal.TabStatistics"] = "Statistics",
     ["PlayerJournal.TabPersonalNotes"] = "Notes",
-    ["PlayerJournal.TabCommunityNotes"] = "Community",
+    ["PlayerJournal.TabCommunityObservations"] = "Community",
     ["PlayerJournal.TabTimeline"] = "Timeline",
     ["PlayerJournal.TabSearch"] = "Search",
 
     ["PlayerJournal.NoPlayerSelected"] = "No player selected. Use Search to find someone in your journal.",
+    ["PlayerJournal.NoPlayerSelectedTitle"] = "No Player Selected",
+    ["PlayerJournal.NoPlayerSelectedDescription"] = "Search your journal to find someone you've played with, or right-click a player in-game and choose Open Player Journal.",
+    ["PlayerJournal.GoToSearch"] = "Go to Search",
     ["PlayerJournal.RealmSuffixFormat"] = "-%s",
     ["PlayerJournal.FavoriteOn"] = "%s Favorite",
     ["PlayerJournal.FavoriteOff"] = "Add Favorite",
@@ -1508,14 +1512,19 @@ AC.Locales.enUS =
     ["PlayerJournal.TooltipRunsTogether"] = "Runs Together",
     ["PlayerJournal.TooltipLastSeen"] = "Last Seen",
     ["PlayerJournal.TooltipNotePreviewFormat"] = "\"%s\"",
-    ["PlayerJournal.TooltipCommunityNotes"] = "Community Notes",
+    ["PlayerJournal.TooltipCommunityObservations"] = "Community Observations",
 
     ["PlayerJournal.EndOfRunPromptText"] = "Would you like to add a note about anyone from this run?",
 
-    ["PlayerJournal.MenuOpenJournal"] = "Player Journal",
-    ["PlayerJournal.MenuQuickNote"] = "Quick Note...",
+    ["PlayerJournal.MenuOpenJournal"] = "Open Player Journal",
+    ["PlayerJournal.MenuCommunityObservations"] = "Community Observations",
+    ["PlayerJournal.MenuViewObservations"] = "View Observations",
+    ["PlayerJournal.MenuViewMyObservations"] = "View My Observations",
+    ["PlayerJournal.MenuAddObservation"] = "Add Observation",
+    ["PlayerJournal.MenuAddObservationAboutMyself"] = "Add Observation About Myself",
+    ["PlayerJournal.MenuHideObservationsFormat"] = "Hide %s's Observations",
+    ["PlayerJournal.MenuPersonalNotes"] = "Personal Notes",
     ["PlayerJournal.MenuFavoritePlayer"] = "Favorite Player",
-    ["PlayerJournal.MenuHideCommunityNotes"] = "Hide Community Notes",
     ["PlayerJournal.MenuCopyCharacterLink"] = "Copy Character Link",
 
     ["PlayerJournal.TagFriendly"] = "Friendly",
@@ -1530,23 +1539,17 @@ AC.Locales.enUS =
     ["PlayerJournal.TagGoodInterrupts"] = "Good Interrupts",
     ["PlayerJournal.TagFavoritePlayer"] = "Favorite Player",
 
-    ["Community.Disabled"] = "Community Notes are disabled. Enable them in Settings.",
-    ["Community.NoNotes"] = "No community notes for this player yet.",
-    ["Community.HiddenForPlayer"] = "Community Notes are hidden for this player. Change this from the player's right-click menu.",
-    ["Community.SubmitNote"] = "Submit Community Note",
-    ["Community.NoteMetaFormat"] = "%s -- Visibility: %s",
+    ["Community.Disabled"] = "Community Observations are disabled. Enable them in Settings.",
+    ["Community.NoObservationsTitle"] = "No Observations Yet",
+    ["Community.NoObservationsDescription"] = "Community Observations are firsthand notes about players you've grouped with -- always attributed to you, never anonymous.",
+    ["Community.NoObservationsExample"] = "For example: \"Excellent tank, very patient with new players.\"",
+    ["Community.NoObservationsCallToAction"] = "Use Add Observation above to write your first one.",
+    ["Community.HiddenForPlayer"] = "Community Observations are hidden for this player. Change this from the player's right-click menu.",
+    ["Community.AddObservation"] = "Add Observation",
+    ["Community.AddObservationTitle"] = "Add Community Observation",
+    ["Community.FieldPlayerFormat"] = "Player: %s",
+    ["Community.CharacterCountFormat"] = "%d / %d",
+    ["Community.ObservationMetaFormat"] = "Observed by: %s -- %s",
 
-    ["Community.ButtonHelpful"] = "Helpful",
-    ["Community.ButtonNotHelpful"] = "Not Helpful",
-    ["Community.ButtonReport"] = "Report",
-    ["Community.ButtonHide"] = "Hide",
-    ["Community.ComingSoonTooltip"] = "Coming soon -- requires a shared backend that doesn't exist yet.",
-
-    ["Community.VisibilityDisabled"] = "Disabled",
-    ["Community.VisibilityFriendsOnly"] = "Friends Only",
-    ["Community.VisibilityGuildOnly"] = "Guild Only",
-    ["Community.VisibilityFriendsAndGuild"] = "Friends + Guild",
-    ["Community.VisibilityEveryone"] = "Everyone",
-
-    ["Community.CodeOfConductText"] = "Before sharing a Community Note, please confirm you understand the Code of Conduct:\n\n- No hate speech, racism, or sexism\n- No harassment or threats\n- No doxxing or other personal information\n- No impersonation\n- No spam or advertising\n\nCommunity Notes are fully local this version -- there is no shared backend yet, so this note is only ever visible to you. This confirmation is required once, in case that changes in the future.",
+    ["Community.CodeOfConductText"] = "Before sharing a Community Observation, please confirm you understand the Code of Conduct:\n\n- No hate speech, racism, or sexism\n- No harassment or threats\n- No doxxing or other personal information\n- No impersonation\n- No spam or advertising\n\nCommunity Observations are fully local this version -- there is no shared backend yet, so this observation is only ever visible to you. This confirmation is required once, in case that changes in the future.",
 }

@@ -103,12 +103,12 @@ local StorageModule =
 -- own Defaults) already version their own persisted shapes independently
 -- of the database as a whole.
 --
--- Bumped to 2 in Phase 3 (Storage Persistence): snapshot.items is new in
--- this version. A version-1 record has no items field at all, and
--- loading it as-is would silently leave item-level consumers with
--- nothing rather than a clear "no persisted data" state -- exactly the
--- unsafe-to-display-as-is case this version field exists to guard
--- against. Bumping forces a version-1 record to be treated as absent
+-- Bumped to 2 when raw per-item snapshot records (snapshot.items) were
+-- added. A version-1 record has no items field at all, and loading it
+-- as-is would silently leave item-level consumers with nothing rather
+-- than a clear "no persisted data" state -- exactly the unsafe-to-
+-- display-as-is case this version field exists to guard against.
+-- Bumping forces a version-1 record to be treated as absent
 -- (Initialize()'s load is version-gated) until the next real scan
 -- writes a version-2 record with items included.
 local STORAGE_DATA_VERSION = 2
@@ -1035,27 +1035,25 @@ end
 -- Storage Knowledge Base
 --
 -- Persists a single historical record -- metadata, a snapshot summary
--- (aggregate counts, source summaries, and raw per-item scan records --
--- Phase 3), and the RESULT of an analysis that already ran against a
--- live, verified bank scan. Item records are the minimum raw fields
--- ScanBank itself already captures, never derived presentation data
--- (names/icons/classification stay itemID-derived via
--- GetAggregateItemMetadata/ClassifyAggregateItem, unchanged and not
--- duplicated here) -- and never anything
--- BankOpen/BankCacheReady/ActiveStorageSourceIDs-adjacent. AnalyzeProfile
--- (via GetPreparationStatus/GetInsights) is called here exactly as it
--- already is by any other presentation caller; this does not introduce a
--- second analysis path, it caches the output of the existing one. One
--- write, one record -- replaces the earlier experimental LastAnalysis
--- shape entirely, not alongside it.
+-- (aggregate counts, source summaries, and raw per-item scan records),
+-- and the RESULT of an analysis that already ran against a live,
+-- verified bank scan. Item records are the minimum raw fields ScanBank
+-- itself already captures, never derived presentation data (names/icons/
+-- classification stay itemID-derived via GetAggregateItemMetadata/
+-- ClassifyAggregateItem, unchanged and not duplicated here) -- and never
+-- anything BankOpen/BankCacheReady/ActiveStorageSourceIDs-adjacent.
+-- AnalyzeProfile (via GetPreparationStatus/GetInsights) is called here
+-- exactly as it already is by any other presentation caller; this does
+-- not introduce a second analysis path, it caches the output of the
+-- existing one. One write, one record.
 --
--- Triggered by STORAGE_SCAN_UPDATED rather than a new call inside
--- ScanBank itself -- ScanBank's own success path already fires this
--- event, so this hooks the existing signal instead of adding to a
--- function this pass is explicitly not touching. The self.BankCacheReady
--- check (read, never written, here) is what distinguishes a genuine
--- fresh success from this same event's other firings (bank close, scan
--- failure, module disable), all of which leave BankCacheReady false.
+-- Triggered by STORAGE_SCAN_UPDATED rather than a call inside ScanBank
+-- itself -- ScanBank's own success path already fires this event, so
+-- this hooks the existing signal without modifying ScanBank. The
+-- self.BankCacheReady check (read, never written, here) is what
+-- distinguishes a genuine fresh success from this same event's other
+-- firings (bank close, scan failure, module disable), all of which leave
+-- BankCacheReady false.
 -------------------------------------------------------------------------------
 
 function StorageModule:OnStorageScanUpdated()
@@ -2785,33 +2783,14 @@ end
 -- GetPreparationStatus contract remains unchanged for recommendation and
 -- diagnostics consumers that already control their own evidence gating.
 function StorageModule:GetStorageReadiness(profileID)
-    print("GetStorageReadiness() CALLED")
-    local scanStatus = self:GetScanStatus()
 
-    print(
-            "Storage Scan:",
-            scanStatus.hasSnapshot,
-            scanStatus.state,
-            scanStatus.freshness
-    )
+    local scanStatus = self:GetScanStatus()
 
     local inventoryModule = AC.Core and AC.Core:GetModule("Inventory")
     local inventorySnapshot = inventoryModule
-            and inventoryModule.GetInventorySnapshot
-            and inventoryModule:GetInventorySnapshot()
-    print("Inventory Snapshot:", inventorySnapshot)
-    print("Available:", inventorySnapshot and inventorySnapshot.available)
-    print("Freshness:", inventorySnapshot and inventorySnapshot.freshness)
-    print("Timestamp:", inventorySnapshot and inventorySnapshot.timestamp)
+        and inventoryModule.GetInventorySnapshot
+        and inventoryModule:GetInventorySnapshot()
 
-    --[[if not scanStatus.hasSnapshot then
-        return
-        {
-            state = "unknown",
-            freshness = scanStatus.freshness,
-            reason = scanStatus.failureReason or scanStatus.refreshReason,
-        }
-    end]]
     if not scanStatus.hasSnapshot then
 
         if inventorySnapshot and inventorySnapshot.available then
@@ -2858,6 +2837,72 @@ function StorageModule:GetStorageReadiness(profileID)
     preparation.snapshotID = scanStatus.snapshotID
 
     return preparation
+
+end
+
+-- Presentation-facing FACTS only -- no localization/wording here (see
+-- AC.DashboardFormat.GetStorageReadinessText, the sole place these facts
+-- become words). Composes GetStorageReadiness (live, gated on a current-
+-- session scan) and GetLastKnownStorage (Storage Knowledge Base's
+-- persisted analysis) into the one live/historical distinction every
+-- Storage readiness surface needs -- Inventory Manager, the Dashboard
+-- Storage page, and the Home Dashboard's Storage card. `missing`/
+-- `withdrawals` ride along unchanged from GetPreparationStatus/the
+-- persisted (already StripRule-stripped) record -- only the Home card
+-- reads them today (its shopping-list/withdraw-count detail sections),
+-- but they are readiness facts like any other here, not a second
+-- concept.
+function StorageModule:GetReadinessFacts(profileID)
+
+    if not self:IsModuleEnabled() then
+        return { enabled = false }
+    end
+
+    local hasLiveScan = self:GetScanStatus().hasSnapshot == true
+    local live = nil
+
+    if hasLiveScan and profileID then
+
+        local readiness = self:GetStorageReadiness(profileID)
+
+        if readiness and readiness.state == "known" then
+
+            live =
+            {
+                ready = readiness.ready,
+                readinessPercent = readiness.readinessPercent,
+                missing = readiness.missing,
+                withdrawals = readiness.withdrawals,
+            }
+
+        end
+
+    end
+
+    local historical = nil
+    local knownStorage = self:GetLastKnownStorage()
+    local preparation = knownStorage and knownStorage.analysis and knownStorage.analysis.preparation
+
+    if preparation then
+
+        historical =
+        {
+            ready = preparation.ready,
+            readinessPercent = preparation.readinessPercent,
+            missing = preparation.missing,
+            withdrawals = preparation.withdrawals,
+            timestamp = knownStorage.metadata.timestamp,
+        }
+
+    end
+
+    return
+    {
+        enabled = true,
+        hasLiveScan = hasLiveScan,
+        live = live,
+        historical = historical,
+    }
 
 end
 

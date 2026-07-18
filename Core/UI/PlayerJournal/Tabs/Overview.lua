@@ -25,22 +25,15 @@ local function FormatRelativeDate(timestamp)
 
 end
 
+-- No "not record" branch here -- PlayerJournalWindow:ShowTab() already
+-- guarantees a valid record before ever calling this (see
+-- PLAYER_SCOPED_TABS/BuildNoPlayerSelectedTab in PlayerJournalWindow.lua).
 function PlayerJournalWindow:BuildOverviewTab()
 
     local journalModule = AC.Core and AC.Core:GetModule("PlayerJournal")
-    local record = journalModule and self.CurrentPlayerKey and journalModule:GetPlayerRecord(self.CurrentPlayerKey)
+    local record = journalModule:GetPlayerRecord(self.CurrentPlayerKey)
 
     local lines = {}
-
-    if not record then
-
-        table.insert(lines, AC.L:Get("PlayerJournal.NoPlayerSelected"))
-
-        local yOffset = self:LayoutLines("Overview", lines, -4, self.CONTENT_WIDTH)
-
-        return (-yOffset) + 16
-
-    end
 
     local summary = journalModule:GetPlayerStatsSummary(self.CurrentPlayerKey)
 

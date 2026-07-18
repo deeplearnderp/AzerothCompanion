@@ -22,22 +22,15 @@ local PlayerJournalWindow = AC.PlayerJournalWindow
 local accentR, accentG, accentB = unpack(AC.Presentation.GetSemanticColor("accent"))
 local StatColor = { r = accentR, g = accentG, b = accentB }
 
+-- No "not record" branch here -- PlayerJournalWindow:ShowTab() already
+-- guarantees a valid record before ever calling this (see
+-- PLAYER_SCOPED_TABS/BuildNoPlayerSelectedTab in PlayerJournalWindow.lua).
 function PlayerJournalWindow:BuildStatisticsTab()
 
     local journalModule = AC.Core and AC.Core:GetModule("PlayerJournal")
-    local record = journalModule and self.CurrentPlayerKey and journalModule:GetPlayerRecord(self.CurrentPlayerKey)
+    local record = journalModule:GetPlayerRecord(self.CurrentPlayerKey)
 
     local lines = {}
-
-    if not record then
-
-        table.insert(lines, AC.L:Get("PlayerJournal.NoPlayerSelected"))
-
-        local yOffset = self:LayoutLines("Statistics", lines, -4, self.CONTENT_WIDTH)
-
-        return (-yOffset) + 16
-
-    end
 
     local summary = journalModule:GetPlayerStatsSummary(self.CurrentPlayerKey)
     local stats = record.stats

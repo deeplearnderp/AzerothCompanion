@@ -359,7 +359,10 @@ function DeveloperPanel:Initialize()
     AC.Presentation.ApplyWindowBackground(self.Frame)
     AC.Presentation.StyleWindowTitle(self.Frame.Title)
 
+    AC.NavigationService:RegisterWindow(AC.NavigationService.Windows.DeveloperPanel, self)
+
     BaseWindow:AddCloseButton(self.Frame, self)
+    BaseWindow:AddBackButton(self.Frame, self)
 
     -----------------------------------------------------------------------
     -- Header Layout
@@ -403,7 +406,7 @@ function DeveloperPanel:Initialize()
         button:SetText(AC.L:Get(TAB_LABEL_KEY[tabName]))
 
         button:SetScript("OnClick", function()
-            self:ShowTab(tabName)
+            self:NavigateTab(tabName)
         end)
 
         self.TabButtons[tabName] = button
@@ -1256,7 +1259,7 @@ function DeveloperPanel:BuildModulesTab()
                     AC.Logger:Warn(self_.ModuleName .. " has no Refresh() method.")
                 end
 
-                DeveloperPanel:ShowTab("Modules")
+                DeveloperPanel:NavigateTab("Modules")
 
             end)
 
@@ -2277,7 +2280,7 @@ function DeveloperPanel:BuildLiveAPITab()
 
                 self.LiveAPIResults[probe.key] = ok and rows or { { label = AC.L:Get("Developer.ProbeFailed"), raw = "", final = "" } }
 
-                DeveloperPanel:ShowTab("LiveAPI")
+                DeveloperPanel:NavigateTab("LiveAPI")
 
             end)
 
@@ -2323,7 +2326,7 @@ function DeveloperPanel:BuildLiveAPITab()
                     AC.VerificationService:RecordResult(id, true)
                 end
 
-                DeveloperPanel:ShowTab("LiveAPI")
+                DeveloperPanel:NavigateTab("LiveAPI")
 
             end)
 
@@ -2337,7 +2340,7 @@ function DeveloperPanel:BuildLiveAPITab()
                     AC.VerificationService:RecordResult(id, false)
                 end
 
-                DeveloperPanel:ShowTab("LiveAPI")
+                DeveloperPanel:NavigateTab("LiveAPI")
 
             end)
 
@@ -2593,7 +2596,7 @@ function DeveloperPanel:BuildChecklistTab()
 
         row.Button:SetScript("OnClick", function()
             AC.VerificationService:RecordChecklistScenario(scenario.id, not done)
-            DeveloperPanel:ShowTab("Checklist")
+            DeveloperPanel:NavigateTab("Checklist")
         end)
 
         row.Label:Show()
@@ -2714,7 +2717,7 @@ function DeveloperPanel:BuildHistoryFilterControls()
         button:SetScript("OnClick", function()
             self.HistoryFilter[filterKey] = NextOption(options, self.HistoryFilter[filterKey])
             UpdateText()
-            DeveloperPanel:ShowTab("History")
+            DeveloperPanel:NavigateTab("History")
         end)
 
         UpdateText()
@@ -3102,6 +3105,13 @@ function DeveloperPanel:ShowTab(tabName)
 
 end
 
+function DeveloperPanel:NavigateTab(tabName)
+
+    self:ShowTab(tabName)
+    AC.NavigationService:Replace(AC.NavigationService.Windows.DeveloperPanel, tabName)
+
+end
+
 -------------------------------------------------------------------------------
 -- Show / Hide / Toggle
 --
@@ -3122,21 +3132,40 @@ function DeveloperPanel:Show()
 
     end
 
-    self:ShowTab(self.CurrentTab or "Overview")
+    AC.NavigationService:Push(AC.NavigationService.Windows.DeveloperPanel, self.CurrentTab or AC.NavigationService.Views.DeveloperPanel.Overview)
+
+end
+
+function DeveloperPanel:RestoreNavigation(entry)
+
     self.Frame:Show()
+    self:ShowTab(entry.View)
+
+    if entry.Context and entry.Context.scrollPosition then
+        self.ScrollFrame:SetVerticalScroll(entry.Context.scrollPosition)
+    end
+
+end
+
+function DeveloperPanel:CaptureNavigation(entry)
+
+    entry.Context = entry.Context or {}
+    entry.Context.scrollPosition = self.ScrollFrame and self.ScrollFrame:GetVerticalScroll() or 0
 
 end
 
 function DeveloperPanel:Hide()
 
-    self.Frame:Hide()
+    if not AC.NavigationService:GoBackIfCurrent(self) then
+        self.Frame:Hide()
+    end
 
 end
 
 function DeveloperPanel:Toggle()
 
-    if self.Frame and self.Frame:IsShown() then
-        self:Hide()
+    if self.Frame and self.Frame:IsShown() and AC.NavigationService:IsCurrent(self) then
+        AC.NavigationService:GoBack()
     else
         self:Show()
     end

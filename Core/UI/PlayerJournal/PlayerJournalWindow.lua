@@ -540,11 +540,11 @@ end
 -- ESC.
 function PlayerJournalWindow:Show(playerKey)
 
-    if playerKey then
-        self.CurrentPlayerKey = playerKey
-    end
+    local view = playerKey and AC.NavigationService.Views.PlayerJournal.Overview
+        or self.CurrentTab
+        or AC.NavigationService.Views.PlayerJournal.Overview
 
-    AC.NavigationService:Push(AC.NavigationService.Windows.PlayerJournal, self.CurrentTab or AC.NavigationService.Views.PlayerJournal.Overview, { playerKey = self.CurrentPlayerKey })
+    AC.NavigationService:Push(AC.NavigationService.Windows.PlayerJournal, view, { playerKey = playerKey or self.CurrentPlayerKey })
 
 end
 
@@ -553,23 +553,52 @@ function PlayerJournalWindow:RestoreNavigation(entry)
 
     self.CurrentPlayerKey = entry.Context and entry.Context.playerKey
 
+    if entry.View == "Search" and entry.Context then
+        if self.SearchBox and entry.Context.searchText ~= nil then
+            self.SearchBox:SetText(entry.Context.searchText)
+        end
+        if self.SearchFavoritesOnlyButton and entry.Context.favoritesOnly ~= nil then
+            self.SearchFavoritesOnlyButton:SetChecked(entry.Context.favoritesOnly)
+        end
+    end
+
     self.Frame:Show()
     self:RefreshIdentityHeader()
     self:ShowTab(entry.View)
+
+    if entry.Context and entry.Context.scrollPosition then
+        self.ScrollFrame:SetVerticalScroll(entry.Context.scrollPosition)
+    end
+
+end
+
+function PlayerJournalWindow:CaptureNavigation(entry)
+
+    entry.Context = entry.Context or {}
+    entry.Context.playerKey = self.CurrentPlayerKey
+    entry.Context.scrollPosition = self.ScrollFrame and self.ScrollFrame:GetVerticalScroll() or 0
+
+    if entry.View == "Search" then
+        entry.Context.searchText = self.SearchBox and self.SearchBox:GetText() or ""
+        entry.Context.favoritesOnly = self.SearchFavoritesOnlyButton and self.SearchFavoritesOnlyButton:GetChecked() == true or false
+    end
 
 end
 
 function PlayerJournalWindow:Hide()
 
     if self.Frame then
-        self.Frame:Hide()
+        if not AC.NavigationService:GoBackIfCurrent(self) then
+            self.Frame:Hide()
+        end
     end
 
 end
 
 function PlayerJournalWindow:Toggle(playerKey)
 
-    if self.Frame and self.Frame:IsShown() and not playerKey then
+    if self.Frame and self.Frame:IsShown() and not playerKey
+    and AC.NavigationService:IsCurrent(self) then
         AC.NavigationService:GoBack()
     else
         self:Show(playerKey)

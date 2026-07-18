@@ -44,11 +44,14 @@ function DiagnosticsWindow:Initialize()
         WINDOW_HEIGHT
     )
 
+    AC.NavigationService:RegisterWindow(AC.NavigationService.Windows.Diagnostics, self)
+
     ---------------------------------------------------------------------------
     -- Close Button
     ---------------------------------------------------------------------------
 
     BaseWindow:AddCloseButton(self.Frame, self)
+    BaseWindow:AddBackButton(self.Frame, self)
 
     ---------------------------------------------------------------------------
     -- Log View
@@ -251,21 +254,40 @@ end
 
 function DiagnosticsWindow:Show()
 
+    AC.NavigationService:Push(AC.NavigationService.Windows.Diagnostics, AC.NavigationService.Views.Diagnostics.Log)
+
+end
+
+function DiagnosticsWindow:RestoreNavigation(entry)
+
     self:Refresh()
     self.Frame:Show()
+
+    if entry.Context and entry.Context.scrollPosition and not self.AutoScroll then
+        self.ScrollFrame:SetVerticalScroll(entry.Context.scrollPosition)
+    end
+
+end
+
+function DiagnosticsWindow:CaptureNavigation(entry)
+
+    entry.Context = entry.Context or {}
+    entry.Context.scrollPosition = self.ScrollFrame and self.ScrollFrame:GetVerticalScroll() or 0
 
 end
 
 function DiagnosticsWindow:Hide()
 
-    self.Frame:Hide()
+    if not AC.NavigationService:GoBackIfCurrent(self) then
+        self.Frame:Hide()
+    end
 
 end
 
 function DiagnosticsWindow:Toggle()
 
-    if self.Frame:IsShown() then
-        self:Hide()
+    if self.Frame:IsShown() and AC.NavigationService:IsCurrent(self) then
+        AC.NavigationService:GoBack()
     else
         self:Show()
     end

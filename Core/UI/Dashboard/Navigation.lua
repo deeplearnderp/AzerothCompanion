@@ -127,10 +127,27 @@ function Dashboard:RestoreNavigation(entry)
     self.Frame:Show()
     self.CurrentPage = entry.View
 
-    self:ShowPage(entry.View)
-
     if entry.View == AC.NavigationService.Views.Dashboard.RecommendationDetails and entry.Context then
         self.CurrentRecommendationDetails = entry.Context.recommendation
+    end
+
+    self:ShowPage(entry.View)
+
+    local page = self.Frame.Pages and self.Frame.Pages[entry.View]
+    if page and page.ScrollFrame and entry.Context and entry.Context.scrollPosition then
+        page.ScrollFrame:SetVerticalScroll(entry.Context.scrollPosition)
+    end
+
+end
+
+function Dashboard:CaptureNavigation(entry)
+
+    local page = self.Frame and self.Frame.Pages and self.Frame.Pages[entry.View]
+
+    entry.Context = entry.Context or {}
+
+    if page and page.ScrollFrame then
+        entry.Context.scrollPosition = page.ScrollFrame:GetVerticalScroll()
     end
 
 end

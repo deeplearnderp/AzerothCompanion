@@ -28,11 +28,14 @@ function SettingsWindow:Initialize()
     AC.Presentation.ApplyWindowBackground(self.Frame)
     AC.Presentation.StyleWindowTitle(self.Frame.Title)
 
+    AC.NavigationService:RegisterWindow(AC.NavigationService.Windows.Settings, self)
+
     ---------------------------------------------------------------------------
     -- Close Button
     ---------------------------------------------------------------------------
 
     BaseWindow:AddCloseButton(self.Frame, self)
+    BaseWindow:AddBackButton(self.Frame, self)
 
     ---------------------------------------------------------------------------
     -- Footer
@@ -207,6 +210,12 @@ end
 
 function SettingsWindow:Show()
 
+    AC.NavigationService:Push(AC.NavigationService.Windows.Settings, AC.NavigationService.Views.Settings.Root)
+
+end
+
+function SettingsWindow:RestoreNavigation(entry)
+
     if AC.Settings then
         AC.Settings:OnWindowOpen()
     end
@@ -221,7 +230,9 @@ end
 
 function SettingsWindow:Hide()
 
-    self.Frame:Hide()
+    if not AC.NavigationService:GoBackIfCurrent(self) then
+        self.Frame:Hide()
+    end
 
 end
 
@@ -231,8 +242,8 @@ end
 
 function SettingsWindow:Toggle()
 
-    if self.Frame:IsShown() then
-        self:Hide()
+    if self.Frame:IsShown() and AC.NavigationService:IsCurrent(self) then
+        AC.NavigationService:GoBack()
     else
         self:Show()
     end

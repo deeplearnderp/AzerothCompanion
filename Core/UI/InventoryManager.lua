@@ -202,7 +202,9 @@ function InventoryManager:Create()
 
     AC.Presentation.ApplyWindowBackground(frame)
     AC.Presentation.StyleWindowTitle(frame.Title)
+    AC.NavigationService:RegisterWindow(AC.NavigationService.Windows.InventoryManager, self)
     BaseWindow:AddCloseButton(frame, self)
+    BaseWindow:AddBackButton(frame, self)
 
     local footer = CreateFrame("Frame", nil, frame, "BackdropTemplate")
     footer:SetPoint("BOTTOMLEFT", WINDOW_PADDING, 8)
@@ -245,7 +247,7 @@ function InventoryManager:Create()
 
         button:SetText(AC.L:Get(definition.label))
         button:SetScript("OnClick", function()
-            self:ShowPage(pageName)
+            self:NavigatePage(pageName)
         end)
 
         self.NavigationButtons[pageName] = button
@@ -3199,6 +3201,13 @@ function InventoryManager:ShowPage(pageName)
 
 end
 
+function InventoryManager:NavigatePage(pageName)
+
+    self:ShowPage(pageName)
+    AC.NavigationService:Replace(AC.NavigationService.Windows.InventoryManager, pageName)
+
+end
+
 function InventoryManager:SetStatusText(text)
 
     if self.StatusText then
@@ -3347,24 +3356,48 @@ end
 
 function InventoryManager:Show()
 
+    AC.NavigationService:Push(AC.NavigationService.Windows.InventoryManager, self.CurrentPage or AC.NavigationService.Views.InventoryManager.Overview)
+
+end
+
+function InventoryManager:RestoreNavigation(entry)
+
     self:EnsureScanButton()
     self.Frame:Show()
-    self:ShowPage(self.CurrentPage or "Overview")
+    self:ShowPage(entry.View)
+
+    local page = self.Pages[entry.View]
+    if page and page.ScrollFrame and entry.Context and entry.Context.scrollPosition then
+        page.ScrollFrame:SetVerticalScroll(entry.Context.scrollPosition)
+    end
+
+end
+
+function InventoryManager:CaptureNavigation(entry)
+
+    local page = self.Pages and self.Pages[entry.View]
+    entry.Context = entry.Context or {}
+
+    if page and page.ScrollFrame then
+        entry.Context.scrollPosition = page.ScrollFrame:GetVerticalScroll()
+    end
 
 end
 
 function InventoryManager:Hide()
 
     if self.Frame then
-        self.Frame:Hide()
+        if not AC.NavigationService:GoBackIfCurrent(self) then
+            self.Frame:Hide()
+        end
     end
 
 end
 
 function InventoryManager:Toggle()
 
-    if self.Frame and self.Frame:IsShown() then
-        self:Hide()
+    if self.Frame and self.Frame:IsShown() and AC.NavigationService:IsCurrent(self) then
+        AC.NavigationService:GoBack()
     else
         self:Show()
     end

@@ -161,13 +161,21 @@ end
 
 function ObservationDialog:Show(playerKey, name, realm)
 
+    AC.NavigationService:Push(AC.NavigationService.Windows.ObservationDialog, AC.NavigationService.Views.ObservationDialog.AddObservation,
+        { playerKey = playerKey, name = name, realm = realm })
+
+end
+
+function ObservationDialog:RestoreNavigation(entry)
+
     if not self.Frame then
         self:Create()
     end
 
-    self.PlayerKey = playerKey
+    local context = entry.Context or {}
+    self.PlayerKey = context.playerKey
 
-    local displayName = (realm and realm ~= "") and (name .. "-" .. realm) or (name or "")
+    local displayName = (context.realm and context.realm ~= "") and (context.name .. "-" .. context.realm) or (context.name or "")
 
     self.Frame.PlayerLabel:SetText(AC.L:Format("Community.FieldPlayerFormat", displayName))
     self.Frame.EditBox:SetText("")
@@ -180,7 +188,7 @@ end
 
 function ObservationDialog:Hide()
 
-    if self.Frame then
+    if not AC.NavigationService:GoBackIfCurrent(self) and self.Frame then
         self.Frame:Hide()
     end
 

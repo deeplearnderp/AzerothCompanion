@@ -97,9 +97,8 @@ end
 -- actually on screen never disagree (a plain owner:Hide() would leave the
 -- stack still thinking this window is current, breaking the next ESC
 -- press). Falls back to the original owner:Hide() when this window isn't
--- the tracked top -- e.g. DiagnosticsWindow, which never registers with
--- NavigationService at all -- so a window that hasn't opted into the
--- shared navigation system keeps working exactly as it did before.
+-- the tracked top, so lifecycle cleanup and other raw visibility callers
+-- remain safe without corrupting navigation history.
 -------------------------------------------------------------------------------
 
 function BaseWindow:AddCloseButton(frame, owner)
@@ -144,6 +143,14 @@ function BaseWindow:AddBackButton(frame, owner)
     back:SetScript("OnClick", function()
         AC.NavigationService:GoBack()
     end)
+
+    -- Reserve the control's header space permanently. Showing or hiding
+    -- Back must never cause a window title to move between navigation
+    -- states; window-specific identity headers may still choose their own
+    -- fixed inset after calling this helper.
+    if frame.Title then
+        frame.Title:SetWidth(math.max((frame:GetWidth() or 0) - 180, 1))
+    end
 
     frame:HookScript("OnShow", function()
         back:SetShown(AC.NavigationService:CanGoBack())

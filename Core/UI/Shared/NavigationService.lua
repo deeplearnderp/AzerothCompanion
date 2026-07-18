@@ -16,10 +16,12 @@
 --     it only ever asks the owning window controller to.
 --
 --   - Each window controller (Dashboard, PlayerJournalWindow, SettingsWindow,
---     DeveloperPanel, InventoryManager, ObservationDialog) owns RENDERING
---     and RESTORATION. It alone knows how to turn a NavigationEntry back
---     into pixels, via its own RestoreNavigation(entry) method. Navigation-
---     Service never reaches into a window's internals to do this itself.
+--     DeveloperPanel, InventoryManager, DiagnosticsWindow,
+--     ObservationDialog) owns RENDERING
+--     and WORKING CONTEXT. It alone knows how to capture transient view
+--     state via CaptureNavigation(entry), and turn a NavigationEntry back
+--     into pixels via RestoreNavigation(entry). NavigationService never
+--     reaches into a window's internals to do either itself.
 --
 --   - A NavigationEntry describes WHERE the player is (Window/View/Context)
 --     -- never HOW to get there. No closures, no callbacks stored on the
@@ -68,6 +70,7 @@ NavigationService.Windows =
     Settings = "Settings",
     DeveloperPanel = "DeveloperPanel",
     InventoryManager = "InventoryManager",
+    Diagnostics = "Diagnostics",
     ObservationDialog = "ObservationDialog",
 }
 
@@ -78,6 +81,7 @@ NavigationService.Views =
     Settings = { Root = "Root" },
     DeveloperPanel = {},
     InventoryManager = {},
+    Diagnostics = { Log = "Log" },
 
     -- Only one view exists today -- hand-declared rather than derived
     -- since there is no list to derive it from (a single-purpose popup,
@@ -115,6 +119,17 @@ local function NewEntry(windowId, viewId, context)
 
 end
 
+function NavigationService:CaptureCurrent()
+
+    local entry = self.Stack[#self.Stack]
+    local controller = entry and self.Controllers[entry.Window]
+
+    if controller and controller.CaptureNavigation then
+        controller:CaptureNavigation(entry)
+    end
+
+end
+
 function NavigationService:Restore(entry)
 
     if not entry then
@@ -135,6 +150,7 @@ end
 -- open window (tabs, a page list) call Replace instead; see below.
 function NavigationService:Push(windowId, viewId, context)
 
+    self:CaptureCurrent()
     AC.WindowManager:HideAll()
 
     local entry = NewEntry(windowId, viewId, context)
@@ -182,15 +198,21 @@ end
 -- tracked current screen). Returns whether it actually navigated.
 function NavigationService:GoBackIfCurrent(owner)
 
-    local topEntry = self.Stack[#self.Stack]
-    local topController = topEntry and self.Controllers[topEntry.Window]
-
-    if topController and topController == owner then
+    if self:IsCurrent(owner) then
         self:GoBack()
         return true
     end
 
     return false
+
+end
+
+function NavigationService:IsCurrent(owner)
+
+    local topEntry = self.Stack[#self.Stack]
+    local topController = topEntry and self.Controllers[topEntry.Window]
+
+    return topController ~= nil and topController == owner
 
 end
 

@@ -1197,29 +1197,66 @@ function StorageModule:GetStorageSources()
 
 end
 
+-- Live-preferred, persisted-fallback, never-merged: the one place
+-- GetAggregateStorage()'s bank-side data is sourced from, so every
+-- presentation caller downstream (Explorer, Search, Categories) gets the
+-- same fallback behavior automatically, with no consumer-specific logic.
+-- A live self.LastSnapshot is always authoritative when present; the
+-- Storage Knowledge Base's persisted record is only ever read when
+-- self.LastSnapshot is nil (never combined with it). Neither branch
+-- touches BankOpen/BankCacheReady/ActiveStorageSourceIDs/BankItemsBySlot
+-- -- both are read-only views over data those live structures (or their
+-- persisted counterpart) already hold.
 function StorageModule:GetSnapshot()
 
     local snapshot = self.LastSnapshot
 
-    if not snapshot then
+    if snapshot then
+        return
+        {
+            id = snapshot.id,
+            timestamp = snapshot.timestamp,
+            slotsScanned = snapshot.slotsScanned,
+            occupiedSlots = snapshot.occupiedSlots,
+            distinctItems = snapshot.distinctItems,
+            totalItems = snapshot.totalItems,
+            freshness = self.ScanStatus.freshness,
+            available = self:IsStorageAvailable(),
+            empty = snapshot.occupiedSlots == 0,
+            scope = "bank_storage",
+            includesBags = false,
+            sources = self:GetStorageSources(),
+            items = CopyRecordArray(snapshot.items),
+        }
+    end
+
+    local persisted = self.LastKnownStorage and self.LastKnownStorage.snapshot
+
+    if not persisted then
         return nil
+    end
+
+    local items = {}
+
+    for _, item in pairs(persisted.items or {}) do
+        table.insert(items, CopyRecord(item))
     end
 
     return
     {
-        id = snapshot.id,
-        timestamp = snapshot.timestamp,
-        slotsScanned = snapshot.slotsScanned,
-        occupiedSlots = snapshot.occupiedSlots,
-        distinctItems = snapshot.distinctItems,
-        totalItems = snapshot.totalItems,
-        freshness = self.ScanStatus.freshness,
-        available = self:IsStorageAvailable(),
-        empty = snapshot.occupiedSlots == 0,
+        id = nil,
+        timestamp = self.LastKnownStorage.metadata.timestamp,
+        slotsScanned = persisted.slotsScanned,
+        occupiedSlots = persisted.occupiedSlots,
+        distinctItems = persisted.distinctItems,
+        totalItems = persisted.totalItems,
+        freshness = "stale",
+        available = false,
+        empty = (persisted.occupiedSlots or 0) == 0,
         scope = "bank_storage",
         includesBags = false,
-        sources = self:GetStorageSources(),
-        items = CopyRecordArray(snapshot.items),
+        sources = CopyRecordArray(persisted.sources or {}),
+        items = items,
     }
 
 end
@@ -1616,6 +1653,19 @@ function StorageModule:GetAggregateStorage()
 
     result.snapshotIdentity = #identityParts > 0 and table.concat(identityParts, "|") or nil
     result.snapshotTimestamp = latestTimestamp
+
+    -- Explicit availability signal for presentation callers -- "do I have
+    -- any real storage data to show, live or persisted, bags or bank" --
+    -- so no consumer needs to infer this from live-only state
+    -- (StorageModule:GetScanStatus()) as a proxy. Deliberately reuses
+    -- snapshotIdentity's own truthiness rather than a new, second concept:
+    -- snapshotIdentity is already exactly "did at least one real source
+    -- (bags and/or bank, live and/or persisted) contribute," which is the
+    -- correct definition of "storage data exists" -- an empty-but-scanned
+    -- bank still has an identity and should still read as available, the
+    -- same way #result.items > 0 would incorrectly say "no data" for it.
+    result.hasStorageData = result.snapshotIdentity ~= nil
+
     result.status =
     {
         inventory = inventorySnapshot and

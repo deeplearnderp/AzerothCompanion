@@ -2642,7 +2642,14 @@ function InventoryManager:GetExplorerData()
         },
         snapshotTimestamp = aggregate.snapshotTimestamp,
         freshness = scanStatus.freshness or "unknown",
-        hasSnapshot = scanStatus.hasSnapshot == true,
+
+        -- Sourced from the shared provider's own availability signal
+        -- (GetAggregateStorage()'s hasStorageData), not scanStatus.hasSnapshot
+        -- (StorageModule:GetScanStatus(), live-bank-only -- the exact
+        -- bypass the Phase 4 architecture review found and this replaces).
+        -- Explorer doesn't need to know whether that data is live or
+        -- carried over from a prior login -- it just trusts the provider.
+        hasSnapshot = aggregate.hasStorageData == true,
     }
 
 end

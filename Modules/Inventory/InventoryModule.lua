@@ -513,8 +513,6 @@ function InventoryModule:LoadSnapshot(snapshot)
         self.Equipment[slotID] = item
     end
 
-    --[[self.InventorySnapshotTimestamp = snapshot.timestamp
-    self.InventorySnapshotSequence = (self.InventorySnapshotSequence or 0) + 1]]
     self.InventorySnapshotTimestamp = snapshot.timestamp
     self.InventorySnapshotSequence = (self.InventorySnapshotSequence or 0) + 1
 

@@ -82,6 +82,56 @@ local MAX_TIMELINE_EVENTS = 200
 local PARTY_UNITS = { "party1", "party2", "party3", "party4" }
 
 -------------------------------------------------------------------------------
+-- Qualifying Relationships
+--
+-- This is the module-owned persistence boundary for Player Journal records.
+-- Callers describe WHY a player qualifies; they do not create records and
+-- then scatter relationship flags across the UI. Interaction relationships
+-- keep only a bounded summary here. Facts with an existing authoritative
+-- home (Favorite tags, personal notes, Community observations) qualify a
+-- player but are projected from that owner later rather than duplicated.
+-------------------------------------------------------------------------------
+
+PlayerJournalModule.RelationshipTypes =
+{
+    MythicPlus = "MythicPlus",
+    Delve = "Delve",
+    Raid = "Raid",
+    Dungeon = "Dungeon",
+    Party = "Party",
+    RandomQueue = "RandomQueue",
+    Whisper = "Whisper",
+    Friend = "Friend",
+    Guild = "Guild",
+    Favorite = "Favorite",
+    PersonalNote = "PersonalNote",
+    CommunityObservation = "CommunityObservation",
+    Explicit = "Explicit",
+    PersonalTag = "PersonalTag",
+}
+
+local RELATIONSHIP_DEFINITIONS =
+{
+    MythicPlus = { persistSummary = true },
+    Delve = { persistSummary = true },
+    Raid = { persistSummary = true },
+    Dungeon = { persistSummary = true },
+    Party = { persistSummary = true },
+    RandomQueue = { persistSummary = true },
+    Whisper = { persistSummary = true },
+    Friend = { persistSummary = true },
+    Guild = { persistSummary = true },
+    Explicit = { persistSummary = true },
+
+    -- One Fact, One Home: these qualify persistence, but their truth is
+    -- already stored by tags, notes, or CommunityModule respectively.
+    Favorite = { persistSummary = false },
+    PersonalNote = { persistSummary = false },
+    CommunityObservation = { persistSummary = false },
+    PersonalTag = { persistSummary = false },
+}
+
+-------------------------------------------------------------------------------
 -- Storage Access
 -------------------------------------------------------------------------------
 
@@ -544,7 +594,11 @@ function PlayerJournalModule:FinalizeCompletedRunForRoster(snapshot)
 
     for guid, identity in pairs(snapshot.roster) do
 
-        local record = self:GetOrCreatePlayerRecord(identity)
+        local record = self:RecordRelationship(identity, self.RelationshipTypes.MythicPlus,
+        {
+            timestamp = now,
+            count = 1,
+        })
 
         if record then
 
@@ -653,6 +707,10 @@ end
 -- Player Records
 -------------------------------------------------------------------------------
 
+-- Low-level storage constructor retained temporarily for the Phase 2 removal
+-- of legacy UI callers. New code must use RecordRelationship so persistence
+-- always has an explicit qualifying reason.
+
 function PlayerJournalModule:GetOrCreatePlayerRecord(identity)
 
     local journal = GetJournal()
@@ -677,6 +735,7 @@ function PlayerJournalModule:GetOrCreatePlayerRecord(identity)
             },
             notes = {},
             tags = {},
+            relationships = {},
             runs = {},
             timelineEvents = {},
             nextNoteID = 1,
@@ -699,6 +758,62 @@ function PlayerJournalModule:GetOrCreatePlayerRecord(identity)
         journal.Players[identity.key] = record
 
         self:PushTimelineEvent(record, "met", {})
+
+    end
+
+    return record
+
+end
+
+-- The only supported entry point for a new qualifying relationship. It
+-- deliberately stores no arbitrary evidence payload: detailed run, note,
+-- tag, and observation facts remain with their existing owners. The bounded
+-- summary answers only what relationship exists, how often it was recorded,
+-- and when it was first/last meaningful.
+function PlayerJournalModule:RecordRelationship(identity, relationshipType, evidence)
+
+    if type(identity) ~= "table" or type(identity.key) ~= "string" or identity.key == "" then
+        return nil
+    end
+
+    local definition = RELATIONSHIP_DEFINITIONS[relationshipType]
+
+    if not definition then
+        return nil
+    end
+
+    local record = self:GetOrCreatePlayerRecord(identity)
+
+    if not record then
+        return nil
+    end
+
+    record.relationships = record.relationships or {}
+
+    if definition.persistSummary then
+
+        evidence = type(evidence) == "table" and evidence or {}
+
+        local occurredAt = tonumber(evidence.timestamp) or time()
+        local increment = math.max(tonumber(evidence.count) or 1, 1)
+        local relationship = record.relationships[relationshipType]
+
+        if not relationship then
+
+            relationship =
+            {
+                count = 0,
+                firstAt = occurredAt,
+                lastAt = occurredAt,
+            }
+
+            record.relationships[relationshipType] = relationship
+
+        end
+
+        relationship.count = (tonumber(relationship.count) or 0) + increment
+        relationship.firstAt = math.min(tonumber(relationship.firstAt) or occurredAt, occurredAt)
+        relationship.lastAt = math.max(tonumber(relationship.lastAt) or occurredAt, occurredAt)
 
     end
 

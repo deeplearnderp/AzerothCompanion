@@ -27,6 +27,7 @@ function Dashboard:UpdateStoragePage(frame)
     local profile = enabled and storageModule:GetActiveProfile() or nil
     local bankSummary = enabled and storageModule:GetBankSummary() or { accessible = false }
     local hasLiveScan = bankSummary.accessible == true
+    local lastScan = enabled and storageModule:GetLastScan() or nil
     local preparation = hasLiveScan and profile and storageModule:GetPreparationStatus(profile.id) or nil
     local recommendations = {}
 
@@ -63,7 +64,7 @@ function Dashboard:UpdateStoragePage(frame)
         yOffset = self:LayoutStatisticsGrid(page, "StorageSummary", page.ScrollChild, yOffset, width,
         {
             { label = "InventoryManager.StatCurrentProfile", value = profile and AC.L:Get(profile.label) or AC.L:Get("Storage.NoProfileSelected") },
-            { label = "InventoryManager.StatLastScan", value = AC.L:Get("InventoryManager.LastScanUnknown") },
+            { label = "InventoryManager.StatLastScan", value = lastScan and AC.Presentation.FormatDate(lastScan.timestamp, "shortTime") or AC.L:Get("InventoryManager.LastScanUnknown") },
         })
 
         if not hasLiveScan then

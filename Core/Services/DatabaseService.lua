@@ -54,7 +54,7 @@ DatabaseService.Defaults =
         -- docs/GameplayModuleArchitecture.md section 1.11.
         PlayerJournal =
         {
-            SchemaVersion = 1,
+            SchemaVersion = 2,
             Players = {},
             TotalPruned = 0,
         },

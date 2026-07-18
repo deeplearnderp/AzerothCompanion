@@ -57,6 +57,7 @@ local UnitFactionGroup = UnitFactionGroup
 local UnitGroupRolesAssigned = UnitGroupRolesAssigned
 local GetRealmName = GetRealmName
 local CombatLogGetCurrentEventInfo = CombatLogGetCurrentEventInfo
+local strmatch = string.match
 
 local PlayerJournalModule =
 {
@@ -112,7 +113,9 @@ PlayerJournalModule.RelationshipTypes =
 
 local RELATIONSHIP_DEFINITIONS =
 {
-    MythicPlus = { persistSummary = true },
+    -- Mythic+ is derived from record.runs; persisting another count would
+    -- duplicate the run history's fact.
+    MythicPlus = { persistSummary = false },
     Delve = { persistSummary = true },
     Raid = { persistSummary = true },
     Dungeon = { persistSummary = true },
@@ -129,6 +132,25 @@ local RELATIONSHIP_DEFINITIONS =
     PersonalNote = { persistSummary = false },
     CommunityObservation = { persistSummary = false },
     PersonalTag = { persistSummary = false },
+}
+
+local RELATIONSHIP_PRIORITY =
+{
+    Favorite = 100,
+    PersonalNote = 90,
+    CommunityObservation = 85,
+    PersonalTag = 80,
+    Friend = 75,
+    Guild = 70,
+    MythicPlus = 65,
+    Raid = 60,
+    Delve = 58,
+    Dungeon = 55,
+    RandomQueue = 52,
+    Party = 50,
+    Whisper = 45,
+    Explicit = 20,
+    Legacy = 0,
 }
 
 -------------------------------------------------------------------------------
@@ -163,6 +185,7 @@ end
 function PlayerJournalModule:Initialize()
 
     self:ResetRunTracking()
+    self:MigrateRelationshipData()
 
     AC.ConfigurationManager:Register("PlayerJournal", Defaults)
 
@@ -282,6 +305,37 @@ function PlayerJournalModule:Enable()
     AC.Events:Register("CHALLENGE_MODE_START", self)
     AC.Events:Register("CHALLENGE_MODE_COMPLETED", self)
     AC.Events:Register("CHALLENGE_MODE_RESET", self)
+    AC.Events:Register("CHAT_MSG_WHISPER_INFORM", self)
+
+end
+
+-------------------------------------------------------------------------------
+-- Relationship Schema Migration
+--
+-- PlayerJournal owns this nested schema. Existing records are normalized in
+-- place without deleting or reclassifying any user-authored data. Mythic+,
+-- Favorite, Notes, tags, and Community observations remain derived by
+-- GetRelationships from their authoritative owners.
+-------------------------------------------------------------------------------
+
+function PlayerJournalModule:MigrateRelationshipData()
+
+    local journal = GetJournal()
+
+    journal.Players = journal.Players or {}
+    journal.TotalPruned = journal.TotalPruned or 0
+
+    for _, record in pairs(journal.Players) do
+        record.stats = record.stats or {}
+        record.notes = record.notes or {}
+        record.tags = record.tags or {}
+        record.runs = record.runs or {}
+        record.timelineEvents = record.timelineEvents or {}
+        record.relationships = record.relationships or {}
+        record.nextNoteID = record.nextNoteID or (#record.notes + 1)
+    end
+
+    journal.SchemaVersion = 2
 
 end
 
@@ -519,6 +573,33 @@ function PlayerJournalModule:OnChallengeModeReset()
     if self.RunTracking.active then
         self:UnregisterRunTrackingEvents()
         self:ResetRunTracking()
+    end
+
+end
+
+-- CHAT_MSG_WHISPER_INFORM is the outgoing-whisper event. Incoming
+-- CHAT_MSG_WHISPER is deliberately not registered: unsolicited messages do
+-- not qualify a player for persistence.
+function PlayerJournalModule:OnChatMsgWhisperInform(_, target)
+
+    if not self:IsModuleEnabled() or type(target) ~= "string" or target == "" then
+        return
+    end
+
+    local name, realm = strmatch(target, "^([^%-]+)%-(.+)$")
+
+    if not name then
+        name = target
+        realm = (GetRealmName and GetRealmName()) or ""
+    end
+
+    local key = MakePlayerKey(name, realm)
+
+    if key then
+        self:RecordRelationship(
+            { key = key, name = name, realm = realm, classFile = "" },
+            self.RelationshipTypes.Whisper,
+            { timestamp = time(), count = 1 })
     end
 
 end
@@ -788,11 +869,19 @@ function PlayerJournalModule:RecordRelationship(identity, relationshipType, evid
 
     record.relationships = record.relationships or {}
 
+    record.name = identity.name or record.name
+    record.realm = identity.realm or record.realm
+
+    if identity.classFile and identity.classFile ~= "" then
+        record.class = identity.classFile
+    end
+
+    evidence = type(evidence) == "table" and evidence or {}
+
+    local occurredAt = tonumber(evidence.timestamp) or time()
+    record.lastSeen = math.max(tonumber(record.lastSeen) or occurredAt, occurredAt)
+
     if definition.persistSummary then
-
-        evidence = type(evidence) == "table" and evidence or {}
-
-        local occurredAt = tonumber(evidence.timestamp) or time()
         local increment = math.max(tonumber(evidence.count) or 1, 1)
         local relationship = record.relationships[relationshipType]
 
@@ -816,6 +905,147 @@ function PlayerJournalModule:RecordRelationship(identity, relationshipType, evid
     end
 
     return record
+
+end
+
+-------------------------------------------------------------------------------
+-- Relationship Projection
+--
+-- Normalizes stored summaries and derived facts without copying Favorite,
+-- Notes, Mythic+ runs, tags, or Community observations into another store.
+-------------------------------------------------------------------------------
+
+local function AddProjectedRelationship(results, relationshipType, count, firstAt, lastAt, source)
+
+    table.insert(results,
+    {
+        type = relationshipType,
+        count = tonumber(count) or 1,
+        firstAt = tonumber(firstAt),
+        lastAt = tonumber(lastAt),
+        source = source,
+        priority = RELATIONSHIP_PRIORITY[relationshipType] or 0,
+    })
+
+end
+
+function PlayerJournalModule:GetRelationships(playerKey)
+
+    local record = self:GetPlayerRecord(playerKey)
+
+    if not record then
+        return {}
+    end
+
+    local results = {}
+    local tags = record.tags or {}
+    local notes = record.notes or {}
+    local runs = record.runs or {}
+
+    if tags.FavoritePlayer then
+        AddProjectedRelationship(results, self.RelationshipTypes.Favorite, 1, nil, nil, "tags")
+    end
+
+    if #notes > 0 then
+        AddProjectedRelationship(results, self.RelationshipTypes.PersonalNote, #notes,
+            notes[1] and notes[1].timestamp, notes[#notes] and notes[#notes].timestamp, "notes")
+    end
+
+    local personalTagCount = 0
+
+    for tagID, enabled in pairs(tags) do
+        if enabled and tagID ~= "FavoritePlayer" then
+            personalTagCount = personalTagCount + 1
+        end
+    end
+
+    if personalTagCount > 0 then
+        AddProjectedRelationship(results, self.RelationshipTypes.PersonalTag, personalTagCount, nil, nil, "tags")
+    end
+
+    local runCount = #runs > 0 and #runs or tonumber(record.stats and record.stats.runsTogether) or 0
+
+    if runCount > 0 then
+        AddProjectedRelationship(results, self.RelationshipTypes.MythicPlus, runCount,
+            runs[1] and runs[1].timestamp or record.firstSeen,
+            runs[#runs] and runs[#runs].timestamp or record.lastSeen, #runs > 0 and "runs" or "stats")
+    end
+
+    local communityModule = AC.Core and AC.Core:GetModule("Community")
+    local observations = communityModule and communityModule.GetObservationsForPlayer
+        and communityModule:GetObservationsForPlayer(playerKey) or {}
+
+    if #observations > 0 then
+        AddProjectedRelationship(results, self.RelationshipTypes.CommunityObservation, #observations,
+            observations[1] and observations[1].createdDate,
+            observations[#observations] and observations[#observations].createdDate, "community")
+    end
+
+    for relationshipType, summary in pairs(record.relationships or {}) do
+        if relationshipType ~= self.RelationshipTypes.MythicPlus
+        and RELATIONSHIP_DEFINITIONS[relationshipType]
+        and RELATIONSHIP_DEFINITIONS[relationshipType].persistSummary then
+            AddProjectedRelationship(results, relationshipType, summary.count,
+                summary.firstAt, summary.lastAt, "relationships")
+        end
+    end
+
+    if #results == 0 then
+        AddProjectedRelationship(results, "Legacy", 1, record.firstSeen, record.lastSeen, "legacy")
+    end
+
+    table.sort(results, function(a, b)
+        if a.priority == b.priority then
+            return (a.lastAt or 0) > (b.lastAt or 0)
+        end
+        return a.priority > b.priority
+    end)
+
+    return results
+
+end
+
+function PlayerJournalModule:HasRelationship(playerKey, relationshipType)
+
+    for _, relationship in ipairs(self:GetRelationships(playerKey)) do
+        if relationship.type == relationshipType then
+            return true
+        end
+    end
+
+    return false
+
+end
+
+function PlayerJournalModule:GetAvailableRelationshipTypes()
+
+    local available = {}
+
+    for playerKey in pairs(GetJournal().Players) do
+        for _, relationship in ipairs(self:GetRelationships(playerKey)) do
+            if relationship.type ~= "Legacy" then
+                available[relationship.type] = true
+            end
+        end
+    end
+
+    return available
+
+end
+
+function PlayerJournalModule:GetIncidentalPlayerKeys()
+
+    local incidental = {}
+
+    for playerKey in pairs(GetJournal().Players) do
+        local relationships = self:GetRelationships(playerKey)
+
+        if #relationships == 1 and relationships[1].type == "Legacy" then
+            table.insert(incidental, playerKey)
+        end
+    end
+
+    return incidental
 
 end
 

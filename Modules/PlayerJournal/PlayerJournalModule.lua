@@ -321,6 +321,13 @@ end
 function PlayerJournalModule:MigrateRelationshipData()
 
     local journal = GetJournal()
+    local schemaVersion = tonumber(journal.SchemaVersion) or 1
+
+    -- Downgrade safety: a future schema is owned by a newer addon version.
+    -- Do not normalize it with assumptions from this version or stamp it back.
+    if schemaVersion > 2 then
+        return
+    end
 
     journal.Players = journal.Players or {}
     journal.TotalPruned = journal.TotalPruned or 0
@@ -332,7 +339,17 @@ function PlayerJournalModule:MigrateRelationshipData()
         record.runs = record.runs or {}
         record.timelineEvents = record.timelineEvents or {}
         record.relationships = record.relationships or {}
-        record.nextNoteID = record.nextNoteID or (#record.notes + 1)
+        if not record.nextNoteID then
+
+            local highestNoteID = 0
+
+            for _, note in ipairs(record.notes) do
+                highestNoteID = math.max(highestNoteID, tonumber(note.id) or 0)
+            end
+
+            record.nextNoteID = highestNoteID + 1
+
+        end
     end
 
     journal.SchemaVersion = 2

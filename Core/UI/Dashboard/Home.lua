@@ -18,10 +18,9 @@
 -- here is fabricated to fill out the illustrative mockups this feature
 -- was designed against. Two deliberate departures from that mockup, both
 -- because the underlying data doesn't exist anywhere in this addon:
---   - Dungeons shows general dungeon records and Delves, while Mythic+
---     history remains on its dedicated competitive-analysis page
---     -- no "Bought N Potions" or "Weekly Completed" entries, since
---     nothing records purchases or discrete weekly-completion events.
+--   - History summarizes ActivityHistoryService's canonical records; it
+--     does not invent purchase or weekly-completion events that the addon
+--     does not record.
 --   - Highest Priority's "Supporting Evidence" renders the real
 --     `label: value` facts RecommendationEngine attached (rating,
 --     historical success rate, ...), not narrative phrases like
@@ -68,11 +67,10 @@ local function GetGreetingKey()
 end
 
 -------------------------------------------------------------------------------
--- Dungeon Activity Feed
+-- History Feed
 --
--- Uses the Dungeons page's presentation-only query over
--- ActivityHistoryService's canonical newest-first stream. The Home card
--- and full page therefore cannot drift into different merge/sort behavior.
+-- Uses ActivityHistoryService's canonical newest-first stream and the shared
+-- activity presenter. Home only limits the number of records it summarizes.
 -------------------------------------------------------------------------------
 
 -------------------------------------------------------------------------------
@@ -104,7 +102,7 @@ end
 -- The "most recent/most important line gets the card's headline
 -- treatment (PrimaryValue), the rest render as a compact list below it"
 -- shape shared by every Home card backed by an ordered list of strings
--- (Recent Activity's feed, Companion Intelligence V4's Briefing/
+-- (History's feed, Companion Intelligence V4's Briefing/
 -- Milestones/Notifications cards) -- written once here instead of once
 -- per card.
 -------------------------------------------------------------------------------
@@ -521,38 +519,21 @@ function Dashboard:Create()
 
     frame.VaultCard = vaultCard
 
-    -- Dungeons Card -------------------------------------------------------
+    -- History Card --------------------------------------------------------
     --
-    -- A real chronological feed across general dungeon activity and Delves.
+    -- A short chronological summary of every recorded activity type.
 
-    local recentActivityCard = CreateHomeCard(homeScrollChild, "Dashboard.Dungeons",
+    local historyCard = CreateHomeCard(homeScrollChild, "Dashboard.History",
     {
         width = Layout.CARD_WIDTH,
         height = Layout.CARD_HEIGHT,
-        tooltip = AC.L:Get("Dashboard.TooltipRecentActivity"),
-        onClick = function()
-            Dashboard:Navigate("Dungeons")
-        end,
-    }, vaultCard)
-
-    frame.RecentActivityCard = recentActivityCard
-
-    -- Activity Log Card ---------------------------------------------------
-    --
-    -- The long-term counterpart to Dungeons' recent general-activity
-    -- summary. ActivityHistoryService remains the source for both.
-
-    local activityLogCard = CreateHomeCard(homeScrollChild, "Dashboard.ActivityLog",
-    {
-        width = Layout.CARD_WIDTH,
-        height = Layout.CARD_HEIGHT,
-        tooltip = AC.L:Get("Dashboard.TooltipActivityLog"),
+        tooltip = AC.L:Get("Dashboard.TooltipHistory"),
         onClick = function()
             Dashboard:Navigate("ActivityLog")
         end,
-    }, recentActivityCard)
+    }, vaultCard)
 
-    frame.ActivityLogCard = activityLogCard
+    frame.HistoryCard = historyCard
 
     -- Progress Card ("How am I improving?") --------------------------------
     --
@@ -569,7 +550,7 @@ function Dashboard:Create()
         onClick = function()
             Dashboard:Navigate("Progress")
         end,
-    }, activityLogCard)
+    }, historyCard)
 
     frame.ProgressCard = progressCard
 
@@ -1425,15 +1406,15 @@ function Dashboard:UpdateContent(frame)
     end
 
     -----------------------------------------------------------------------
-    -- Dungeons Card
+    -- History Card
     --
-    -- A real general-dungeon/Delve feed from ActivityHistoryService. Mythic+
-    -- history is intentionally owned by its dedicated page; the most recent
-    -- entry gets the card's headline treatment (PrimaryValue), the rest
-    -- render as a compact list below it.
+    -- ActivityHistoryService owns the chronological stream. Home only takes
+    -- its four newest records and delegates all display formatting to the
+    -- shared activity presenter.
     -----------------------------------------------------------------------
 
-    local feed = self:GetRecentDungeonActivities(4)
+    local activityHistory = AC.ActivityHistoryService
+    local feed = activityHistory and activityHistory:GetRecent(4) or {}
     local feedLines = {}
 
     for _, record in ipairs(feed) do
@@ -1446,34 +1427,7 @@ function Dashboard:UpdateContent(frame)
 
     end
 
-    ApplyLinesToCard(frame.RecentActivityCard, feedLines, "Dashboard.NoRecentActivity")
-
-    -----------------------------------------------------------------------
-    -- Activity Log Card
-    -----------------------------------------------------------------------
-
-    local activityHistory = AC.ActivityHistoryService
-    local activityCount = activityHistory and activityHistory:Count() or 0
-    local latestActivity = activityHistory and activityHistory:GetRecent(1)[1]
-
-    if latestActivity then
-
-        local activityModel = ActivityPresentation:Build(latestActivity, "shortTime")
-
-        frame.ActivityLogCard:SetPrimaryValue(AC.L:Format("Dashboard.ActivityLogCountFormat", activityCount))
-        frame.ActivityLogCard:SetSecondaryText(activityModel and activityModel.title or AC.L:Get("Common.Unknown"))
-        frame.ActivityLogCard:SetDetailSections(activityModel and
-        {
-            { label = AC.L:Get("ActivityLog.StatNewest"), text = activityModel.timestampText },
-        } or {})
-
-    else
-
-        frame.ActivityLogCard:SetPrimaryValue(AC.L:Get("ActivityLog.NoActivities"))
-        frame.ActivityLogCard:SetSecondaryText("")
-        frame.ActivityLogCard:SetDetailSections({})
-
-    end
+    ApplyLinesToCard(frame.HistoryCard, feedLines, "Dashboard.NoHistory")
 
     -----------------------------------------------------------------------
     -- Progress Card ("How am I improving?")

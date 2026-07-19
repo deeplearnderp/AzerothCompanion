@@ -38,8 +38,6 @@ local GetCurrentSeason = C_MythicPlus and C_MythicPlus.GetCurrentSeason
 
 local GetMapUIInfo = C_ChallengeMode.GetMapUIInfo
 
-local UnitGUID = UnitGUID
-local CombatLogGetCurrentEventInfo = CombatLogGetCurrentEventInfo
 local GetBestMapForUnit = C_Map and C_Map.GetBestMapForUnit
 local GetPlayerMapPosition = C_Map and C_Map.GetPlayerMapPosition
 
@@ -116,8 +114,8 @@ end
 -- CHALLENGE_MODE_START, read and cleared by RecordCompletedRun() at
 -- completion. Nothing here is persisted directly; it only ever feeds the
 -- Data fields RecordCompletedRun() writes to ActivityHistoryService.
--- The events that populate it (UNIT_SPELLCAST_SUCCEEDED, PLAYER_DEAD,
--- ENCOUNTER_START/END, and a narrowly-filtered COMBAT_LOG_EVENT_UNFILTERED)
+-- The events that populate it (UNIT_SPELLCAST_SUCCEEDED, PLAYER_DEAD, and
+-- ENCOUNTER_START/END)
 -- are only registered between CHALLENGE_MODE_START and the run ending --
 -- see RegisterRunTrackingEvents/UnregisterRunTrackingEvents -- so there is
 -- zero listener overhead outside of an actual Mythic+ attempt.
@@ -128,6 +126,9 @@ function MythicPlusModule:ResetRunTracking()
     self.RunTracking =
     {
         active = false,
+        -- TODO(CombatSessionService): restore supported normalized interrupt
+        -- facts through the shared combat-session owner. Do not add a
+        -- MythicPlus-specific combat listener here.
         interruptCount = 0,
         defensives = {},
         consumablesAtStart = {},
@@ -217,12 +218,8 @@ end
 --
 -- Registered only between CHALLENGE_MODE_START and the run ending, so
 -- there is no listener overhead outside of an actual Mythic+ attempt.
--- COMBAT_LOG_EVENT_UNFILTERED is registered defensively (pcall) even
--- though it is one of the most stable, universally-used Blizzard events,
--- consistent with how this addon treats every dynamic event registration
--- elsewhere (see DiagnosticsService) -- and it is filtered to exactly one
--- sub-event (SPELL_INTERRUPT, sourced from the player) in
--- OnCombatLogEventUnfiltered below, not used to reconstruct a combat log.
+-- Live interrupt tracking is intentionally absent until CombatSessionService
+-- provides supported normalized data.
 -------------------------------------------------------------------------------
 
 function MythicPlusModule:RegisterRunTrackingEvents()
@@ -232,12 +229,6 @@ function MythicPlusModule:RegisterRunTrackingEvents()
     AC.Events:Register("ENCOUNTER_START", self)
     AC.Events:Register("ENCOUNTER_END", self)
 
-    local ok, err = pcall(AC.Events.Register, AC.Events, "COMBAT_LOG_EVENT_UNFILTERED", self)
-
-    if not ok and AC.Logger then
-        AC.Logger:Error(("MythicPlusModule failed to register COMBAT_LOG_EVENT_UNFILTERED: %s"):format(tostring(err)))
-    end
-
 end
 
 function MythicPlusModule:UnregisterRunTrackingEvents()
@@ -246,7 +237,6 @@ function MythicPlusModule:UnregisterRunTrackingEvents()
     AC.Events:Unregister("PLAYER_DEAD", self)
     AC.Events:Unregister("ENCOUNTER_START", self)
     AC.Events:Unregister("ENCOUNTER_END", self)
-    AC.Events:Unregister("COMBAT_LOG_EVENT_UNFILTERED", self)
 
 end
 
@@ -265,23 +255,6 @@ function MythicPlusModule:OnUnitSpellcastSucceeded(unit, castGUID, spellID)
 
     if name then
         self.RunTracking.defensives[name] = (self.RunTracking.defensives[name] or 0) + 1
-    end
-
-end
-
--- Filtered to exactly one sub-event, sourced only from the player -- see
--- the file-level note above on why this one event is justified despite
--- "do not recreate combat logs."
-function MythicPlusModule:OnCombatLogEventUnfiltered()
-
-    if not self.RunTracking.active then
-        return
-    end
-
-    local _, subEvent, _, sourceGUID = CombatLogGetCurrentEventInfo()
-
-    if subEvent == "SPELL_INTERRUPT" and sourceGUID == UnitGUID("player") then
-        self.RunTracking.interruptCount = self.RunTracking.interruptCount + 1
     end
 
 end

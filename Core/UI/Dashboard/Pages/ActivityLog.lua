@@ -36,6 +36,11 @@ local SORT_OPTIONS =
     { value = "Oldest", label = "ActivityLog.SortOldest" },
 }
 
+local DELVE_COLLAPSED_ROW_HEIGHT = 24
+local DELVE_DETAIL_LINE_HEIGHT = 18
+local DELVE_DETAIL_TOP_GAP = 8
+local DELVE_DETAIL_BOTTOM_PADDING = 10
+
 local MYTHIC_ZERO_DIFFICULTIES =
 {
     ["Mythic"] = true,
@@ -297,6 +302,22 @@ local function BuildTimelineRow(parent)
     row.TitleText = titleText
     row.ContextText = contextText
     row.Background = background
+    row.DelveMemberRows = {}
+
+    local partyLabel = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    partyLabel:SetJustifyH("LEFT")
+    partyLabel:SetText(AC.L:Get("ActivityLog.DelvePartyMembers"))
+
+    local completionLabel = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    completionLabel:SetJustifyH("LEFT")
+    completionLabel:SetText(AC.L:Get("ActivityLog.DelveCompletionTime"))
+
+    local completionValue = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    completionValue:SetJustifyH("RIGHT")
+
+    row.DelvePartyLabel = partyLabel
+    row.DelveCompletionLabel = completionLabel
+    row.DelveCompletionValue = completionValue
 
     row:SetScript("OnEnter", function(self)
         self.Background:SetColorTexture(1, 1, 1, self.IsSelected and 0.10 or 0.06)
@@ -309,12 +330,87 @@ local function BuildTimelineRow(parent)
     row:SetScript("OnClick", function(self)
 
         if self.RecordID then
-            Dashboard:OpenActivity(self.RecordID)
+            Dashboard:ToggleActivity(self.RecordID)
         end
 
     end)
 
     return row
+
+end
+
+local function HideDelveDetails(row)
+
+    for _, memberRow in ipairs(row.DelveMemberRows) do
+        memberRow:Hide()
+    end
+
+    row.DelvePartyLabel:Hide()
+    row.DelveCompletionLabel:Hide()
+    row.DelveCompletionValue:Hide()
+
+end
+
+local function LayoutDelveDetails(row, journal, textOffset, textWidth)
+
+    HideDelveDetails(row)
+
+    if not row.IsSelected then
+        return DELVE_COLLAPSED_ROW_HEIGHT
+    end
+
+    local yOffset = -DELVE_COLLAPSED_ROW_HEIGHT - DELVE_DETAIL_TOP_GAP
+
+    if #(journal.partyMembers or {}) > 0 then
+        row.DelvePartyLabel:ClearAllPoints()
+        row.DelvePartyLabel:SetPoint("TOPLEFT", textOffset, yOffset)
+        row.DelvePartyLabel:SetWidth(textWidth)
+        row.DelvePartyLabel:Show()
+        yOffset = yOffset - DELVE_DETAIL_LINE_HEIGHT
+    end
+
+    for index, member in ipairs(journal.partyMembers or {}) do
+
+        local memberRow = row.DelveMemberRows[index]
+
+        if not memberRow then
+
+            memberRow = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+            memberRow:SetJustifyH("LEFT")
+            row.DelveMemberRows[index] = memberRow
+
+        end
+
+        memberRow:ClearAllPoints()
+        memberRow:SetPoint("TOPLEFT", textOffset, yOffset)
+        memberRow:SetWidth(textWidth)
+        memberRow:SetText(member.name)
+
+        local color = member.isPlayer and AC.Presentation.GetSemanticColor("accent") or { 1, 1, 1 }
+        memberRow:SetTextColor(unpack(color))
+        memberRow:Show()
+
+        yOffset = yOffset - DELVE_DETAIL_LINE_HEIGHT
+
+    end
+
+    if journal.completionTime and journal.completionTime >= 0 then
+
+        yOffset = yOffset - DELVE_DETAIL_TOP_GAP
+        row.DelveCompletionLabel:ClearAllPoints()
+        row.DelveCompletionLabel:SetPoint("TOPLEFT", textOffset, yOffset)
+        row.DelveCompletionLabel:SetWidth(textWidth - 80)
+        row.DelveCompletionValue:ClearAllPoints()
+        row.DelveCompletionValue:SetPoint("TOPRIGHT", -Layout.ROW_INDENT, yOffset)
+        row.DelveCompletionValue:SetWidth(72)
+        row.DelveCompletionValue:SetText(AC.Presentation.FormatClock(journal.completionTime))
+        row.DelveCompletionLabel:Show()
+        row.DelveCompletionValue:Show()
+        yOffset = yOffset - DELVE_DETAIL_LINE_HEIGHT
+
+    end
+
+    return -yOffset + DELVE_DETAIL_BOTTOM_PADDING
 
 end
 
@@ -334,7 +430,6 @@ local function LayoutTimelineRows(scrollChild, pool, records, yOffset, contentWi
 
         local model = ActivityPresentation:BuildTimeline(record)
 
-        row:SetSize(contentWidth, Layout.ACTIVITY_TIMELINE_ROW_HEIGHT)
         row:ClearAllPoints()
         row:SetPoint("TOPLEFT", 0, yOffset)
         row.RecordID = record.ID
@@ -342,24 +437,44 @@ local function LayoutTimelineRows(scrollChild, pool, records, yOffset, contentWi
         row.IsSelected = row.RecordID ~= nil and row.RecordID == scrollChild.ActivityLogSelectedID
         row.Background:SetColorTexture(1, 1, 1, row.IsSelected and 0.10 or 0)
 
-        row.TimeText:ClearAllPoints()
-        row.TimeText:SetPoint("TOPLEFT", Layout.ROW_INDENT, 0)
-        row.TimeText:SetWidth(Layout.HISTORY_DATE_WIDTH)
-        row.TimeText:SetText(model and model.timestampText or "")
+        local delveJournal = model and model.delveJournal
+        local rowHeight
 
+        row.TimeText:ClearAllPoints()
         row.TitleText:ClearAllPoints()
-        row.TitleText:SetPoint("TOPLEFT", textOffset, 0)
-        row.TitleText:SetWidth(textWidth)
+
+        if delveJournal then
+            row.TimeText:Hide()
+            row.TitleText:SetPoint("TOPLEFT", Layout.ROW_INDENT, 0)
+            row.TitleText:SetWidth(contentWidth - (Layout.ROW_INDENT * 2))
+            rowHeight = LayoutDelveDetails(row, delveJournal, Layout.ROW_INDENT, contentWidth - (Layout.ROW_INDENT * 2))
+        else
+            HideDelveDetails(row)
+            row.TimeText:SetPoint("TOPLEFT", Layout.ROW_INDENT, 0)
+            row.TimeText:SetWidth(Layout.HISTORY_DATE_WIDTH)
+            row.TimeText:SetText(model and model.timestampText or "")
+            row.TimeText:Show()
+            row.TitleText:SetPoint("TOPLEFT", textOffset, 0)
+            row.TitleText:SetWidth(textWidth)
+            rowHeight = Layout.ACTIVITY_TIMELINE_ROW_HEIGHT
+        end
+
         row.TitleText:SetText(model and model.titleText or AC.L:Get("Common.Unknown"))
 
         row.ContextText:ClearAllPoints()
-        row.ContextText:SetPoint("TOPLEFT", row.TitleText, "BOTTOMLEFT", 0, -Layout.STAT_LABEL_GAP)
-        row.ContextText:SetWidth(textWidth)
-        row.ContextText:SetText(model and model.contextText or "")
+        if delveJournal then
+            row.ContextText:Hide()
+        else
+            row.ContextText:SetPoint("TOPLEFT", row.TitleText, "BOTTOMLEFT", 0, -Layout.STAT_LABEL_GAP)
+            row.ContextText:SetWidth(textWidth)
+            row.ContextText:SetText(model and model.contextText or "")
+            row.ContextText:Show()
+        end
 
+        row:SetSize(contentWidth, rowHeight)
         row:Show()
 
-        yOffset = yOffset - Layout.ACTIVITY_TIMELINE_ROW_HEIGHT
+        yOffset = yOffset - rowHeight
 
     end
 
@@ -560,6 +675,21 @@ function Dashboard:UpdateActivityLogPage(frame)
     if page.PendingActivityID and ScrollToActivity(page, page.PendingActivityID) then
         page.PendingActivityID = nil
     end
+
+end
+
+function Dashboard:ToggleActivity(recordID)
+
+    local page = self.Frame and self.Frame.Pages and self.Frame.Pages.ActivityLog
+
+    if page and page.SelectedActivityID == recordID then
+        page.SelectedActivityID = nil
+        page.PendingActivityID = nil
+        self:UpdateActivityLogPage(self.Frame)
+        return true
+    end
+
+    return self:OpenActivity(recordID)
 
 end
 

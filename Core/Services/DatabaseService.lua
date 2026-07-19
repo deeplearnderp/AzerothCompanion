@@ -99,6 +99,10 @@ DatabaseService.Defaults =
         {
             Debug = false,
             DeveloperMode = false,
+            DeveloperApiExplorer =
+            {
+                Favorites = {},
+            },
         },
     },
 

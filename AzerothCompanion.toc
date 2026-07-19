@@ -41,10 +41,12 @@ Core/Services/DataManagementRegistry.lua
 Core/Services/ActivityHistoryService.lua
 Core/Services/LoadoutService.lua
 Core/Events/EventManager.lua
+Core/Services/CombatSessionService.lua
 Core/Services/DelveHeaderProvider.lua
 Core/Services/NotificationService.lua
 Core/Diagnostics/DiagnosticsService.lua
 Core/Services/DeveloperModeService.lua
+Core/Services/DeveloperApiExplorerService.lua
 Core/Services/UserActionService.lua
 Core/Runtime/DeveloperRuntime.lua
 Core/Runtime/ErrorCapture.lua

@@ -21,13 +21,11 @@
 -- same reasoning this addon's own VerificationService already
 -- established for its account-wide VerificationLog/ChecklistLog).
 --
--- Data collection: basic party-roster reads (UnitFullName/UnitGUID/
--- UnitClass/UnitGroupRolesAssigned) and a narrowly-filtered
--- COMBAT_LOG_EVENT_UNFILTERED (UNIT_DIED and SPELL_INTERRUPT only, roster
--- members only) -- NOT the heavier NotifyInspect/INSPECT_READY path the
--- architecture doc specifically called out as the thing actually being
--- deferred. No talents, no gear, no full spec resolution for companions -- identity
--- and outcome facts only.
+-- Data collection currently uses basic party-roster reads only
+-- (UnitFullName/UnitGUID/UnitClass/UnitGroupRolesAssigned). Live deaths and
+-- interrupts are intentionally disabled until the shared CombatSessionService
+-- owns supported Retail combat-session data. No talents, gear, or full spec
+-- resolution for companions -- identity and outcome facts only.
 --
 -- Run outcome data (dungeon/level/timed/rating change) is never
 -- recomputed here -- it is read from MythicPlusModule's own already-
@@ -45,7 +43,6 @@ local AC = _G.AzerothCompanion
 local type = type
 local pairs = pairs
 local ipairs = ipairs
-local tostring = tostring
 local tonumber = tonumber
 local time = time
 
@@ -56,7 +53,6 @@ local UnitClass = UnitClass
 local UnitFactionGroup = UnitFactionGroup
 local UnitGroupRolesAssigned = UnitGroupRolesAssigned
 local GetRealmName = GetRealmName
-local CombatLogGetCurrentEventInfo = CombatLogGetCurrentEventInfo
 local strmatch = string.match
 
 local PlayerJournalModule =
@@ -412,8 +408,9 @@ function PlayerJournalModule:ResetRunTracking()
     {
         active = false,
         roster = {},        -- [guid] = { name=, realm=, key=, classFile=, role= }
-        deathsByGUID = {},
-        interruptsByGUID = {},
+        -- TODO(CombatSessionService): populate normalized per-player deaths
+        -- and interrupts through the shared combat-session owner. Do not add
+        -- PlayerJournal-specific combat listeners here.
         missingSince = {},   -- [guid] = timestamp, cleared if the player reappears
         leftEarly = {},      -- [guid] = true once a grace-period recheck confirms a real departure
         historyBaselineCaptured = false,
@@ -427,28 +424,19 @@ end
 -- the run ending, mirroring MythicPlusModule's own
 -- RegisterRunTrackingEvents/UnregisterRunTrackingEvents pattern (same
 -- shape, independent state -- this module tracks different facts about
--- the same run). COMBAT_LOG_EVENT_UNFILTERED is registered defensively
--- (pcall), matching MythicPlusModule's own established precedent for
--- this exact event.
+-- the same run). Live combat tracking is intentionally absent until
+-- CombatSessionService provides supported normalized data.
 -------------------------------------------------------------------------------
 
 function PlayerJournalModule:RegisterRunTrackingEvents()
 
     AC.Events:Register("GROUP_ROSTER_UPDATE", self)
 
-    local ok, err = pcall(AC.Events.Register, AC.Events, "COMBAT_LOG_EVENT_UNFILTERED", self)
-
-    if not ok and AC.Logger then
-        AC.Logger:Error(("PlayerJournalModule failed to register COMBAT_LOG_EVENT_UNFILTERED: %s"):format(tostring(err)))
-    end
-
 end
 
 function PlayerJournalModule:UnregisterRunTrackingEvents()
 
     AC.Events:Unregister("GROUP_ROSTER_UPDATE", self)
-    AC.Events:Unregister("COMBAT_LOG_EVENT_UNFILTERED", self)
-
 end
 
 -------------------------------------------------------------------------------
@@ -569,27 +557,6 @@ function PlayerJournalModule:OnGroupRosterUpdate()
             self.RunTracking.missingSince[guid] = nil
         end
 
-    end
-
-end
-
--- Filtered to exactly two sub-events (UNIT_DIED, SPELL_INTERRUPT), roster
--- members only -- not a general combat log parser, mirroring the same
--- restraint MythicPlusModule's own player-only SPELL_INTERRUPT filtering
--- already established (this is the same event, just also checking
--- roster GUIDs instead of only the player's own).
-function PlayerJournalModule:OnCombatLogEventUnfiltered()
-
-    if not self.RunTracking.active then
-        return
-    end
-
-    local _, subEvent, _, sourceGUID, _, _, _, destGUID = CombatLogGetCurrentEventInfo()
-
-    if subEvent == "UNIT_DIED" and self.RunTracking.roster[destGUID] then
-        self.RunTracking.deathsByGUID[destGUID] = (self.RunTracking.deathsByGUID[destGUID] or 0) + 1
-    elseif subEvent == "SPELL_INTERRUPT" and self.RunTracking.roster[sourceGUID] then
-        self.RunTracking.interruptsByGUID[sourceGUID] = (self.RunTracking.interruptsByGUID[sourceGUID] or 0) + 1
     end
 
 end
@@ -744,10 +711,14 @@ function PlayerJournalModule:FinalizeCompletedRunForRoster(snapshot)
 
             end
 
-            local deaths = snapshot.deathsByGUID[guid] or 0
+            -- TODO(CombatSessionService): replace these compatibility zeros
+            -- with normalized shared combat-session facts once that service
+            -- is complete. Historical record fields remain present so older
+            -- readers and stored schemas do not need a temporary fork.
+            local deaths = 0
             stats.totalDeaths = stats.totalDeaths + deaths
 
-            local interrupts = snapshot.interruptsByGUID[guid] or 0
+            local interrupts = 0
             stats.totalInterrupts = stats.totalInterrupts + interrupts
 
             local role = identity.role

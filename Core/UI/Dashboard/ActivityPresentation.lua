@@ -182,6 +182,51 @@ local function BuildTimelineContext(record, moduleLabel)
 
 end
 
+local function BuildDelveJournal(record)
+
+    local data = record.Data or {}
+
+    if (tonumber(data.delveSummaryVersion) or 0) < 2
+            or type(data.partyMembers) ~= "table" then
+        return nil
+    end
+
+    local tier = tonumber(data.tier)
+    local name = GetActivityNameOrUnknown(record)
+    local completedAt = record.Ended or record.Timestamp
+    local completedDate = AC.Presentation.FormatDate(completedAt, "short")
+    local titleKey = tier and tier > 0 and "ActivityLog.DelveJournalTitleWithTier" or "ActivityLog.DelveJournalTitle"
+    local titleText
+
+    if tier and tier > 0 then
+        titleText = AC.L:Format(titleKey, name, tier, completedDate)
+    else
+        titleText = AC.L:Format(titleKey, name, completedDate)
+    end
+
+    local partyMembers = {}
+
+    for _, member in ipairs(data.partyMembers) do
+
+        if type(member) == "table" and type(member.name) == "string" and member.name ~= "" then
+            table.insert(partyMembers,
+            {
+                name = member.name,
+                isPlayer = member.isPlayer == true,
+            })
+        end
+
+    end
+
+    return
+    {
+        titleText = titleText,
+        partyMembers = partyMembers,
+        completionTime = tonumber(data.durationSeconds),
+    }
+
+end
+
 function ActivityPresentation:Build(record, timestampStyle)
 
     if type(record) ~= "table" then
@@ -238,12 +283,15 @@ function ActivityPresentation:BuildTimeline(record)
     local icon = model.iconMarkup ~= "" and (model.iconMarkup .. " ") or ""
     local title = GetSpecificActivityName(record) or model.title
 
+    local delveJournal = (record.Module == "Delves" or record.ActivityType == "Delve") and BuildDelveJournal(record)
+
     return
     {
         title = title,
-        titleText = AC.L:Format("Dashboard.ActivityTimelineTitleFormat", status, icon, title),
-        contextText = BuildTimelineContext(record, model.moduleLabel),
+        titleText = delveJournal and delveJournal.titleText or AC.L:Format("Dashboard.ActivityTimelineTitleFormat", status, icon, title),
+        contextText = delveJournal and "" or BuildTimelineContext(record, model.moduleLabel),
         timestampText = model.timestampText,
+        delveJournal = delveJournal,
     }
 
 end

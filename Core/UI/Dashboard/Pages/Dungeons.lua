@@ -12,45 +12,6 @@ local AC = _G.AzerothCompanion
 local Dashboard = AC.Dashboard
 local Layout = AC.DashboardLayout
 
--- Home's existing Dungeons activity card still consumes this presentation
--- query. The Delves page itself deliberately does not render the mixed feed.
-local function IsGeneralDungeonActivity(record)
-
-    if record.Module == "Delves" then
-        return true
-    end
-
-    return record.ActivityType == "Dungeon" and record.Module ~= "MythicPlus"
-
-end
-
-function Dashboard:GetRecentDungeonActivities(count)
-
-    local records = {}
-    local history = AC.ActivityHistoryService
-
-    if not history then
-        return records
-    end
-
-    for _, record in ipairs(history:GetRecent(history:Count())) do
-
-        if IsGeneralDungeonActivity(record) then
-
-            table.insert(records, record)
-
-            if #records >= count then
-                break
-            end
-
-        end
-
-    end
-
-    return records
-
-end
-
 local function HideSectionHeader(scrollChild, titleKey)
 
     local header = scrollChild.SectionHeaders and scrollChild.SectionHeaders[titleKey]

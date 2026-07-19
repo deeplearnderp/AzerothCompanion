@@ -13,6 +13,9 @@ local tonumber = tonumber
 local GetInstanceInfo = GetInstanceInfo
 local IsInInstance = IsInInstance
 local GetBestMapForUnit = C_Map.GetBestMapForUnit
+local UnitExists = UnitExists
+local UnitFullName = UnitFullName
+local UnitGUID = UnitGUID
 
 local HasActiveDelve = C_DelvesUI.HasActiveDelve
 local GetActiveDelveTier = C_DelvesUI.GetActiveDelveTier
@@ -120,6 +123,72 @@ local DelvesModule =
     ActiveDelve = nil,
     PendingCompletion = nil,
 }
+
+local DELVE_ROSTER_UNITS = { "player", "party1", "party2", "party3", "party4" }
+
+local function SnapshotDelveRoster()
+
+    local roster = {}
+
+    for _, unit in ipairs(DELVE_ROSTER_UNITS) do
+
+        if UnitExists(unit) then
+
+            local guid = UnitGUID(unit)
+            local name, realm = UnitFullName(unit)
+
+            if guid and name and name ~= "" then
+                roster[guid] =
+                {
+                    name = name,
+                    realm = realm or "",
+                    isPlayer = unit == "player",
+                }
+            end
+
+        end
+
+    end
+
+    return roster
+
+end
+
+local function MergeDelveRoster(activeDelve)
+
+    for guid, identity in pairs(SnapshotDelveRoster()) do
+        activeDelve.roster[guid] = activeDelve.roster[guid] or identity
+    end
+
+end
+
+local function BuildStoredParty(activeDelve)
+
+    local members = {}
+
+    for _, identity in pairs(activeDelve.roster or {}) do
+        table.insert(members,
+        {
+            name = identity.name,
+            realm = identity.realm,
+            isPlayer = identity.isPlayer == true,
+        })
+
+    end
+
+    table.sort(members, function(a, b)
+
+        if a.isPlayer ~= b.isPlayer then
+            return a.isPlayer
+        end
+
+        return (a.name or "") < (b.name or "")
+
+    end)
+
+    return members
+
+end
 
 local function IsValidActivityName(name)
 
@@ -260,6 +329,7 @@ function DelvesModule:Enable()
     AC.Events:Register("SCENARIO_UPDATE", self)
     AC.Events:Register("SCENARIO_COMPLETED", self)
     AC.Events:Register("DELVE_HEADER_UPDATED", self, "OnDelveHeaderUpdated")
+    AC.Events:Register("GROUP_ROSTER_UPDATE", self)
 
 end
 
@@ -326,10 +396,19 @@ function DelvesModule:OnScenarioUpdate()
         uiMapID = tonumber(GetBestMapForUnit("player")),
         startedAt = time(),
         headerName = GetCurrentHeaderName(),
+        roster = SnapshotDelveRoster(),
     }
 
     local currentRun = AC.DelveHeaderProvider and AC.DelveHeaderProvider:GetCurrentRun()
     ApplyHeaderSnapshot(self.ActiveDelve, currentRun)
+
+end
+
+function DelvesModule:OnGroupRosterUpdate()
+
+    if self.ActiveDelve then
+        MergeDelveRoster(self.ActiveDelve)
+    end
 
 end
 
@@ -373,10 +452,13 @@ function DelvesModule:RecordCompletion(activeDelve, completion, activityName)
         return
     end
 
+    MergeDelveRoster(activeDelve)
+
+    local partyMembers = BuildStoredParty(activeDelve)
     local data =
     {
-        recordVersion = 4,
-        delveSummaryVersion = 1,
+        recordVersion = 5,
+        delveSummaryVersion = 2,
         mapID = activeDelve.instanceMapID,
         uiMapID = activeDelve.uiMapID,
         difficultyID = activeDelve.difficultyID,
@@ -384,7 +466,11 @@ function DelvesModule:RecordCompletion(activeDelve, completion, activityName)
         questID = completion.questID,
         xp = completion.xp,
         money = completion.money,
+        partyMembers = partyMembers,
     }
+
+    -- TODO: Retail 12.0.7 does not expose supported unprivileged per-player
+    -- Delve death tracking. Keep deaths absent until Blizzard provides one.
 
     if completion.tier then
         data.tier = completion.tier
@@ -398,8 +484,14 @@ function DelvesModule:RecordCompletion(activeDelve, completion, activityName)
         data.resources = CopyHeaderResources(activeDelve.headerResources)
     end
 
-    if activeDelve.elapsedSeconds then
-        data.durationSeconds = activeDelve.elapsedSeconds
+    local durationSeconds = tonumber(activeDelve.elapsedSeconds)
+
+    if not durationSeconds and completion.ended and activeDelve.startedAt then
+        durationSeconds = math.max(0, completion.ended - activeDelve.startedAt)
+    end
+
+    if durationSeconds then
+        data.durationSeconds = durationSeconds
     end
 
     local storedRecord = AC.ActivityHistoryService:Append(

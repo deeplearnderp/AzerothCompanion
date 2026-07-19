@@ -83,6 +83,98 @@ function SlashCommandManager:HandleDev(argument)
 
 end
 
+function SlashCommandManager:HandleCombatSession(argument)
+    local service = AC.CombatSessionService
+
+    if not service then
+        AC.Logger:Warn("CombatSessionService is unavailable.")
+        return
+    end
+
+    if argument ~= "" and argument ~= "detail" then
+        AC.Logger:Warn("Usage: /ac combatsession [detail]")
+        return
+    end
+
+    service:Refresh("slash-command")
+
+    local diagnostics = service:GetDiagnostics()
+    local latest = service:GetLatestSession()
+    local lastRefresh = diagnostics.lastRefreshTime and string.format("%.1f", diagnostics.lastRefreshTime) or "none"
+
+    AC.Logger:Info("CombatSessionService")
+    AC.Logger:Info(("Lifecycle: initialized=%s enabled=%s API available=%s"):format(
+        tostring(diagnostics.initialized == true),
+        tostring(diagnostics.enabled == true),
+        tostring(diagnostics.available == true)
+    ))
+    AC.Logger:Info(("Updates: %d | resets: %d | refreshes: %d | last=%s (%s)"):format(
+        diagnostics.updateCount or 0,
+        diagnostics.resetCount or 0,
+        diagnostics.refreshCount or 0,
+        diagnostics.lastReason or "none",
+        lastRefresh
+    ))
+    AC.Logger:Info(("Cache: %d/%d | available: %d | observed: %d | evicted: %d"):format(
+        diagnostics.cachedSessionCount or 0,
+        diagnostics.cacheLimit or 0,
+        diagnostics.availableSessionCount or 0,
+        diagnostics.totalSessionsObserved or 0,
+        diagnostics.evictedSessionCount or 0
+    ))
+    AC.Logger:Info(("Errors: session queries=%d | recaps=%d | last=%s"):format(
+        diagnostics.queryErrors or 0,
+        diagnostics.recapErrors or 0,
+        diagnostics.lastError or "none"
+    ))
+
+    if not latest then
+        AC.Logger:Info("Latest session: none")
+        return
+    end
+
+    AC.Logger:Info(("Latest session: %s | %s | duration=%s | participants=%d | deaths=%d | available=%s"):format(
+        tostring(latest.sessionID),
+        latest.name or "unnamed",
+        latest.durationSeconds and string.format("%.1fs", latest.durationSeconds) or "unavailable",
+        latest.participantCount or 0,
+        latest.deathCount or 0,
+        tostring(latest.isAvailable == true)
+    ))
+
+    if argument ~= "detail" then
+        return
+    end
+
+    AC.Logger:Info("Participants")
+
+    for index, participant in ipairs(latest.participants or {}) do
+        AC.Logger:Info(("  %d. %s | GUID=%s | class=%s | local=%s | displayType=%s"):format(
+            index,
+            participant.name or "unnamed",
+            participant.sourceGUID or "unavailable",
+            participant.classFilename or "unavailable",
+            tostring(participant.isLocalPlayer == true),
+            tostring(participant.sourceDisplayType or "unavailable")
+        ))
+    end
+
+    AC.Logger:Info("Deaths")
+
+    for index, death in ipairs(latest.deaths or {}) do
+        AC.Logger:Info(("  %d. %s | GUID=%s | time=%s | recapID=%s | recap=%s | events=%s"):format(
+            index,
+            death.name or "unnamed",
+            death.sourceGUID or "unavailable",
+            death.deathTimeSeconds and string.format("%.1fs", death.deathTimeSeconds) or "unavailable",
+            tostring(death.deathRecapID or "unavailable"),
+            death.recap and tostring(death.recap.available == true) or "unavailable",
+            death.recap and tostring(death.recap.eventCount or "unavailable") or "unavailable"
+        ))
+    end
+
+end
+
 
 function SlashCommandManager:Enable()
 
@@ -108,7 +200,7 @@ function SlashCommandManager:Enable()
         argument = argument or ""
 
         if command == "help" then
-            AC.Logger:Info("Commands: /ac, /ac dashboard, /ac settings, /ac debug on|off, /ac log, /ac clearlog, /ac trace mythic|all|off, /ac dev on|off, /ac help")
+            AC.Logger:Info("Commands: /ac, /ac dashboard, /ac settings, /ac debug on|off, /ac log, /ac clearlog, /ac trace mythic|all|off, /ac dev on|off, /ac combatsession [detail], /ac help")
         elseif command == "config" or command == "settings" then
 
             if not AC.UserActionService:OpenSettings() then
@@ -129,6 +221,9 @@ function SlashCommandManager:Enable()
             SlashCommandManager:HandleDev(argument)
         elseif command == "trace" then
             SlashCommandManager:HandleTrace(argument)
+        elseif command == "combatsession" then
+            SlashCommandManager:HandleCombatSession(argument)
+
         else
             AC.Logger:Warn("Unknown command. Type /ac help for commands.")
         end

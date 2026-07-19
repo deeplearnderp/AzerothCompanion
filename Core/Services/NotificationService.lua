@@ -317,6 +317,26 @@ function NotificationService:Dismiss()
 end
 
 -------------------------------------------------------------------------------
+-- Clear All -- clears only the transient notification presentation state.
+-- Detection baselines, cooldown bookkeeping, sequence identity, and the
+-- service ticker remain intact so a developer action cannot restart the
+-- notification lifecycle in the middle of a session.
+-------------------------------------------------------------------------------
+
+function NotificationService:ClearAll()
+
+    self.Queue = {}
+    self.Active = nil
+    self.ActiveExpiresAt = 0
+    self.History = {}
+
+    if AC.Events then
+        AC.Events:Fire("NOTIFICATION_CHANGED", nil)
+    end
+
+end
+
+-------------------------------------------------------------------------------
 -- History
 -------------------------------------------------------------------------------
 

@@ -2,15 +2,11 @@
 -- Azeroth Companion
 -- Developer Panel
 --
--- The permanent developer-tooling surface for Azeroth Companion: nine tabs
--- (Overview, Modules, Events, Errors, Secret Values, Live API, Checklist,
--- History, Maintenance) inside one standalone window (BaseWindow, same tier as
+-- The permanent developer-tooling surface for Azeroth Companion: eleven pages
+-- organized into Console, Runtime, Blizzard APIs, and Data & Maintenance
+-- navigation groups inside one standalone window (BaseWindow, same tier as
 -- DiagnosticsWindow/SettingsWindow), shown from /ac dev or the Dashboard's
--- Developer button once Developer Mode is enabled. This comment previously said "seven tabs" and
--- didn't mention Secret Values at all -- proof, not just a guess, that
--- WINDOW_WIDTH below was never revisited when that tab was added, which is
--- exactly the bug that caused the tab bar to overflow the window (see
--- TAB_BAR_REQUIRED_WIDTH's own comment).
+-- Developer button once Developer Mode is enabled.
 --
 -- Presentation only, exactly like the Dashboard: every value shown here is
 -- read through an existing public getter (CharacterModule:GetProfile(),
@@ -43,15 +39,27 @@ local DeveloperPanel = {}
 AC.DeveloperPanel = DeveloperPanel
 
 -------------------------------------------------------------------------------
--- Tabs
---
--- Declared before Layout Constants (below) rather than after, because
--- WINDOW_WIDTH is now derived from #TABS -- see TAB_BAR_REQUIRED_WIDTH's
--- own comment for why a hand-picked literal is exactly what caused the
--- tab bar to overflow the window twice.
+-- Pages and Navigation Groups
 -------------------------------------------------------------------------------
 
-local TABS = { "Overview", "Modules", "Events", "Errors", "SecretValues", "LiveAPI", "Checklist", "History", "Maintenance" }
+local TABS = { "Overview", "Modules", "CombatSession", "Events", "Errors", "SecretValues", "LiveAPI", "APIExplorer", "Checklist", "History", "Maintenance" }
+DeveloperPanel.Tabs = TABS
+
+local NAVIGATION_GROUPS =
+{
+    { key = "Console", labelKey = "Developer.NavConsole", tabs = { "Overview", "Modules", "CombatSession" } },
+    { key = "Runtime", labelKey = "Developer.NavRuntime", tabs = { "Events", "Errors", "SecretValues" } },
+    { key = "APIs", labelKey = "Developer.NavAPIs", tabs = { "LiveAPI", "APIExplorer", "Checklist" } },
+    { key = "Data", labelKey = "Developer.NavData", tabs = { "History", "Maintenance" } },
+}
+
+local TAB_GROUP = {}
+
+for _, group in ipairs(NAVIGATION_GROUPS) do
+    for _, tabName in ipairs(group.tabs) do
+        TAB_GROUP[tabName] = group.key
+    end
+end
 
 -------------------------------------------------------------------------------
 -- Layout Constants
@@ -59,62 +67,40 @@ local TABS = { "Overview", "Modules", "Events", "Errors", "SecretValues", "LiveA
 
 local CONTENT_PADDING = AC.SharedScrollFrame.PADDING
 
--- Tab bar geometry -- named here so the width formula below and the tab
--- button loop in Initialize() both read from the same numbers, instead of
--- Initialize() hardcoding 100/4 inline and WINDOW_WIDTH being a separately
--- hand-computed literal with no structural link to them.
-local TAB_BUTTON_WIDTH = 100
+-- Grouped navigation keeps page count independent from window width.
+local TAB_BUTTON_WIDTH = 120
 local TAB_BUTTON_GAP = 4
-
--- 40px -- deliberately more generous than the ~20px margin the previous
--- (also hand-computed) 864px width assumed, since that value was verified
--- live to still be insufficient and the exact missing pixel amount isn't
--- something this static analysis can pin down without the live client.
-local TAB_BAR_RIGHT_MARGIN = 40
-
--- Derived, not hand-picked: whatever WINDOW_WIDTH used to be (760, then
--- 864), both were independent literals with no relationship to the tab
--- bar's actual required width, which is exactly why the window went stale
--- not once but twice as tabs were added (Secret Values, then this pass's
--- own investigation) without anyone re-deriving it by hand. This formula
--- uses the exact same CONTENT_PADDING/TAB_BUTTON_WIDTH/TAB_BUTTON_GAP the
--- tab loop in Initialize() lays out with, so the window is guaranteed at
--- least wide enough for however many tabs TABS actually holds -- adding or
--- removing a tab changes #TABS and this recomputes automatically, no
--- second constant to remember to update.
-local TAB_BAR_REQUIRED_WIDTH = CONTENT_PADDING + (#TABS * TAB_BUTTON_WIDTH) + ((#TABS - 1) * TAB_BUTTON_GAP) + TAB_BAR_RIGHT_MARGIN
-
-local WINDOW_WIDTH = TAB_BAR_REQUIRED_WIDTH
+local NAV_GROUP_BUTTON_WIDTH = 140
+local WINDOW_WIDTH = 1040
 local WINDOW_HEIGHT = 620
 local CONTENT_WIDTH = AC.SharedScrollFrame:ContentWidth(WINDOW_WIDTH, CONTENT_PADDING)
-local TAB_BAR_HEIGHT = 26
+local TAB_BAR_HEIGHT = 52
 local FOOTER_HEIGHT = 68
 local ROW_HEIGHT = 16
 local MAINTENANCE_ACTION_HEIGHT = 58
 local MAINTENANCE_ACTION_GAP = 8
+local PAGE_CONTENT_TOP = -4
+local TOOLBAR_CONTENT_TOP = -34
 
--- Header layout -- this is the one window in the addon with its own
--- persistent toolbar row (QoL buttons) in addition to BaseWindow's shared
--- title, so it's the one place that needs to reserve room below the title
--- rather than just starting content at a fixed offset. TITLE_TOP_OFFSET
+-- Header layout. TITLE_TOP_OFFSET
 -- matches BaseWindow:Create's own title anchor (-12) -- not a new,
 -- independently-guessed number -- and the title's actual rendered height
 -- is measured at Initialize() time rather than assumed, so this stays
--- correct if the title text or font ever changes. TOOLBAR_ROW_HEIGHT
--- matches the QoL/tab buttons' own real height (20-22px); TOOLBAR_GAP is
--- the one small breathing-room constant this file adds.
+-- correct if the title text or font ever changes. HEADER_GAP is the one
+-- small breathing-room constant this file adds.
 local TITLE_TOP_OFFSET = 12
-local TOOLBAR_ROW_HEIGHT = 22
-local TOOLBAR_GAP = 8
+local HEADER_GAP = 8
 
 local TAB_LABEL_KEY =
 {
     Overview = "Developer.TabOverview",
     Modules = "Developer.TabModules",
+    CombatSession = "Developer.TabCombatSession",
     Events = "Developer.TabEvents",
     Errors = "Developer.TabErrors",
     SecretValues = "Developer.TabSecretValues",
     LiveAPI = "Developer.TabLiveAPI",
+    APIExplorer = "Developer.TabAPIExplorer",
     Checklist = "Developer.TabChecklist",
     History = "Developer.TabHistory",
     Maintenance = "Developer.TabMaintenance",
@@ -217,6 +203,26 @@ function DeveloperPanel:LayoutLines(tabName, lines, yOffset, contentWidth, fontT
 
 end
 
+function DeveloperPanel:LayoutLinesOrEmpty(tabName, lines, yOffset, contentWidth, emptyTextKey)
+
+    local pool = self:GetPool(tabName)
+
+    if #lines == 0 then
+        for _, row in ipairs(pool) do
+            row:Hide()
+        end
+
+        return AC.Dashboard:ShowEmptyLine(pool, self.ScrollChild, "EmptyText", yOffset, contentWidth, emptyTextKey)
+    end
+
+    if pool.EmptyText then
+        pool.EmptyText:Hide()
+    end
+
+    return self:LayoutLines(tabName, lines, yOffset, contentWidth)
+
+end
+
 -- A pool's storage key doesn't always equal its owning tab's name -- the
 -- Modules tab needs two independent pools (title lines, stats lines)
 -- sharing one yOffset loop, so they're stored under their own keys. This
@@ -226,8 +232,17 @@ local POOL_TAB_OWNER =
 {
     ModulesTitle = "Modules",
     ModulesStats = "Modules",
+    ModulesIntro = "Modules",
     ChecklistIntro = "Checklist",
     OverviewHeroStats = "Overview",
+    OverviewProperties = "Overview",
+    APIExplorerResults = "APIExplorer",
+    CombatSessionStatus = "CombatSession",
+    CombatSessionCache = "CombatSession",
+    CombatSessionLatest = "CombatSession",
+    CombatSessionParticipants = "CombatSession",
+    CombatSessionDeaths = "CombatSession",
+    LiveAPISummary = "LiveAPI",
 }
 
 -- Hides every pooled row belonging to a tab other than the one now active
@@ -236,6 +251,10 @@ local POOL_TAB_OWNER =
 function DeveloperPanel:HideOtherTabs(activeTab)
 
     self.Pools = self.Pools or {}
+
+    for _, header in pairs(self.ScrollChild and self.ScrollChild.SectionHeaders or {}) do
+        header:Hide()
+    end
 
     for poolKey, pool in pairs(self.Pools) do
 
@@ -292,48 +311,20 @@ function DeveloperPanel:HideOtherTabs(activeTab)
         end
     end
 
+    if self.APIExplorerControls and activeTab ~= "APIExplorer" then
+        self.APIExplorerControls:Hide()
+    end
+    if activeTab ~= "APIExplorer" then
+        for _, button in ipairs(self.APIExplorerNavButtons or {}) do button:Hide() end
+        for _, row in ipairs(self.APIExplorerNodeRows or {}) do row:Hide() end
+    end
+
     if self.ChecklistRows and activeTab ~= "Checklist" then
         for _, row in ipairs(self.ChecklistRows) do
             row.Label:Hide()
             row.Detail:Hide()
             row.Button:Hide()
         end
-    end
-
-    if self.EventsClearButton and activeTab ~= "Events" then
-        self.EventsClearButton:Hide()
-    end
-
-    -- Errors tab's toolbar (status line + Clear Errors button) lives
-    -- outside self.Pools, same reasoning as EventsClearButton above -- the
-    -- accordion rows themselves are IN self.Pools (poolKey "Errors") and
-    -- already covered by the generic loop at the top of this function.
-    if self.ErrorsStatusText and activeTab ~= "Errors" then
-        self.ErrorsStatusText:Hide()
-    end
-
-    if self.ErrorsClearButton and activeTab ~= "Errors" then
-        self.ErrorsClearButton:Hide()
-    end
-
-    if self.ErrorsTestButton and activeTab ~= "Errors" then
-        self.ErrorsTestButton:Hide()
-    end
-
-    if self.ErrorsExportButton and activeTab ~= "Errors" then
-        self.ErrorsExportButton:Hide()
-    end
-
-    -- Secret Values tab's toolbar (status line + Clear Events button) --
-    -- same reasoning as the Errors tab's own toolbar above; its accordion
-    -- rows live in self.Pools (poolKey "SecretValues") and are already
-    -- covered by the generic loop at the top of this function.
-    if self.SecretValuesStatusText and activeTab ~= "SecretValues" then
-        self.SecretValuesStatusText:Hide()
-    end
-
-    if self.SecretValuesClearButton and activeTab ~= "SecretValues" then
-        self.SecretValuesClearButton:Hide()
     end
 
     if self.Hero and activeTab ~= "Overview" then
@@ -348,6 +339,10 @@ function DeveloperPanel:HideOtherTabs(activeTab)
 
     if self.ActionControls and activeTab ~= "Overview" then
         self.ActionControls:Hide()
+    end
+
+    for tabName, toolbar in pairs(self.PageToolbars or {}) do
+        toolbar:SetShown(tabName == activeTab)
     end
 
 end
@@ -373,14 +368,12 @@ function DeveloperPanel:Initialize()
     --
     -- Measures the title's own real rendered height (already SetText'd by
     -- BaseWindow:Create above) rather than assuming a fixed number, so the
-    -- QoL toolbar row and tab bar are placed with a guaranteed, correct
-    -- gap below it regardless of title text/font -- fixing the title
-    -- being visually overlapped by the QoL row's buttons.
+    -- grouped navigation is placed with a guaranteed, correct gap below it
+    -- regardless of title text or font.
     -----------------------------------------------------------------------
 
     local titleBottom = -(TITLE_TOP_OFFSET + (self.Frame.Title:GetStringHeight() or 20))
-    local qolTop = titleBottom - TOOLBAR_GAP
-    local tabTop = qolTop - TOOLBAR_ROW_HEIGHT - TOOLBAR_GAP
+    local tabTop = titleBottom - HEADER_GAP
 
     -----------------------------------------------------------------------
     -- Tab Bar
@@ -388,34 +381,39 @@ function DeveloperPanel:Initialize()
 
     local tabBarPanel = CreateFrame("Frame", nil, self.Frame, "BackdropTemplate")
     tabBarPanel:SetPoint("TOPLEFT", self.Frame, "TOPLEFT", CONTENT_PADDING - 6, tabTop + 4)
-    tabBarPanel:SetSize((#TABS * TAB_BUTTON_WIDTH) + ((#TABS - 1) * TAB_BUTTON_GAP) + 12, TAB_BAR_HEIGHT + 4)
+    tabBarPanel:SetSize(WINDOW_WIDTH - (CONTENT_PADDING * 2) + 12, TAB_BAR_HEIGHT + 4)
     AC.Presentation.ApplyCardBackdrop(tabBarPanel)
 
     self.TabBarPanel = tabBarPanel
     self.TabButtons = {}
+    self.NavGroupButtons = {}
+    self.LastTabByGroup = {}
 
-    local previousTab
-
-    for _, tabName in ipairs(TABS) do
-
-        local button = CreateFrame("Button", nil, tabBarPanel, "UIPanelButtonTemplate")
-        button:SetSize(TAB_BUTTON_WIDTH, 22)
-
-        if previousTab then
-            button:SetPoint("LEFT", previousTab, "RIGHT", TAB_BUTTON_GAP, 0)
-        else
-            button:SetPoint("TOPLEFT", 6, -4)
-        end
-
-        button:SetText(AC.L:Get(TAB_LABEL_KEY[tabName]))
-
-        button:SetScript("OnClick", function()
-            self:NavigateTab(tabName)
+    for groupIndex, group in ipairs(NAVIGATION_GROUPS) do
+        local groupKey = group.key
+        local defaultTab = group.tabs[1]
+        local groupButton = CreateFrame("Button", nil, tabBarPanel, "UIPanelButtonTemplate")
+        groupButton:SetSize(NAV_GROUP_BUTTON_WIDTH, 22)
+        groupButton:SetPoint("TOPLEFT", 6 + ((groupIndex - 1) * (NAV_GROUP_BUTTON_WIDTH + TAB_BUTTON_GAP)), -4)
+        groupButton:SetText(AC.L:Get(group.labelKey))
+        groupButton:SetScript("OnClick", function()
+            self:NavigateTab(self.LastTabByGroup[groupKey] or defaultTab)
         end)
+        self.NavGroupButtons[groupKey] = groupButton
+        self.LastTabByGroup[groupKey] = defaultTab
 
-        self.TabButtons[tabName] = button
-        previousTab = button
-
+        for tabIndex, tabName in ipairs(group.tabs) do
+            local pageName = tabName
+            local button = CreateFrame("Button", nil, tabBarPanel, "UIPanelButtonTemplate")
+            button:SetSize(TAB_BUTTON_WIDTH, 22)
+            button:SetPoint("TOPLEFT", 6 + ((tabIndex - 1) * (TAB_BUTTON_WIDTH + TAB_BUTTON_GAP)), -30)
+            button:SetText(AC.L:Get(TAB_LABEL_KEY[pageName]))
+            button:SetScript("OnClick", function()
+                self:NavigateTab(pageName)
+            end)
+            button:Hide()
+            self.TabButtons[pageName] = button
+        end
     end
 
     -----------------------------------------------------------------------
@@ -451,8 +449,6 @@ function DeveloperPanel:Initialize()
     self:BuildFooter()
 
     self.CurrentTab = "Overview"
-
-    self:BuildQoLRow(qolTop)
 
     -- Stabilization pass -- real gap fixed: DEVELOPER_RUNTIME_UPDATED was
     -- being fired by DeveloperRuntime/ErrorCapture (its own doc comment
@@ -526,10 +522,6 @@ end
 function DeveloperPanel:OnUserActionStateChanged()
 
     self:RefreshActionControls()
-
-    if self.TraceToggleButton then
-        self.TraceToggleButton:SetText(AC.UserActionService:GetTraceState().description == "off" and AC.L:Get("Developer.TracingOff") or AC.L:Get("Developer.TracingOn"))
-    end
 
     if self.Frame and self.Frame:IsShown() and self.CurrentTab == "Overview" then
         self:ShowTab("Overview")
@@ -629,15 +621,6 @@ function DeveloperPanel:ClearSecretValueEvents()
 
 end
 
-function DeveloperPanel:ClearRuntimeDiagnostics()
-
-    ClearEventLogData()
-    ClearSecretValueData()
-    AC.Logger:Info("Developer Panel: temporary runtime diagnostics cleared.")
-    self:RefreshAfterMaintenance()
-
-end
-
 function DeveloperPanel:ClearVerificationResults()
 
     ClearVerificationData()
@@ -649,16 +632,8 @@ end
 function DeveloperPanel:ClearNotifications()
 
     if AC.NotificationService then
-
-        AC.NotificationService.Queue = {}
-        AC.NotificationService.History = {}
-
-        if AC.NotificationService.Active then
-            AC.NotificationService:Dismiss()
-        end
-
+        AC.NotificationService:ClearAll()
         AC.Logger:Info("Developer Panel: notifications cleared.")
-
     end
 
     if self.CurrentTab == "Overview" then
@@ -745,20 +720,6 @@ StaticPopupDialogs["AZEROTHCOMPANION_DEVELOPER_CLEAR_NOTIFICATIONS"] =
     button2 = _G.CANCEL or "Cancel",
     OnAccept = function()
         AC.DeveloperPanel:ClearNotifications()
-    end,
-    timeout = 0,
-    whileDead = true,
-    hideOnEscape = true,
-    preferredIndex = 3,
-}
-
-StaticPopupDialogs["AZEROTHCOMPANION_DEVELOPER_CLEAR_RUNTIME_DIAGNOSTICS"] =
-{
-    text = AC.L:Get("Developer.ConfirmClearRuntimeDiagnostics"),
-    button1 = AC.L:Get("Developer.Clear"),
-    button2 = _G.CANCEL or "Cancel",
-    OnAccept = function()
-        AC.DeveloperPanel:ClearRuntimeDiagnostics()
     end,
     timeout = 0,
     whileDead = true,
@@ -887,69 +848,6 @@ function DeveloperPanel:CopyCurrentTab(mode)
 
 end
 
--------------------------------------------------------------------------------
--- Quality of Life Row -- Clear Notifications / Force
--- Refresh / Toggle Tracing, always visible regardless of active tab.
--------------------------------------------------------------------------------
-
-function DeveloperPanel:BuildQoLRow(topY)
-
-    -- A row of always-visible action buttons, right-aligned above the tab
-    -- bar so it never competes for space with the tabs themselves. topY is
-    -- computed once in Initialize() from the title's own real measured
-    -- height, not a hardcoded offset here -- see Initialize()'s Header
-    -- Layout section for why.
-
-    local clearNotifications = CreateFrame("Button", nil, self.Frame, "UIPanelButtonTemplate")
-    clearNotifications:SetSize(140, 20)
-    clearNotifications:SetPoint("TOPRIGHT", -CONTENT_PADDING, topY)
-    clearNotifications:SetText(AC.L:Get("Developer.ClearNotifications"))
-
-    clearNotifications:SetScript("OnClick", function()
-        StaticPopup_Show("AZEROTHCOMPANION_DEVELOPER_CLEAR_NOTIFICATIONS")
-    end)
-
-    local forceRefresh = CreateFrame("Button", nil, self.Frame, "UIPanelButtonTemplate")
-    forceRefresh:SetSize(100, 20)
-    forceRefresh:SetPoint("RIGHT", clearNotifications, "LEFT", -6, 0)
-    forceRefresh:SetText(AC.L:Get("Developer.ForceRefresh"))
-
-    forceRefresh:SetScript("OnClick", function()
-
-        AC.UserActionService:RefreshAll()
-        self:ShowTab(self.CurrentTab)
-
-    end)
-
-    local traceToggle = CreateFrame("Button", nil, self.Frame, "UIPanelButtonTemplate")
-    traceToggle:SetSize(110, 20)
-    traceToggle:SetPoint("RIGHT", forceRefresh, "LEFT", -6, 0)
-
-    local function UpdateTraceButtonText()
-        traceToggle:SetText(AC.Logger:GetActiveTraceDescription() == "off" and AC.L:Get("Developer.TracingOff") or AC.L:Get("Developer.TracingOn"))
-    end
-
-    traceToggle:SetScript("OnClick", function()
-
-        if AC.UserActionService:GetTraceState().description == "off" then
-            AC.UserActionService:EnableAllTracing()
-        else
-            AC.UserActionService:DisableAllTracing()
-        end
-
-        UpdateTraceButtonText()
-
-    end)
-
-    UpdateTraceButtonText()
-
-    self.TraceToggleButton = traceToggle
-
-    self.QoLButtons = { clearNotifications, forceRefresh, traceToggle }
-
-end
-
--------------------------------------------------------------------------------
 -- Shared User Actions
 -------------------------------------------------------------------------------
 
@@ -976,6 +874,80 @@ local function CreateActionButton(parent, label, width, x, y, onClick)
 
     return button
 
+end
+
+function DeveloperPanel:GetPageToolbar(tabName)
+    self.PageToolbars = self.PageToolbars or {}
+
+    local toolbar = self.PageToolbars[tabName]
+
+    if toolbar then
+        return toolbar
+    end
+
+    toolbar = CreateFrame("Frame", nil, self.ScrollChild)
+    toolbar:SetPoint("TOPLEFT", 0, -4)
+    toolbar:SetSize(CONTENT_WIDTH, 22)
+    toolbar.Buttons = {}
+    toolbar:Hide()
+    self.PageToolbars[tabName] = toolbar
+    return toolbar
+end
+
+function DeveloperPanel:GetPageToolbarButton(tabName, key, text, width, onClick)
+    local toolbar = self:GetPageToolbar(tabName)
+    local button = toolbar.Buttons[key]
+
+    if not button then
+        button = CreateFrame("Button", nil, toolbar, "UIPanelButtonTemplate")
+        button:SetSize(width, 20)
+
+        local previous = toolbar.LastButton
+
+        if previous then
+            button:SetPoint("RIGHT", previous, "LEFT", -6, 0)
+        else
+            button:SetPoint("TOPRIGHT", 0, 0)
+        end
+
+        toolbar.Buttons[key] = button
+        toolbar.LastButton = button
+    end
+
+    button:SetText(text)
+    button:SetScript("OnClick", onClick)
+    button:Show()
+
+    if toolbar.Status then
+        toolbar.Status:ClearAllPoints()
+        toolbar.Status:SetPoint("LEFT", 0, 0)
+        toolbar.Status:SetPoint("RIGHT", toolbar.LastButton, "LEFT", -8, 0)
+    end
+
+    toolbar:Show()
+    return button
+end
+
+function DeveloperPanel:GetPageToolbarStatus(tabName)
+    local toolbar = self:GetPageToolbar(tabName)
+
+    if not toolbar.Status then
+        toolbar.Status = toolbar:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        toolbar.Status:SetJustifyH("LEFT")
+    end
+
+    toolbar.Status:ClearAllPoints()
+    toolbar.Status:SetPoint("LEFT", 0, 0)
+
+    if toolbar.LastButton then
+        toolbar.Status:SetPoint("RIGHT", toolbar.LastButton, "LEFT", -8, 0)
+    else
+        toolbar.Status:SetPoint("RIGHT", toolbar, "RIGHT", 0, 0)
+    end
+
+    toolbar.Status:Show()
+    toolbar:Show()
+    return toolbar.Status
 end
 
 
@@ -1044,6 +1016,9 @@ function DeveloperPanel:BuildActionControls(parent)
     CreateActionButton(panel, AC.L:Get("Developer.ActionClearLog"), 72, 586, -32, function()
         AC.UserActionService:ClearLog()
     end)
+    CreateActionButton(panel, AC.L:Get("Developer.ClearNotifications"), 150, 430, -62, function()
+        StaticPopup_Show("AZEROTHCOMPANION_DEVELOPER_CLEAR_NOTIFICATIONS")
+    end)
 
     CreateActionButton(panel, AC.L:Get("Developer.ActionDashboard"), 90, 680, -32, function()
         AC.UserActionService:OpenDashboard()
@@ -1098,6 +1073,7 @@ function DeveloperPanel:BuildOverviewTab()
 
     local data = {}
     local lines = {}
+    local properties = {}
     local serviceCount = AC.ServiceManager and #AC.ServiceManager:GetAll() or 0
     local moduleCount = AC.ModuleManager and #AC.ModuleManager:GetAll() or 0
     local eventCount = AC.DeveloperModeService and #AC.DeveloperModeService:GetEventLog() or 0
@@ -1109,6 +1085,7 @@ function DeveloperPanel:BuildOverviewTab()
         local text = AC.L:Get(labelKey) .. ": " .. tostring(value)
 
         table.insert(lines, text)
+        table.insert(properties, { label = labelKey, value = tostring(value) })
         data[AC.L:Get(labelKey)] = value
 
     end
@@ -1223,7 +1200,7 @@ function DeveloperPanel:BuildOverviewTab()
     local _, _, _, yOffset = AC.Dashboard:BuildHeroSection(
         self,
         self.ScrollChild,
-        -4,
+        PAGE_CONTENT_TOP,
         CONTENT_WIDTH,
         AC.L:Get("Developer.HeroHeadline"),
         AC.L:Get("Developer.HeroValue"),
@@ -1249,7 +1226,7 @@ function DeveloperPanel:BuildOverviewTab()
     self:RefreshActionControls()
     yOffset = yOffset - actionControls:GetHeight() - 8
 
-    yOffset = self:LayoutLines("Overview", lines, yOffset, CONTENT_WIDTH)
+    yOffset = AC.Dashboard:LayoutStatisticsGrid(self, "OverviewProperties", self.ScrollChild, yOffset, CONTENT_WIDTH, properties)
 
     self.CurrentTabData = data
     self.CurrentTabSummaryLines = lines
@@ -1261,14 +1238,10 @@ end
 -------------------------------------------------------------------------------
 -- Modules Tab
 --
--- Two lines per registered Service/Module: identity + a Refresh button,
--- then its own stats. "Initialized"/"Enabled" reflect real, observable
--- state -- Initialized is true for anything appearing in these registries
--- at all (ModuleManager/ServiceManager only ever list what actually
--- completed Initialize()); Enabled prefers a module's own
--- IsModuleEnabled() (the real per-feature Settings toggle) where one
--- exists, falling back to "Yes" for framework services that have no such
--- concept. Insight/Recommendation/History counts reuse
+-- Two lines per registered Service/Module: registered identity and
+-- capability-aware actions, then its own stats. Registration is the only
+-- lifecycle fact the managers own; this page does not infer initialization or
+-- enablement. Insight/Recommendation/History counts reuse
 -- InsightEngine/Dashboard/ActivityHistoryService's own existing public
 -- getters -- never recomputed here.
 -------------------------------------------------------------------------------
@@ -1306,22 +1279,15 @@ function DeveloperPanel:BuildModulesTab()
 
     table.sort(entries, function(a, b) return a.name < b.name end)
 
-    local rowWidth = CONTENT_WIDTH - 80
-    local yOffset = -4
+    local rowWidth = CONTENT_WIDTH - 170
+    local introLines = { AC.L:Get("Developer.ModulesLifecycleLimitation") }
+    local yOffset = self:LayoutLines("ModulesIntro", introLines, PAGE_CONTENT_TOP, CONTENT_WIDTH)
+    yOffset = yOffset - 6
 
     for index, entry in ipairs(entries) do
 
         local name = entry.name
         local object = entry.object
-
-        local enabled = AC.L:Get("Developer.Yes")
-
-        if object.IsModuleEnabled then
-
-            local ok, result = pcall(object.IsModuleEnabled, object)
-            enabled = (ok and result ~= false) and AC.L:Get("Developer.Yes") or AC.L:Get("Developer.No")
-
-        end
 
         local stats = AC.DeveloperModeService and AC.DeveloperModeService:GetModuleStats(name)
 
@@ -1355,29 +1321,40 @@ function DeveloperPanel:BuildModulesTab()
         end
 
         local historyCount = AC.ActivityHistoryService and #AC.ActivityHistoryService:GetByModule(name) or 0
+        local canRefresh = type(object.Refresh) == "function"
+        local canDiagnose = type(object.GetDiagnostics) == "function"
+        local capabilities = {}
 
-        local titleText = string.format("%s   |   %s: %s   %s: %s", DisplayName(name), AC.L:Get("Developer.LabelInitialized"), AC.L:Get("Developer.Yes"), AC.L:Get("Developer.LabelEnabled"), enabled)
-        local statsText = string.format("  %s: %s   %s: %s   %s: %d   %s: %d   %s: %d   %s: %s",
+        if canRefresh then capabilities[#capabilities + 1] = AC.L:Get("Developer.Refresh") end
+        if canDiagnose then
+            capabilities[#capabilities + 1] = AC.L:Get("Developer.ModulesDiagnostics")
+        end
+
+        if #capabilities == 0 then capabilities[1] = AC.L:Get("Developer.ModulesReadOnly") end
+
+        local titleText = string.format("%s   |   %s: %s", DisplayName(name), AC.L:Get("Developer.LabelRegistered"), AC.L:Get("Developer.Yes"))
+        local statsText = string.format("  %s: %s   %s: %s   %s: %d   %s: %d   %s: %d   %s: %s   %s: %s",
             AC.L:Get("Developer.LabelLastRefresh"), lastRefreshText,
             AC.L:Get("Developer.LabelDuration"), durationText,
             AC.L:Get("Developer.LabelInsightCount"), insightCount,
             AC.L:Get("Developer.LabelRecommendationCount"), recommendationCount,
             AC.L:Get("Developer.LabelHistoryCount"), historyCount,
-            AC.L:Get("Developer.LabelLastError"), errorText)
+            AC.L:Get("Developer.LabelLastError"), errorText,
+            AC.L:Get("Developer.ModulesCapabilities"), table.concat(capabilities, ", "))
 
         table.insert(summaryLines, titleText)
         table.insert(summaryLines, statsText)
 
         data[name] =
         {
-            Initialized = true,
-            Enabled = enabled,
+            Registered = true,
             LastRefresh = lastRefreshText,
             Duration = durationText,
             LastError = errorText,
             InsightCount = insightCount,
             RecommendationCount = recommendationCount,
             HistoryCount = historyCount,
+            Capabilities = capabilities,
         }
 
         -- Title line + Refresh button, top-aligned to the same yOffset.
@@ -1426,7 +1403,7 @@ function DeveloperPanel:BuildModulesTab()
         button:ClearAllPoints()
         button:SetPoint("TOPLEFT", self.ScrollChild, "TOPLEFT", rowWidth + 10, yOffset)
         button.ModuleName = name
-        button:Show()
+        button:SetShown(canRefresh)
 
         local titleHeight = math.max(titleRow:GetStringHeight() or 14, 18)
 
@@ -1478,6 +1455,115 @@ function DeveloperPanel:BuildModulesTab()
 end
 
 -------------------------------------------------------------------------------
+-- Combat Session Tab
+-------------------------------------------------------------------------------
+
+function DeveloperPanel:BuildCombatSessionTab()
+    local service = AC.CombatSessionService
+    local toolbar = self:GetPageToolbar("CombatSession")
+    local function FormatBoolean(value)
+        if value == nil then return AC.L:Get("Common.Unknown") end
+        return value and AC.L:Get("Developer.Yes") or AC.L:Get("Developer.No")
+    end
+
+    self:GetPageToolbarButton("CombatSession", "Refresh", AC.L:Get("Developer.Refresh"), 90, function()
+        if service then
+            service:Refresh("developer-panel")
+        end
+
+        DeveloperPanel:NavigateTab("CombatSession")
+    end)
+    toolbar:Show()
+
+    local diagnostics = service and service:GetDiagnostics() or {}
+    local latest = service and service:GetLatestSession() or nil
+    local yOffset = TOOLBAR_CONTENT_TOP
+
+    yOffset = AC.Dashboard:BeginSection(self.ScrollChild, "Developer.CombatSessionStatus", yOffset)
+    yOffset = AC.Dashboard:LayoutStatisticsGrid(self, "CombatSessionStatus", self.ScrollChild, yOffset, CONTENT_WIDTH,
+    {
+        { label = "Developer.CombatSessionInitialized", value = diagnostics.initialized and AC.L:Get("Developer.Yes") or AC.L:Get("Developer.No") },
+        { label = "Developer.CombatSessionEnabled", value = diagnostics.enabled and AC.L:Get("Developer.Yes") or AC.L:Get("Developer.No") },
+        { label = "Developer.CombatSessionAPIAvailable", value = diagnostics.available and AC.L:Get("Developer.Yes") or AC.L:Get("Developer.No") },
+        { label = "Developer.CombatSessionLastReason", value = diagnostics.lastReason or AC.L:Get("Common.Unknown") },
+    })
+    yOffset = AC.Dashboard:EndSection(yOffset)
+
+    yOffset = AC.Dashboard:BeginSection(self.ScrollChild, "Developer.CombatSessionCache", yOffset)
+    yOffset = AC.Dashboard:LayoutStatisticsGrid(self, "CombatSessionCache", self.ScrollChild, yOffset, CONTENT_WIDTH,
+    {
+        { label = "Developer.CombatSessionCached", value = tostring(diagnostics.cachedSessionCount or 0) },
+        { label = "Developer.CombatSessionCacheLimit", value = tostring(diagnostics.cacheLimit or 0) },
+        { label = "Developer.CombatSessionUpdates", value = tostring(diagnostics.updateCount or 0) },
+        { label = "Developer.CombatSessionResets", value = tostring(diagnostics.resetCount or 0) },
+        { label = "Developer.CombatSessionObserved", value = tostring(diagnostics.totalSessionsObserved or 0) },
+        { label = "Developer.CombatSessionEvicted", value = tostring(diagnostics.evictedSessionCount or 0) },
+    })
+    yOffset = AC.Dashboard:EndSection(yOffset)
+
+    local latestStats
+
+    if latest then
+        latestStats =
+        {
+            { label = "Developer.CombatSessionSessionID", value = tostring(latest.sessionID or AC.L:Get("Common.Unknown")) },
+            { label = "Developer.CombatSessionParticipants", value = tostring(latest.participantCount or 0) },
+            { label = "Developer.CombatSessionDeaths", value = tostring(latest.deathCount or 0) },
+            { label = "Developer.CombatSessionLastUpdated", value = latest.updatedAt and AC.L:Format("Developer.CombatSessionUpdatedAgo", math.max(0, GetTime() - latest.updatedAt)) or AC.L:Get("Common.Unknown") },
+        }
+    else
+        latestStats =
+        {
+            { label = "Developer.CombatSessionSessionID", value = AC.L:Get("Developer.CombatSessionNoSession") },
+        }
+    end
+
+    yOffset = AC.Dashboard:BeginSection(self.ScrollChild, "Developer.CombatSessionLatest", yOffset)
+    yOffset = AC.Dashboard:LayoutStatisticsGrid(self, "CombatSessionLatest", self.ScrollChild, yOffset, CONTENT_WIDTH, latestStats)
+    yOffset = AC.Dashboard:EndSection(yOffset)
+
+    local participantLines = {}
+
+    for _, participant in ipairs(latest and latest.participants or {}) do
+        participantLines[#participantLines + 1] = string.format("%s | %s | %s | %s: %s",
+            participant.name or AC.L:Get("Common.Unknown"),
+            participant.sourceGUID or AC.L:Get("Common.Unknown"),
+            participant.classFilename or AC.L:Get("Common.Unknown"),
+            AC.L:Get("Developer.CombatSessionLocalPlayer"),
+            FormatBoolean(participant.isLocalPlayer))
+    end
+
+    yOffset = AC.Dashboard:BeginSection(self.ScrollChild, "Developer.CombatSessionParticipantSection", yOffset)
+    yOffset = self:LayoutLinesOrEmpty("CombatSessionParticipants", participantLines, yOffset, CONTENT_WIDTH, "Developer.CombatSessionNoParticipants")
+    yOffset = AC.Dashboard:EndSection(yOffset)
+
+    local deathLines = {}
+
+    for _, death in ipairs(latest and latest.deaths or {}) do
+        deathLines[#deathLines + 1] = string.format("%s | %s: %s | %s: %s | %s: %s",
+            death.deathTimeSeconds and string.format("%.1fs", death.deathTimeSeconds) or AC.L:Get("Common.Unknown"),
+            AC.L:Get("Developer.CombatSessionRecapID"), tostring(death.deathRecapID or AC.L:Get("Common.Unknown")),
+            AC.L:Get("Developer.CombatSessionRecapAvailable"), FormatBoolean(death.recap and death.recap.available),
+            AC.L:Get("Developer.CombatSessionRecapEvents"), death.recap and death.recap.eventCount ~= nil and tostring(death.recap.eventCount) or AC.L:Get("Common.Unknown"))
+    end
+
+    yOffset = AC.Dashboard:BeginSection(self.ScrollChild, "Developer.CombatSessionDeathSection", yOffset)
+    yOffset = self:LayoutLinesOrEmpty("CombatSessionDeaths", deathLines, yOffset, CONTENT_WIDTH, "Developer.CombatSessionNoDeaths")
+    yOffset = AC.Dashboard:EndSection(yOffset)
+
+    self.CurrentTabData = { diagnostics = diagnostics, latestSession = latest }
+    self.CurrentTabSummaryLines =
+    {
+        string.format("CombatSessionService: %s", diagnostics.enabled and "enabled" or "disabled"),
+        string.format("Cache: %d/%d", diagnostics.cachedSessionCount or 0, diagnostics.cacheLimit or 0),
+        latest and string.format("Latest: %s, participants=%d, deaths=%d", tostring(latest.sessionID), latest.participantCount or 0, latest.deathCount or 0)
+            or AC.L:Get("Developer.CombatSessionNoSession"),
+    }
+
+    return (-yOffset) + 16
+end
+
+-------------------------------------------------------------------------------
 -- Events Tab
 --
 -- A live feed of AC.DeveloperModeService's own bounded event log, newest
@@ -1487,33 +1573,15 @@ end
 -------------------------------------------------------------------------------
 
 function DeveloperPanel:BuildEventsTab()
-
-    if not self.EventsClearButton then
-
-        local clearButton = CreateFrame("Button", nil, self.ScrollChild, "UIPanelButtonTemplate")
-        clearButton:SetSize(80, 20)
-        clearButton:SetPoint("TOPRIGHT", 0, -4)
-        clearButton:SetText(AC.L:Get("Developer.Clear"))
-
-        clearButton:SetScript("OnClick", function()
-            StaticPopup_Show("AZEROTHCOMPANION_DEVELOPER_CLEAR_EVENTS")
-        end)
-
-        self.EventsClearButton = clearButton
-
-    end
-
-    self.EventsClearButton:Show()
+    self:GetPageToolbarButton("Events", "Clear", AC.L:Get("Developer.Clear"), 80, function()
+        StaticPopup_Show("AZEROTHCOMPANION_DEVELOPER_CLEAR_EVENTS")
+    end)
 
     local log = AC.DeveloperModeService and AC.DeveloperModeService:GetEventLog() or {}
     local lines = {}
     local data = {}
 
-    if #log == 0 then
-
-        table.insert(lines, AC.L:Get("Developer.NoEvents"))
-
-    else
+    if #log > 0 then
 
         for i = #log, 1, -1 do
 
@@ -1531,10 +1599,10 @@ function DeveloperPanel:BuildEventsTab()
 
     end
 
-    local yOffset = self:LayoutLines("Events", lines, -28, CONTENT_WIDTH)
+    local yOffset = self:LayoutLinesOrEmpty("Events", lines, TOOLBAR_CONTENT_TOP, CONTENT_WIDTH, "Developer.NoEvents")
 
     self.CurrentTabData = data
-    self.CurrentTabSummaryLines = lines
+    self.CurrentTabSummaryLines = #lines > 0 and lines or { AC.L:Get("Developer.NoEvents") }
 
     return (-yOffset) + 16
 
@@ -1752,45 +1820,16 @@ function DeveloperPanel:BuildErrorsToolbar()
         return
     end
 
-    local statusText = self.ScrollChild:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    statusText:SetJustifyH("LEFT")
-    statusText:SetPoint("TOPLEFT", 0, -4)
-    self.ErrorsStatusText = statusText
-
-    local clearButton = CreateFrame("Button", nil, self.ScrollChild, "UIPanelButtonTemplate")
-    clearButton:SetSize(110, 20)
-    clearButton:SetPoint("TOPRIGHT", 0, -4)
-    clearButton:SetText(AC.L:Get("Developer.ClearErrors"))
-
-    clearButton:SetScript("OnClick", function()
+    self.ErrorsStatusText = self:GetPageToolbarStatus("Errors")
+    self.ErrorsClearButton = self:GetPageToolbarButton("Errors", "Clear", AC.L:Get("Developer.ClearErrors"), 110, function()
         StaticPopup_Show("AZEROTHCOMPANION_DEVELOPER_CLEAR_ERRORS")
     end)
-
-    self.ErrorsClearButton = clearButton
-
-    -- Generate Test Error -- shares UserActionService with /ac dev testerror.
-    local testButton = CreateFrame("Button", nil, self.ScrollChild, "UIPanelButtonTemplate")
-    testButton:SetSize(150, 20)
-    testButton:SetPoint("RIGHT", clearButton, "LEFT", -6, 0)
-    testButton:SetText(AC.L:Get("Developer.GenerateTestError"))
-
-    testButton:SetScript("OnClick", function()
+    self.ErrorsTestButton = self:GetPageToolbarButton("Errors", "Test", AC.L:Get("Developer.GenerateTestError"), 150, function()
         AC.UserActionService:GenerateTestError()
     end)
-
-    self.ErrorsTestButton = testButton
-
-    -- Export All Errors -- see ExportAllErrors below for what this reuses.
-    local exportButton = CreateFrame("Button", nil, self.ScrollChild, "UIPanelButtonTemplate")
-    exportButton:SetSize(140, 20)
-    exportButton:SetPoint("RIGHT", testButton, "LEFT", -6, 0)
-    exportButton:SetText(AC.L:Get("Developer.ExportAllErrors"))
-
-    exportButton:SetScript("OnClick", function()
+    self.ErrorsExportButton = self:GetPageToolbarButton("Errors", "Export", AC.L:Get("Developer.ExportAllErrors"), 140, function()
         self:ExportAllErrors()
     end)
-
-    self.ErrorsExportButton = exportButton
 
 end
 
@@ -1834,7 +1873,7 @@ function DeveloperPanel:BuildErrorsTab()
         table.insert(records, errors[i])
     end
 
-    local yOffset = AC.Dashboard:LayoutAccordionRows(self, "Errors", self.ScrollChild, -34, CONTENT_WIDTH, records,
+    local yOffset = AC.Dashboard:LayoutAccordionRows(self, "Errors", self.ScrollChild, TOOLBAR_CONTENT_TOP, CONTENT_WIDTH, records,
     {
         expandedField = "ExpandedErrorKey",
         getRecordID = function(record) return record.key end,
@@ -2103,21 +2142,10 @@ function DeveloperPanel:BuildSecretValuesToolbar()
         return
     end
 
-    local statusText = self.ScrollChild:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    statusText:SetJustifyH("LEFT")
-    statusText:SetPoint("TOPLEFT", 0, -4)
-    self.SecretValuesStatusText = statusText
-
-    local clearButton = CreateFrame("Button", nil, self.ScrollChild, "UIPanelButtonTemplate")
-    clearButton:SetSize(110, 20)
-    clearButton:SetPoint("TOPRIGHT", 0, -4)
-    clearButton:SetText(AC.L:Get("Developer.ClearSecretValues"))
-
-    clearButton:SetScript("OnClick", function()
+    self.SecretValuesStatusText = self:GetPageToolbarStatus("SecretValues")
+    self.SecretValuesClearButton = self:GetPageToolbarButton("SecretValues", "Clear", AC.L:Get("Developer.ClearSecretValues"), 110, function()
         StaticPopup_Show("AZEROTHCOMPANION_DEVELOPER_CLEAR_SECRET_VALUES")
     end)
-
-    self.SecretValuesClearButton = clearButton
 
 end
 
@@ -2157,7 +2185,7 @@ function DeveloperPanel:BuildSecretValuesTab()
         table.insert(records, events[i])
     end
 
-    local yOffset = AC.Dashboard:LayoutAccordionRows(self, "SecretValues", self.ScrollChild, -34, CONTENT_WIDTH, records,
+    local yOffset = AC.Dashboard:LayoutAccordionRows(self, "SecretValues", self.ScrollChild, TOOLBAR_CONTENT_TOP, CONTENT_WIDTH, records,
     {
         expandedField = "ExpandedSecretValueKey",
         getRecordID = function(record) return record.key end,
@@ -2523,13 +2551,19 @@ function DeveloperPanel:BuildLiveAPITab()
 
     local counts = AC.VerificationService:GetSummaryCounts()
     local glyph = AC.VerificationService.StatusGlyph
+    local summaryLine = AC.L:Format("Developer.SummaryFormat", glyph.source, counts.source, glyph.wiki, counts.wiki, glyph.live, counts.live, glyph.needsLive, counts.needsLive, glyph.incorrect, counts.incorrect)
+    local yOffset = -62
 
-    table.insert(lines, { text = AC.L:Get("Developer.SummaryHeader"), r = 1, g = 0.82, b = 0 })
-    table.insert(lines,
+    yOffset = AC.Dashboard:BeginSection(self.ScrollChild, "Developer.SummaryHeader", yOffset)
+    yOffset = AC.Dashboard:LayoutStatisticsGrid(self, "LiveAPISummary", self.ScrollChild, yOffset, CONTENT_WIDTH,
     {
-        text = AC.L:Format("Developer.SummaryFormat", glyph.source, counts.source, glyph.wiki, counts.wiki, glyph.live, counts.live, glyph.needsLive, counts.needsLive, glyph.incorrect, counts.incorrect),
-        r = 0.85, g = 0.85, b = 0.85,
+        { label = "Developer.StatusSource", value = tostring(counts.source) },
+        { label = "Developer.StatusWiki", value = tostring(counts.wiki) },
+        { label = "Developer.StatusLive", value = tostring(counts.live) },
+        { label = "Developer.StatusNeedsLive", value = tostring(counts.needsLive) },
+        { label = "Developer.StatusIncorrect", value = tostring(counts.incorrect) },
     })
+    yOffset = AC.Dashboard:EndSection(yOffset)
 
     for _, probe in ipairs(LIVE_API_PROBES) do
 
@@ -2635,13 +2669,357 @@ function DeveloperPanel:BuildLiveAPITab()
 
     end
 
-    local yOffset = self:LayoutLines("LiveAPI", lines, -52, CONTENT_WIDTH)
+    yOffset = self:LayoutLines("LiveAPI", lines, yOffset, CONTENT_WIDTH)
 
     self.CurrentTabData = data
-    self.CurrentTabSummaryLines = lines
+    self.CurrentTabSummaryLines = { summaryLine }
+
+    for _, line in ipairs(lines) do
+        table.insert(self.CurrentTabSummaryLines, line)
+    end
 
     return (-yOffset) + 16
 
+end
+
+-------------------------------------------------------------------------------
+-- Blizzard API Explorer
+--
+-- Developer-only presentation for DeveloperApiExplorerService. Controls own
+-- input state; the service owns resolution, parsing, execution, and raw output.
+-------------------------------------------------------------------------------
+
+function DeveloperPanel:ExecuteAPIExplorer()
+
+    local functionName = self.APIExplorerFunctionInput:GetValue()
+    local arguments = self.APIExplorerArgumentsInput:GetValue()
+    local ok, status, lines = AC.DeveloperApiExplorerService:Execute(functionName, arguments)
+
+    self.APIExplorerStatus = status
+    self.APIExplorerStatusOK = ok
+    self.APIExplorerResultLines = lines
+    self.APIExplorerSearchMatches = nil
+    self:EnsureAPIExplorerTreeRows(AC.DeveloperApiExplorerService:GetNodeCount())
+    self:RefreshAPIExplorerRecent()
+    self:RefreshAPIExplorer(false, false)
+
+end
+
+function DeveloperPanel:PopulateAPIExplorer(functionName, arguments)
+    self.APIExplorerFunctionInput:SetValue(functionName or "")
+    self.APIExplorerArgumentsInput:SetValue(arguments or "")
+end
+
+function DeveloperPanel:CopyAPIExplorerResult()
+    self.CopyBox:SetText(AC.DeveloperApiExplorerService:ExportCurrent())
+    self.CopyBox:SetFocus()
+    self.CopyBox:HighlightText()
+end
+
+function DeveloperPanel:SearchAPIExplorer()
+    local matches = AC.DeveloperApiExplorerService:Search(self.APIExplorerSearchInput:GetValue())
+    self.APIExplorerSearchMatches = matches
+    local node = matches[1]
+    local parent = node and node.parent
+    while parent do parent.expanded = true parent = parent.parent end
+    self.APIExplorerStatus = #matches == 0 and "No search matches." or ("Found %d match(es); showing the first."):format(#matches)
+    self:RefreshAPIExplorer(true)
+    if node and self.APIExplorerNodeRows then
+        for index, entry in ipairs(AC.DeveloperApiExplorerService:GetVisibleNodes()) do
+            if entry.node == node then self.ScrollFrame:SetVerticalScroll(math.max(0, 190 + ((index - 1) * 20))) break end
+        end
+    end
+end
+
+
+function DeveloperPanel:GetAPIExplorerControls()
+
+    if self.APIExplorerControls then
+        return self.APIExplorerControls
+    end
+
+    local container = CreateFrame("Frame", nil, self.ScrollChild)
+    container:SetPoint("TOPLEFT", 0, -4)
+    container:SetSize(CONTENT_WIDTH, 194)
+    local editorLeft = 220
+    local editorWidth = CONTENT_WIDTH - editorLeft - 12
+
+    local functionLabel = container:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    functionLabel:SetPoint("TOPLEFT", editorLeft, 0)
+    functionLabel:SetText(AC.L:Get("Developer.APIExplorerFunction"))
+
+    local functionInput = AC.WidgetManager:Create("EditBox", container,
+    {
+        width = editorWidth,
+        onEnterPressed = function()
+            DeveloperPanel:ExecuteAPIExplorer()
+        end,
+    })
+    functionInput:GetFrame():SetPoint("TOPLEFT", editorLeft, -18)
+
+    local argumentsLabel = container:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    argumentsLabel:SetPoint("TOPLEFT", editorLeft, -54)
+    argumentsLabel:SetText(AC.L:Get("Developer.APIExplorerArguments"))
+
+    local argumentsInput = AC.WidgetManager:Create("EditBox", container,
+    {
+        width = editorWidth,
+        onEnterPressed = function()
+            DeveloperPanel:ExecuteAPIExplorer()
+        end,
+    })
+    argumentsInput:GetFrame():SetPoint("TOPLEFT", editorLeft, -72)
+
+    local searchInput = AC.WidgetManager:Create("EditBox", container, { width = editorWidth - 110, onEnterPressed = function() DeveloperPanel:ExecuteAPIExplorer() end })
+    searchInput:GetFrame():SetPoint("TOPLEFT", editorLeft, -108)
+    local searchButton = AC.WidgetManager:Create("Button", container, { width = 96, text = AC.L:Get("Developer.APIExplorerSearch"), onClick = function() DeveloperPanel:SearchAPIExplorer() end })
+    searchButton:GetFrame():SetPoint("LEFT", searchInput:GetFrame(), "RIGHT", 8, 0)
+
+    local executeButton = AC.WidgetManager:Create("Button", container,
+    {
+        width = 100,
+        text = AC.L:Get("Developer.APIExplorerExecute"),
+        onClick = function()
+            DeveloperPanel:ExecuteAPIExplorer()
+        end,
+    })
+    executeButton:GetFrame():SetPoint("TOPLEFT", editorLeft, -142)
+
+    local favoriteButton = AC.WidgetManager:Create("Button", container, { width = 100, text = AC.L:Get("Developer.APIExplorerFavorite"), onClick = function()
+        AC.DeveloperApiExplorerService:ToggleFavorite(DeveloperPanel.APIExplorerFunctionInput:GetValue())
+        DeveloperPanel:EnsureAPIExplorerNavigationRows()
+        DeveloperPanel:RefreshAPIExplorer(true)
+    end })
+    favoriteButton:GetFrame():SetPoint("LEFT", executeButton:GetFrame(), "RIGHT", 8, 0)
+    local copyButton = AC.WidgetManager:Create("Button", container, { width = 100, text = AC.L:Get("Developer.APIExplorerCopyResult"), onClick = function() DeveloperPanel:CopyAPIExplorerResult() end })
+    copyButton:GetFrame():SetPoint("LEFT", favoriteButton:GetFrame(), "RIGHT", 8, 0)
+
+    local status = container:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    status:SetPoint("LEFT", copyButton:GetFrame(), "RIGHT", 12, 0)
+    status:SetWidth(math.max(120, editorWidth - 336))
+    status:SetJustifyH("LEFT")
+
+    local resultsLabel = container:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    resultsLabel:SetPoint("TOPLEFT", editorLeft, -178)
+    resultsLabel:SetText(AC.L:Get("Developer.APIExplorerResults"))
+
+    self.APIExplorerControls = container
+    self.APIExplorerFunctionInput = functionInput
+    self.APIExplorerArgumentsInput = argumentsInput
+    self.APIExplorerSearchInput = searchInput
+    self.APIExplorerExecuteButton = executeButton
+    self.APIExplorerStatusText = status
+
+    self:EnsureAPIExplorerNavigationRows()
+    self:EnsureAPIExplorerTreeRows(1)
+
+    return container
+
+end
+
+
+function DeveloperPanel:BuildAPIExplorerTab()
+
+    local controls = self:GetAPIExplorerControls()
+    controls:Show()
+
+    self:RefreshAPIExplorer(true)
+
+    return self.APIExplorerContentHeight or 360
+
+end
+
+
+function DeveloperPanel:RefreshAPIExplorer(preserveScroll, refreshNavigation)
+
+    local scrollPosition = preserveScroll and self.ScrollFrame:GetVerticalScroll() or 0
+    local result = AC.DeveloperApiExplorerService:GetCurrentResult()
+    local status = self.APIExplorerStatus or AC.L:Get("Developer.APIExplorerReady")
+    if result then status = ("%s | %s ms | %d returns%s"):format(result.metadata.status, result.metadata.executionTimeMs, result.metadata.returnCount, result.metadata.error and (" | " .. result.metadata.error) or "") end
+    self.APIExplorerStatusText:SetText(status)
+
+    if self.APIExplorerStatusOK == false then
+        local r, g, b = unpack(AC.Presentation.GetSemanticColor("critical"))
+        self.APIExplorerStatusText:SetTextColor(r, g, b)
+    else
+        local r, g, b = unpack(AC.Presentation.GetSemanticColor("dim"))
+        self.APIExplorerStatusText:SetTextColor(r, g, b)
+    end
+
+    if refreshNavigation ~= false then
+        self:BuildAPIExplorerNavigation()
+    end
+    local yOffset = self:LayoutAPIExplorerTree(-202)
+
+    self.CurrentTabData = AC.DeveloperApiExplorerService:GetVisibleLines()
+    self.CurrentTabSummaryLines = { status }
+
+    self.APIExplorerContentHeight = math.max((-yOffset) + 16, self.APIExplorerNavigationHeight or 360, 360)
+    self.ScrollChild:SetHeight(self.APIExplorerContentHeight)
+    self.ScrollFrame:SetVerticalScroll(math.min(scrollPosition, self.ScrollFrame:GetVerticalScrollRange() or scrollPosition))
+
+end
+
+function DeveloperPanel:EnsureAPIExplorerNavigationRows()
+    local namespaces = AC.DeveloperApiExplorerService:GetNamespaces()
+    local maximumFunctions = 0
+    local namespaceCount = 0
+    for _, functions in pairs(namespaces) do namespaceCount = namespaceCount + 1 maximumFunctions = math.max(maximumFunctions, #functions) end
+    local required = 3 + 5 + namespaceCount + maximumFunctions + #AC.DeveloperApiExplorerService:GetFavorites()
+    for index = #(self.APIExplorerNavButtons or {}) + 1, required do self:GetAPIExplorerNavButton(index):Hide() end
+end
+
+function DeveloperPanel:EnsureAPIExplorerTreeRows(required)
+    self.APIExplorerNodeRows = self.APIExplorerNodeRows or {}
+    for index = #self.APIExplorerNodeRows + 1, math.max(1, required or 0) do
+        local row = CreateFrame("Button", nil, self.ScrollChild)
+        row:SetPoint("TOPLEFT", 220, -202 - ((index - 1) * 20))
+        row:SetSize(CONTENT_WIDTH - 232, 18)
+        row.Text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        row.Text:SetPoint("LEFT")
+        row.Text:SetJustifyH("LEFT")
+        row:Hide()
+        self.APIExplorerNodeRows[index] = row
+    end
+end
+
+function DeveloperPanel:GetAPIExplorerNavButton(index)
+    self.APIExplorerNavButtons = self.APIExplorerNavButtons or {}
+    local button = self.APIExplorerNavButtons[index]
+    if not button then
+        button = CreateFrame("Button", nil, self.ScrollChild, "UIPanelButtonTemplate")
+        button:SetSize(204, 18)
+        self.APIExplorerNavButtons[index] = button
+    end
+    return button
+end
+
+function DeveloperPanel:BuildAPIExplorerNavigation()
+    self.APIExplorerNavigationExpanded = self.APIExplorerNavigationExpanded or
+    {
+        Favorites = false,
+        Recent = false,
+        BlizzardAPIs = true,
+    }
+
+    local index, y = 0, -4
+    local function add(text, callback, indent, visible)
+        index = index + 1
+        local button = self:GetAPIExplorerNavButton(index)
+        button:ClearAllPoints(); button:SetPoint("TOPLEFT", indent or 0, y); button:SetWidth(204 - (indent or 0)); button:SetText(text or ""); button:SetScript("OnClick", callback)
+        if visible == false then button:Hide() else button:Show() end
+        y = y - 20
+        return button
+    end
+    local function addSection(section, label)
+        local expanded = self.APIExplorerNavigationExpanded[section]
+        local glyph = expanded and AC.DashboardFormat.DISCLOSURE_EXPANDED or AC.DashboardFormat.DISCLOSURE_COLLAPSED
+        add(glyph .. " " .. label, function()
+            self.APIExplorerNavigationExpanded[section] = not self.APIExplorerNavigationExpanded[section]
+            self:RefreshAPIExplorer(true)
+        end)
+        return expanded
+    end
+
+    if addSection("Favorites", AC.L:Get("Developer.APIExplorerFavorites")) then
+        for _, name in ipairs(AC.DeveloperApiExplorerService:GetFavorites()) do
+            local favoriteName = name
+            add("* " .. favoriteName, function() self:PopulateAPIExplorer(favoriteName, "") end, 10)
+        end
+    end
+
+    local recentExpanded = addSection("Recent", AC.L:Get("Developer.APIExplorerRecent"))
+    local history = AC.DeveloperApiExplorerService:GetHistory()
+    self.APIExplorerRecentButtons = {}
+    if recentExpanded then
+        -- The expanded branch always owns five rows. Empty slots stay hidden
+        -- but retain their height, so execution updates the branch without
+        -- moving the independent Blizzard API browser below it.
+        for slot = 1, 5 do
+            local call = history[#history - slot + 1]
+            if call then
+                self.APIExplorerRecentButtons[slot] = add(call.functionName, function() self:PopulateAPIExplorer(call.functionName, call.arguments) end, 10)
+            else
+                self.APIExplorerRecentButtons[slot] = add("", nil, 10, false)
+            end
+        end
+    end
+
+    local namespaces = AC.DeveloperApiExplorerService:GetNamespaces()
+    local namespaceNames = {}
+    for namespace in pairs(namespaces) do namespaceNames[#namespaceNames + 1] = namespace end
+    table.sort(namespaceNames)
+    if addSection("BlizzardAPIs", AC.L:Get("Developer.APIExplorerBlizzardAPIs")) then
+        for _, namespace in ipairs(namespaceNames) do
+            local namespaceName = namespace
+            local functions = namespaces[namespaceName]
+            local glyph = self.APIExplorerExpandedNamespace == namespaceName and AC.DashboardFormat.DISCLOSURE_EXPANDED or AC.DashboardFormat.DISCLOSURE_COLLAPSED
+            add(glyph .. " " .. namespaceName, function()
+                self.APIExplorerExpandedNamespace = self.APIExplorerExpandedNamespace == namespaceName and nil or namespaceName
+                self:RefreshAPIExplorer(true)
+            end, 10)
+            if self.APIExplorerExpandedNamespace == namespaceName then
+                for _, fn in ipairs(functions) do
+                    local functionLabel = fn
+                    local fullName = namespaceName .. "." .. functionLabel
+                    add(functionLabel, function() self:PopulateAPIExplorer(fullName, "") end, 20)
+                end
+            end
+        end
+    end
+    for i = index + 1, #(self.APIExplorerNavButtons or {}) do self.APIExplorerNavButtons[i]:Hide() end
+    self.APIExplorerNavigationHeight = (-y) + 16
+end
+
+function DeveloperPanel:RefreshAPIExplorerRecent()
+    if not self.APIExplorerNavigationExpanded or not self.APIExplorerNavigationExpanded.Recent then
+        return
+    end
+
+    local history = AC.DeveloperApiExplorerService:GetHistory()
+    for slot, button in ipairs(self.APIExplorerRecentButtons or {}) do
+        local call = history[#history - slot + 1]
+        if call then
+            local functionName = call.functionName
+            local arguments = call.arguments
+            button:SetText(functionName)
+            button:SetScript("OnClick", function() self:PopulateAPIExplorer(functionName, arguments) end)
+            button:Show()
+        else
+            button:SetText("")
+            button:SetScript("OnClick", nil)
+            button:Hide()
+        end
+    end
+end
+
+function DeveloperPanel:LayoutAPIExplorerTree(yOffset)
+    self.APIExplorerNodeRows = self.APIExplorerNodeRows or {}
+    local entries = AC.DeveloperApiExplorerService:GetVisibleNodes()
+    if #entries == 0 then entries = { { empty = true } } end
+    for index, entry in ipairs(entries) do
+        local row = self.APIExplorerNodeRows[index]
+        if entry.empty then row.Text:SetText(AC.L:Get("Developer.APIExplorerNoResults")); row:SetScript("OnClick", nil)
+        else
+            local node, depth = entry.node, entry.depth
+            local marker = node.children and #node.children > 0 and (node.expanded and "v " or "> ") or "  "
+            row.Text:SetText(string.rep("  ", depth) .. marker .. node.key .. " | " .. node.valueType .. " | " .. node.value .. (node.methods and #node.methods > 0 and (" | Methods: " .. table.concat(node.methods, ", ")) or ""))
+            local matched = false
+            for _, match in ipairs(self.APIExplorerSearchMatches or {}) do if match == node then matched = true break end end
+            if matched then row.Text:SetTextColor(1, 0.82, 0) else row.Text:SetTextColor(0.9, 0.9, 0.9) end
+            row:SetScript("OnClick", function()
+                if node.children and #node.children > 0 then
+                    local scrollPosition = self.ScrollFrame:GetVerticalScroll()
+                    node.expanded = not node.expanded
+                    self:RefreshAPIExplorer(true)
+                    self.ScrollFrame:SetVerticalScroll(scrollPosition)
+                end
+            end)
+        end
+        row:Show(); yOffset = yOffset - 20
+    end
+    for index = #entries + 1, #self.APIExplorerNodeRows do self.APIExplorerNodeRows[index]:Hide() end
+    return yOffset
 end
 
 -------------------------------------------------------------------------------
@@ -2663,6 +3041,9 @@ local CHECKLIST_ROW_HEIGHT = 40
 function DeveloperPanel:BuildChecklistTab()
 
     self.ChecklistRows = self.ChecklistRows or {}
+    self:GetPageToolbarButton("Checklist", "Clear", AC.L:Get("Developer.ClearVerification"), 130, function()
+        StaticPopup_Show("AZEROTHCOMPANION_DEVELOPER_CLEAR_VERIFICATION")
+    end)
 
     local scenarios = AC.VerificationService:GetChecklist()
     local glyph = AC.VerificationService.StatusGlyph
@@ -2670,7 +3051,7 @@ function DeveloperPanel:BuildChecklistTab()
     local data = {}
 
     local introLines = { AC.L:Get("Developer.ChecklistIntro") }
-    local introYOffset = self:LayoutLines("ChecklistIntro", introLines, -4, CONTENT_WIDTH)
+    local introYOffset = self:LayoutLines("ChecklistIntro", introLines, TOOLBAR_CONTENT_TOP, CONTENT_WIDTH)
 
     local rowY = introYOffset - 10
 
@@ -2847,16 +3228,17 @@ function DeveloperPanel:BuildHistoryFilterControls()
 
     self.HistoryFilter = { module = "All", activityType = "All", dateRange = "All" }
     self.HistoryFilterButtons = {}
+    local toolbar = self:GetPageToolbar("History")
 
     local function MakeCycleButton(labelPrefixKey, options, filterKey, anchorTo)
 
-        local button = CreateFrame("Button", nil, self.ScrollChild, "UIPanelButtonTemplate")
+        local button = CreateFrame("Button", nil, toolbar, "UIPanelButtonTemplate")
         button:SetSize(150, 22)
 
         if anchorTo then
             button:SetPoint("LEFT", anchorTo, "RIGHT", 6, 0)
         else
-            button:SetPoint("TOPLEFT", 0, -4)
+            button:SetPoint("TOPLEFT", 0, 0)
         end
 
         local function UpdateText()
@@ -2882,9 +3264,9 @@ function DeveloperPanel:BuildHistoryFilterControls()
     local typeButton = MakeCycleButton("Developer.FilterType", HISTORY_TYPES, "activityType", moduleButton)
     MakeCycleButton("Developer.FilterDateRange", HISTORY_DATE_RANGES, "dateRange", typeButton)
 
-    local clearButton = CreateFrame("Button", nil, self.ScrollChild, "UIPanelButtonTemplate")
+    local clearButton = CreateFrame("Button", nil, toolbar, "UIPanelButtonTemplate")
     clearButton:SetSize(110, 22)
-    clearButton:SetPoint("TOPRIGHT", 0, -4)
+    clearButton:SetPoint("TOPRIGHT", 0, 0)
     clearButton:SetText(AC.L:Get("Developer.ClearHistory"))
 
     clearButton:SetScript("OnClick", function()
@@ -2930,11 +3312,7 @@ function DeveloperPanel:BuildHistoryTab()
     local lines = {}
     local data = {}
 
-    if #matched == 0 then
-
-        table.insert(lines, AC.L:Get("Developer.NoHistoryRecords"))
-
-    else
+    if #matched > 0 then
 
         for _, record in ipairs(matched) do
 
@@ -2962,10 +3340,10 @@ function DeveloperPanel:BuildHistoryTab()
 
     end
 
-    local yOffset = self:LayoutLines("History", lines, -34, CONTENT_WIDTH)
+    local yOffset = self:LayoutLinesOrEmpty("History", lines, TOOLBAR_CONTENT_TOP, CONTENT_WIDTH, "Developer.NoHistoryRecords")
 
     self.CurrentTabData = data
-    self.CurrentTabSummaryLines = lines
+    self.CurrentTabSummaryLines = #lines > 0 and lines or { AC.L:Get("Developer.NoHistoryRecords") }
 
     return (-yOffset) + 16
 
@@ -3073,103 +3451,9 @@ end
 function DeveloperPanel:BuildMaintenanceTab()
 
     local container = self:GetMaintenanceContainer()
-    local historyCount = AC.ActivityHistoryService and AC.ActivityHistoryService:Count() or 0
-    local errorCapture = AC.DeveloperRuntime and AC.DeveloperRuntime:GetCapability("ErrorCapture")
-    local errorCount = errorCapture and #errorCapture:GetErrors() or 0
-    local eventCount = AC.DeveloperModeService and #AC.DeveloperModeService:GetEventLog() or 0
-    local secretValueEvents = AC.DeveloperRuntime and AC.DeveloperRuntime:GetCapability("SecretValueEvents")
-    local secretValueCount = secretValueEvents and #secretValueEvents:GetEvents() or 0
-    local diagnosticCount = eventCount + secretValueCount
-    local yOffset = -4
+    local yOffset = PAGE_CONTENT_TOP
 
     container:Show()
-
-    yOffset = AC.Dashboard:BeginSection(container, "Developer.MaintenanceActivityHistory", yOffset)
-    yOffset = self:LayoutMaintenanceAction(
-        "ActivityHistory",
-        container,
-        yOffset,
-        AC.L:Format("Developer.MaintenanceHistoryCountFormat", historyCount),
-        AC.L:Get("Developer.MaintenanceHistoryDescription"),
-        AC.L:Get("Developer.ClearActivityHistory"),
-        function()
-            StaticPopup_Show("AZEROTHCOMPANION_DEVELOPER_CLEAR_ACTIVITY_HISTORY")
-        end
-    )
-    yOffset = AC.Dashboard:EndSection(yOffset)
-
-    yOffset = AC.Dashboard:BeginSection(container, "Developer.MaintenanceAnalytics", yOffset)
-    yOffset = self:LayoutMaintenanceAction(
-        "Analytics",
-        container,
-        yOffset,
-        AC.L:Get("Developer.MaintenanceAnalyticsUnavailable"),
-        AC.L:Get("Developer.MaintenanceAnalyticsPlaceholder")
-    )
-    yOffset = AC.Dashboard:EndSection(yOffset)
-
-    yOffset = AC.Dashboard:BeginSection(container, "Developer.MaintenanceTelemetry", yOffset)
-    yOffset = self:LayoutMaintenanceAction(
-        "Telemetry",
-        container,
-        yOffset,
-        AC.L:Get("Developer.MaintenanceTelemetryUnavailable"),
-        AC.L:Get("Developer.MaintenanceTelemetryPlaceholder")
-    )
-    yOffset = AC.Dashboard:EndSection(yOffset)
-
-    yOffset = AC.Dashboard:BeginSection(container, "Developer.MaintenanceCache", yOffset)
-    yOffset = self:LayoutMaintenanceAction(
-        "Cache",
-        container,
-        yOffset,
-        AC.L:Get("Developer.MaintenanceCacheUnavailable"),
-        AC.L:Get("Developer.MaintenanceCachePlaceholder")
-    )
-    yOffset = AC.Dashboard:EndSection(yOffset)
-
-    yOffset = AC.Dashboard:BeginSection(container, "Developer.MaintenanceDeveloperData", yOffset)
-    yOffset = self:LayoutMaintenanceAction(
-        "CapturedErrors",
-        container,
-        yOffset,
-        AC.L:Format("Developer.MaintenanceErrorCountFormat", errorCount),
-        AC.L:Get("Developer.MaintenanceErrorsDescription"),
-        AC.L:Get("Developer.ClearErrors"),
-        function()
-            StaticPopup_Show("AZEROTHCOMPANION_DEVELOPER_CLEAR_ERRORS")
-        end
-    )
-    yOffset = self:LayoutMaintenanceAction(
-        "RuntimeDiagnostics",
-        container,
-        yOffset,
-        AC.L:Format("Developer.MaintenanceDiagnosticCountFormat", diagnosticCount),
-        AC.L:Get("Developer.MaintenanceDiagnosticsDescription"),
-        AC.L:Get("Developer.ClearRuntimeDiagnostics"),
-        function()
-            StaticPopup_Show("AZEROTHCOMPANION_DEVELOPER_CLEAR_RUNTIME_DIAGNOSTICS")
-        end
-    )
-    yOffset = self:LayoutMaintenanceAction(
-        "Verification",
-        container,
-        yOffset,
-        AC.L:Get("Developer.MaintenanceVerificationTitle"),
-        AC.L:Get("Developer.MaintenanceVerificationDescription"),
-        AC.L:Get("Developer.ClearVerification"),
-        function()
-            StaticPopup_Show("AZEROTHCOMPANION_DEVELOPER_CLEAR_VERIFICATION")
-        end
-    )
-    yOffset = self:LayoutMaintenanceAction(
-        "Exports",
-        container,
-        yOffset,
-        AC.L:Get("Developer.MaintenanceExportsTitle"),
-        AC.L:Get("Developer.MaintenanceExportsDescription")
-    )
-    yOffset = AC.Dashboard:EndSection(yOffset)
 
     yOffset = AC.Dashboard:BeginSection(container, "Developer.MaintenanceDangerZone", yOffset)
     yOffset = self:LayoutMaintenanceAction(
@@ -3190,19 +3474,12 @@ function DeveloperPanel:BuildMaintenanceTab()
 
     self.CurrentTabData =
     {
-        activityHistoryRecords = historyCount,
-        capturedErrors = errorCount,
-        runtimeDiagnostics = diagnosticCount,
-        analyticsAvailable = false,
-        telemetryAvailable = false,
-        developerCacheAvailable = false,
+        resetAllDeveloperDataAvailable = true,
     }
 
     self.CurrentTabSummaryLines =
     {
-        AC.L:Format("Developer.MaintenanceHistoryCountFormat", historyCount),
-        AC.L:Format("Developer.MaintenanceErrorCountFormat", errorCount),
-        AC.L:Format("Developer.MaintenanceDiagnosticCountFormat", diagnosticCount),
+        AC.L:Get("Developer.MaintenanceResetDescription"),
     }
 
     return (-yOffset) + 16
@@ -3216,8 +3493,19 @@ end
 function DeveloperPanel:ShowTab(tabName)
 
     self.CurrentTab = tabName
+    local activeGroup = TAB_GROUP[tabName] or NAVIGATION_GROUPS[1].key
+    self.LastTabByGroup[activeGroup] = tabName
+
+    for groupName, button in pairs(self.NavGroupButtons) do
+        if groupName == activeGroup then
+            AC.DashboardFormat.SetHighlightColor(button:GetFontString())
+        else
+            button:GetFontString():SetTextColor(1, 1, 1)
+        end
+    end
 
     for name, button in pairs(self.TabButtons) do
+        button:SetShown(TAB_GROUP[name] == activeGroup)
 
         if name == tabName then
             AC.DashboardFormat.SetHighlightColor(button:GetFontString())
@@ -3235,6 +3523,8 @@ function DeveloperPanel:ShowTab(tabName)
         contentHeight = self:BuildOverviewTab()
     elseif tabName == "Modules" then
         contentHeight = self:BuildModulesTab()
+    elseif tabName == "CombatSession" then
+        contentHeight = self:BuildCombatSessionTab()
     elseif tabName == "Events" then
         contentHeight = self:BuildEventsTab()
     elseif tabName == "Errors" then
@@ -3243,6 +3533,8 @@ function DeveloperPanel:ShowTab(tabName)
         contentHeight = self:BuildSecretValuesTab()
     elseif tabName == "LiveAPI" then
         contentHeight = self:BuildLiveAPITab()
+    elseif tabName == "APIExplorer" then
+        contentHeight = self:BuildAPIExplorerTab()
     elseif tabName == "Checklist" then
         contentHeight = self:BuildChecklistTab()
     elseif tabName == "History" then

@@ -167,9 +167,9 @@ local REGISTRY =
 
     -- Weekly / Great Vault ----------------------------------------------------
     { id = "weekly.activities", module = "Weekly", api = "C_WeeklyRewards.GetActivities / HasAvailableRewards / GetItemHyperlink", status = S.SOURCE, confidence = "High",
-      citation = "Blizzard Interface Source (Blizzard_WeeklyRewards/Blizzard_WeeklyRewards.lua)", expected = "WeeklyRewardActivityInfo per slot: type,index,threshold,progress,id,activityTierID,level,claimID,raidString,rewards." },
-    { id = "weekly.itemLevelChain", module = "Weekly", api = "C_Item.GetItemInfo / C_Item.GetDetailedItemLevelInfo", status = S.WIKI, confidence = "High", citation = "Warcraft Wiki",
-      expected = "Real reward item level via activity.rewards -> GetItemInfo -> GetItemHyperlink -> GetDetailedItemLevelInfo, mirroring Blizzard's own WeeklyRewardActivityItemMixin:SetDisplayedItem().",
+      citation = "Blizzard Interface Source (Blizzard_WeeklyRewards/Blizzard_WeeklyRewards.lua)", expected = "Activities and World each resolve to three WeeklyRewardActivityInfo slots with type,index,threshold,progress,id,activityTierID,level,claimID,raidString,rewards." },
+    { id = "weekly.itemLevelChain", module = "Weekly", api = "C_WeeklyRewards.GetExampleRewardItemHyperlinks / GetItemHyperlink; C_Item.GetItemInfo / GetDetailedItemLevelInfo", status = S.SOURCE, confidence = "High", citation = "Blizzard Interface Source (Blizzard_WeeklyRewards/Blizzard_WeeklyRewards.lua)",
+      expected = "Real generated reward item level resolves through activity.rewards and GetItemHyperlink; unlocked preview item level can fall back to GetExampleRewardItemHyperlinks, matching Blizzard's own preview tooltip.",
       notes = "Both calls are documented MayReturnNothing (item-cache miss); this module degrades to no-reward-shown rather than guessing, but does not replicate Blizzard's own GET_ITEM_INFO_RECEIVED retry." },
     { id = "weekly.progressUnits", module = "Weekly", api = "activity.threshold / activity.progress unit meaning", status = S.NEEDS_LIVE, confidence = "Medium",
       citation = "Community addon cross-reference only (mega-tin/Broker_GreatVault) -- not an official source",
@@ -210,6 +210,12 @@ local REGISTRY =
     { id = "mp.mapPosition", module = "MythicPlus", api = "C_Map.GetBestMapForUnit / GetPlayerMapPosition", status = S.WIKI, confidence = "High", citation = "Warcraft Wiki" },
     { id = "mp.spellData", module = "MythicPlus", api = "MythicPlusSpellData.lua defensive cooldown spell IDs (one per class)", status = S.NEEDS_LIVE, confidence = "Low",
       citation = "Compiled from general knowledge, explicitly documented as a living list", expected = "Each listed spell ID actually corresponds to that class's well-known defensive cooldown on the current client." },
+
+    -- Delves --------------------------------------------------------------------
+    { id = "delves.progression", module = "Delves", api = "C_DelvesUI.GetDelvesFactionForSeason / C_MajorFactions.GetMajorFactionRenownInfo", status = S.SOURCE, confidence = "High",
+      citation = "Blizzard generated DelvesUI API documentation + Blizzard Major Factions UI usage", expected = "The current Delves Journey faction resolves to MajorFactionRenownInfo with renownLevel, renownReputationEarned, and renownLevelThreshold." },
+    { id = "delves.companion", module = "Delves", api = "C_DelvesUI companion faction/display/trait/curio rarity/link accessors; C_GossipInfo; C_Reputation; C_Traits; C_Spell", status = S.SOURCE, confidence = "High",
+      citation = "Blizzard_DelvesCompanionConfiguration.lua", expected = "Calling companion accessors with no companion ID uses the active mirrored companion; faction APIs supply name/level, active trait entries supply role and curio spell data, trait-condition account elements resolve curio rarity/rank, and GetCurioLink supplies the native tooltip hyperlink." },
 
     -- Framework services --------------------------------------------------------
     { id = "notif.ticker", module = "NotificationService", api = "C_Timer.NewTicker", status = S.WIKI, confidence = "High", citation = "Warcraft Wiki (foundational timer utility)",
@@ -276,7 +282,7 @@ local REGISTRY =
 
 local CHECKLIST =
 {
-    { id = "Login", labelKey = "Developer.ChecklistLogin", relatedIds = { "char.unitAccessors", "char.realmZone", "inv.container", "ach.achievementInfo", "ach.categoryEnumeration", "weekly.activities", "weekly.event", "mp.challengeMode", "mp.mythicPlusNamespace" } },
+    { id = "Login", labelKey = "Developer.ChecklistLogin", relatedIds = { "char.unitAccessors", "char.realmZone", "inv.container", "ach.achievementInfo", "ach.categoryEnumeration", "weekly.activities", "weekly.event", "mp.challengeMode", "mp.mythicPlusNamespace", "delves.progression", "delves.companion" } },
     { id = "ReloadUI", labelKey = "Developer.ChecklistReloadUI", relatedIds = { "weekly.progressUnits" } },
     { id = "CharacterSelect", labelKey = "Developer.ChecklistCharacterSelect", relatedIds = {} },
     { id = "SpecSwap", labelKey = "Developer.ChecklistSpecSwap", relatedIds = { "char.specialization" } },

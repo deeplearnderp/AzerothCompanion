@@ -112,6 +112,7 @@ end
 -------------------------------------------------------------------------------
 
 NavigationService.Stack = {}
+NavigationService.Suspended = false
 
 local function NewEntry(windowId, viewId, context)
 
@@ -152,6 +153,7 @@ function NavigationService:Push(windowId, viewId, context)
 
     self:CaptureCurrent()
     AC.WindowManager:HideAll()
+    self.Suspended = false
 
     local entry = NewEntry(windowId, viewId, context)
     table.insert(self.Stack, entry)
@@ -185,7 +187,47 @@ end
 
 function NavigationService:IsOpen()
 
-    return #self.Stack > 0
+    return #self.Stack > 0 and not self.Suspended
+
+end
+
+function NavigationService:IsSuspended()
+
+    return #self.Stack > 0 and self.Suspended
+
+end
+
+-- Temporarily hides the application without ending its navigation session.
+-- Window controllers keep owning their rendered state; the stack keeps owning
+-- the path back to it. This is the lifecycle used by an external launcher
+-- toggle, where reopening must feel exactly like the window was never closed.
+function NavigationService:Suspend()
+
+    if not self:IsOpen() then
+        return false
+    end
+
+    self:CaptureCurrent()
+    AC.WindowManager:HideAll()
+    self.Suspended = true
+    self:UpdateKeyCapture()
+
+    return true
+
+end
+
+function NavigationService:Resume()
+
+    if not self:IsSuspended() then
+        return false
+    end
+
+    self.Suspended = false
+    AC.WindowManager:HideAll()
+    self:Restore(self.Stack[#self.Stack])
+    self:UpdateKeyCapture()
+
+    return true
 
 end
 
@@ -228,6 +270,7 @@ function NavigationService:GoBack()
 
     table.remove(self.Stack)
 
+    self.Suspended = false
     AC.WindowManager:HideAll()
     self:Restore(self.Stack[#self.Stack])
 
@@ -237,6 +280,7 @@ function NavigationService:Close()
 
     AC.WindowManager:HideAll()
     self.Stack = {}
+    self.Suspended = false
 
     self:UpdateKeyCapture()
 

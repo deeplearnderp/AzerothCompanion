@@ -187,6 +187,7 @@ end
 local DATE_STYLES =
 {
     short = "%b %d, %Y",
+    monthDay = "%b %d",
     shortTime = "%b %d, %Y  %H:%M",
     time = "%H:%M",
 }

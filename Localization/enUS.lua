@@ -107,6 +107,17 @@ AC.Locales.enUS =
     ["Dashboard.StatusActive"] = "Active",
 
     ["Dashboard.Delves"] = "Delves",
+    ["Dashboard.TooltipDelves"] = "View your Delves progression and history",
+    ["Dashboard.DelvesJourneyRankFormat"] = "Journey Rank %d",
+    ["Dashboard.DelvesProgress"] = "Progress",
+    ["Dashboard.DelvesProgressFormat"] = "%d / %d",
+    ["Dashboard.DelvesCompanion"] = "Companion",
+    ["Dashboard.DelvesCompanionLevelFormat"] = "%s - Level %d",
+    ["Dashboard.DelvesHistory"] = "History",
+    ["Dashboard.DelvesHighestTierFormat"] = "Highest Tier %d",
+    ["Dashboard.DelvesHistoryFormat"] = "Highest Tier %d - Completed %d",
+    ["Dashboard.DelvesCompletionsFormat"] = "Completed %d",
+    ["Dashboard.DelvesNoProgress"] = "Begin your Delves journey to see progress here.",
     ["Dashboard.Dungeons"] = "Dungeons",
     ["Dashboard.ActivityLog"] = "Activity Log",
     ["Dashboard.TooltipActivityLog"] = "View your complete recorded activity history",
@@ -135,6 +146,33 @@ AC.Locales.enUS =
     ["Dungeons.DungeonDifficultyFormat"] = "%s (%s)",
     ["Dungeons.ActivityDungeonFormat"] = "%s",
     ["Dungeons.ActivityDungeonDifficultyFormat"] = "%s (%s)",
+
+    ["Delves.JourneyRank"] = "Journey Rank",
+    ["Delves.JourneyProgress"] = "Journey Progress",
+    ["Delves.JourneyOnboarding"] = "Your seasonal Delves progress will appear here.",
+    ["Delves.SectionCompanion"] = "Companion",
+    ["Delves.SectionProgress"] = "Progress",
+    ["Delves.SectionGreatVault"] = "Great Vault",
+    ["Delves.CompanionLevelFormat"] = "Level %d",
+    ["Delves.CompanionXPFormat"] = "%d / %d XP",
+    ["Delves.CompanionMaximumLevel"] = "Maximum Level",
+    ["Delves.CombatCurio"] = "Combat Curio",
+    ["Delves.UtilityCurio"] = "Utility Curio",
+    ["Delves.CurioRankFormat"] = "Rank %d/%d",
+    ["Delves.HighestTier"] = "Highest Tier",
+    ["Delves.Completed"] = "Completed Delves",
+    ["Delves.VaultDungeons"] = "Dungeons",
+    ["Delves.VaultWorld"] = "World",
+    ["Delves.VaultRewardTitleFormat"] = "%s Reward",
+    ["Delves.VaultUnlocked"] = "Unlocked",
+    ["Delves.VaultLocked"] = "Locked",
+    ["Delves.VaultItemLevel"] = "Item Level",
+    ["Delves.VaultProgress"] = "Progress",
+    ["Delves.VaultQualifyingLevel"] = "Qualifying Level",
+    ["Delves.VaultDungeonLevelFormat"] = "Mythic +%d",
+    ["Delves.VaultWorldTierFormat"] = "Tier %d",
+    ["Delves.RecentRunTierFormat"] = "%s   Tier %d   %s",
+    ["Delves.RecentRunFormat"] = "%s   %s",
 
     ["Dashboard.TooltipRecommendations"] = "View all recommendations",
     ["Dashboard.TooltipProfile"] = "View full character details",
@@ -429,7 +467,7 @@ AC.Locales.enUS =
     -----------------------------------------------------------------------
 
     ["Delves.SectionRecentDelves"] = "Recent Delves",
-    ["Delves.NoDelvesRecorded"] = "No Delves recorded yet.",
+    ["Delves.NoDelvesRecorded"] = "No Delves completed yet.",
 
     -----------------------------------------------------------------------
     -- Activity Log Page
@@ -832,6 +870,7 @@ AC.Locales.enUS =
     ["Common.Unknown"] = "Unknown",
     ["Common.Yes"] = "Yes",
     ["Common.No"] = "No",
+    ["Common.EmDash"] = "—",
     ["Common.Timed"] = "Timed",
     ["Common.Failed"] = "Failed",
 

@@ -198,17 +198,22 @@ end
 -- Show()/Hide() as standalone methods are retired along with the old
 -- history array -- nothing outside this file called them directly
 -- (confirmed via a repo-wide grep) -- RestoreNavigation above and
--- AC.NavigationService's own Close() cover everything they used to do.
--- IsOpen() -- not this Frame's own IsShown() -- decides the branch,
--- because "Azeroth Companion is open" can mean a completely different
--- window is currently on top of the navigation stack; toggling the
--- minimap icon closes the whole app in that case, not just Dashboard.
+-- AC.NavigationService's Suspend()/Resume()/Close() cover everything they
+-- used to do while keeping visibility and history as separate facts.
+-- NavigationService state -- not this Frame's own IsShown() -- decides the
+-- branch, because "Azeroth Companion is open" can mean a completely
+-- different window is currently on top of the navigation stack. Toggle
+-- suspends that whole application session; the next toggle resumes its
+-- exact top entry and history. Back/ESC at the root still use Close() and
+-- end the session normally.
 -------------------------------------------------------------------------------
 
 function Dashboard:Toggle()
 
     if AC.NavigationService:IsOpen() then
-        AC.NavigationService:Close()
+        AC.NavigationService:Suspend()
+    elseif AC.NavigationService:IsSuspended() then
+        AC.NavigationService:Resume()
     else
         AC.NavigationService:Push(AC.NavigationService.Windows.Dashboard, self.CurrentPage or AC.NavigationService.Views.Dashboard.Home)
     end

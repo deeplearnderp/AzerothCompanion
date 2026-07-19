@@ -335,19 +335,21 @@ function Dashboard:Create()
 
     frame.MilestonesCard = milestonesCard
 
-    -- Recent Notifications Card (Companion Intelligence V4) ----------------
+    -- Delves Card ----------------------------------------------------------
     --
-    -- NotificationService's bounded history -- what recently popped up as
-    -- a toast, for a player who glances at Home instead of catching it
-    -- live.
+    -- Live Journey and companion progression from Blizzard, complemented by
+    -- the Delves module's already-owned tracked completion statistics.
 
-    local notificationsCard = CreateHomeCard(homeScrollChild, "Dashboard.RecentNotifications",
+    local delvesCard = CreateHomeCard(homeScrollChild, "Dashboard.Delves",
     {
         width = Layout.CARD_WIDTH,
-        tooltip = AC.L:Get("Dashboard.TooltipRecentNotifications"),
+        tooltip = AC.L:Get("Dashboard.TooltipDelves"),
+        onClick = function()
+            Dashboard:Navigate("Dungeons")
+        end,
     }, milestonesCard)
 
-    frame.NotificationsCard = notificationsCard
+    frame.DelvesCard = delvesCard
 
     -- Recommendation Card ("Highest Priority") --------------------------
     --
@@ -368,7 +370,7 @@ function Dashboard:Create()
         onClick = function()
             Dashboard:Navigate("Recommendations")
         end,
-    }, notificationsCard)
+    }, delvesCard)
 
     recommendationCard:SetPrimaryValue(AC.L:Get("Dashboard.CaughtUp"))
 
@@ -697,7 +699,7 @@ function Dashboard:Create()
     -- Dungeons Page
     -----------------------------------------------------------------------
 
-    local dungeonsPage = self:CreateDataPage(contentArea, AC.L:Get("Dashboard.Dungeons"))
+    local dungeonsPage = self:CreateDataPage(contentArea, AC.L:Get("Dashboard.Delves"))
 
     frame.Pages.Dungeons = dungeonsPage
 
@@ -1583,20 +1585,70 @@ function Dashboard:UpdateContent(frame)
     ApplyLinesToCard(frame.MilestonesCard, milestoneLines, "Dashboard.NoMilestones")
 
     -----------------------------------------------------------------------
-    -- Recent Notifications Card (Companion Intelligence V4)
+    -- Delves Card
     -----------------------------------------------------------------------
 
-    local notificationLines = {}
+    local delvesModule = AC.Core and AC.Core:GetModule("Delves")
+    local summary = delvesModule and delvesModule:GetProgressionSummary() or {}
+    local sections = {}
 
-    if AC.NotificationService then
+    if summary.journey then
 
-        for _, notification in ipairs(AC.NotificationService:GetHistory(3)) do
-            table.insert(notificationLines, notification.title)
+        frame.DelvesCard:SetPrimaryValue(AC.L:Format("Dashboard.DelvesJourneyRankFormat", summary.journey.rank))
+
+        if summary.journey.progress and summary.journey.threshold then
+            table.insert(sections,
+            {
+                label = AC.L:Get("Dashboard.DelvesProgress"),
+                text = AC.L:Format("Dashboard.DelvesProgressFormat", summary.journey.progress, summary.journey.threshold),
+            })
         end
+
+    elseif summary.companion then
+        frame.DelvesCard:SetPrimaryValue(summary.companion.name)
+    elseif summary.statistics and summary.statistics.highestTier then
+        frame.DelvesCard:SetPrimaryValue(AC.L:Format("Dashboard.DelvesHighestTierFormat", summary.statistics.highestTier))
+    else
+        frame.DelvesCard:SetPrimaryValue(AC.L:Get("Dashboard.DelvesNoProgress"))
+    end
+
+    frame.DelvesCard:SetSecondaryText("")
+
+    if summary.companion then
+
+        local companionText = summary.companion.name
+
+        if summary.companion.level then
+            companionText = AC.L:Format("Dashboard.DelvesCompanionLevelFormat", companionText, summary.companion.level)
+        end
+
+        table.insert(sections,
+        {
+            label = AC.L:Get("Dashboard.DelvesCompanion"),
+            text = companionText,
+        })
 
     end
 
-    ApplyLinesToCard(frame.NotificationsCard, notificationLines, "Dashboard.NoNotifications")
+    if summary.statistics and summary.statistics.completionCount > 0 then
+
+        local historyText
+
+        if summary.statistics.highestTier then
+            historyText = AC.L:Format("Dashboard.DelvesHistoryFormat", summary.statistics.highestTier, summary.statistics.completionCount)
+        else
+            historyText = AC.L:Format("Dashboard.DelvesCompletionsFormat", summary.statistics.completionCount)
+        end
+
+        table.insert(sections,
+        {
+            label = AC.L:Get("Dashboard.DelvesHistory"),
+            text = historyText,
+        })
+
+    end
+
+    frame.DelvesCard:SetDetailSections(sections)
 
     -----------------------------------------------------------------------
     -- Scroll Height

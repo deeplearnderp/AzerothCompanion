@@ -21,6 +21,13 @@ local TRACE_CATEGORY_ALIASES =
     events = "Events",
 }
 
+local GREAT_VAULT_ATLAS_TEST_NAMES =
+{
+    "gficon-chest-evergreen-greatvault-complete",
+    "gficon-chest-evergreen-greatvault-incomplete",
+    "gficon-chest-evergreen-greatvault-collect",
+}
+
 -------------------------------------------------------------------------------
 -- Debug
 -------------------------------------------------------------------------------
@@ -190,8 +197,115 @@ function SlashCommandManager:HandleDev(argument)
             AC.Logger:Info("Developer Runtime: captured errors cleared.")
         end
 
+    elseif argument == "vaultatlas compare" then
+
+        if not AC.DeveloperModeService:IsEnabled() then
+            AC.Logger:Warn("Developer Mode is off. Usage: /ac dev on|off")
+            return
+        end
+
+        local completeInfo = C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(GREAT_VAULT_ATLAS_TEST_NAMES[1])
+        local incompleteInfo = C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(GREAT_VAULT_ATLAS_TEST_NAMES[2])
+
+        if not completeInfo or not incompleteInfo then
+            AC.Logger:Warn("Great Vault atlas comparison not enabled because a required atlas is missing.")
+            return
+        end
+
+        AC.GreatVaultAtlasComparisonEnabled = true
+        AC.Logger:Info("Great Vault atlas comparison enabled for Dungeon slot 1 until the next UI reload.")
+
+        if AC.Dashboard and AC.Dashboard.CurrentPage == "Dungeons" and AC.Dashboard.Frame and AC.Dashboard.Frame:IsShown() then
+            AC.Dashboard:UpdateDungeonsPage(AC.Dashboard.Frame)
+        end
+
+    elseif argument == "vaultatlas" then
+
+        if not AC.DeveloperModeService:IsEnabled() then
+            AC.Logger:Warn("Developer Mode is off. Usage: /ac dev on|off")
+            return
+        end
+
+        if self.GreatVaultAtlasTestFrame then
+            self.GreatVaultAtlasTestFrame:SetShown(not self.GreatVaultAtlasTestFrame:IsShown())
+            return
+        end
+
+        local atlasResults = {}
+        local totalWidth = 0
+        local maximumHeight = 0
+        local gap = 12
+
+        for _, atlasName in ipairs(GREAT_VAULT_ATLAS_TEST_NAMES) do
+
+            local info = C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(atlasName)
+
+            if info then
+
+                local file = info.filename or info.file or "unavailable"
+                local message = string.format(
+                    "%s: exists; %dx%d; file=%s; coords=(%.8f, %.8f, %.8f, %.8f)",
+                    atlasName,
+                    info.width or 0,
+                    info.height or 0,
+                    tostring(file),
+                    info.leftTexCoord or 0,
+                    info.rightTexCoord or 0,
+                    info.topTexCoord or 0,
+                    info.bottomTexCoord or 0)
+
+                AC.Logger:Info(message)
+                print("Azeroth Companion: " .. message)
+
+                table.insert(atlasResults, { name = atlasName, info = info })
+                totalWidth = totalWidth + (info.width or 0)
+                maximumHeight = math.max(maximumHeight, info.height or 0)
+
+            else
+
+                local message = atlasName .. ": missing"
+                AC.Logger:Warn(message)
+                print("Azeroth Companion: " .. message)
+
+            end
+
+        end
+
+        if #atlasResults == 0 then
+            return
+        end
+
+        totalWidth = totalWidth + gap * (#atlasResults - 1)
+
+        local frame = CreateFrame("Frame", nil, UIParent)
+        frame:SetSize(totalWidth, maximumHeight)
+        frame:SetPoint("CENTER")
+        frame:SetFrameStrata("DIALOG")
+        frame.Textures = {}
+
+        local previousTexture
+
+        for _, result in ipairs(atlasResults) do
+
+            local texture = frame:CreateTexture(nil, "ARTWORK")
+            texture:SetAtlas(result.name, true)
+
+            if previousTexture then
+                texture:SetPoint("LEFT", previousTexture, "RIGHT", gap, 0)
+            else
+                texture:SetPoint("LEFT", frame, "LEFT", 0, 0)
+            end
+
+            table.insert(frame.Textures, texture)
+            previousTexture = texture
+
+        end
+
+        self.GreatVaultAtlasTestFrame = frame
+        frame:Show()
+
     else
-        AC.Logger:Warn("Usage: /ac dev on|off|testerror|clearerrors")
+        AC.Logger:Warn("Usage: /ac dev on|off|testerror|clearerrors|vaultatlas|vaultatlas compare")
     end
 
 end

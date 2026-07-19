@@ -6,13 +6,10 @@
 -- docs/GameplayModuleArchitecture.md Section 2.1: "Weekly" as a blanket
 -- concept (all weekly-reset content) is not one Blizzard system, so this
 -- module exists only for the one aggregate API Blizzard already
--- provides -- C_WeeklyRewards -- and only for the Mythic+ activity
--- category, since that is the category the rest of this addon currently
--- has a consumer for (MythicPlusModule/RecommendationEngine). Raid and
--- PvP vault categories are read by the same Blizzard API but have no
--- module of their own yet (see the planned Raids/PvP modules) -- adding
--- them here would mean this module silently doing another module's
--- future job, so they are left untouched rather than guessed at.
+-- provides -- C_WeeklyRewards. The established profile remains the Dungeon
+-- category consumed by MythicPlusModule/RecommendationEngine; category
+-- projections additionally expose World for the Delves overview. Raid and
+-- PvP remain outside the current product surfaces and are not gathered.
 --
 -- VERIFICATION STATUS (Blizzard API Verification pass): `threshold`,
 -- `progress`, `level`, `index` on `WeeklyRewardActivityInfo` are now
@@ -69,7 +66,9 @@ local WeeklyModule =
 -- cache not yet populated -- MayReturnNothing, per Warcraft Wiki) --
 -- pcall-wrapped and nil-guarded throughout; a cache miss simply means no
 -- item level is available THIS refresh, resolved on a later one, never a
--- guessed number. Still needs an in-game spot check to confirm this
+-- guessed number. The Delves overview additionally falls back to Blizzard's
+-- GetExampleRewardItemHyperlinks preview for an unlocked slot whose generated
+-- reward array is not populated yet. Still needs an in-game spot check to confirm this
 -- resolves reliably rather than intermittently missing -- see the Live
 -- Verification checklist in docs/DEVELOPMENT_BACKLOG.md.
 -------------------------------------------------------------------------------
@@ -130,6 +129,81 @@ local function GetActivityRewardItemLevel(activity)
 
 end
 
+local function GetActivityPreviewItemLevel(activity)
+
+    if not activity or not activity.id or not C_WeeklyRewards or not C_WeeklyRewards.GetExampleRewardItemHyperlinks or not C_Item or not C_Item.GetDetailedItemLevelInfo then
+        return nil
+    end
+
+    local okLinks, hyperlink = pcall(C_WeeklyRewards.GetExampleRewardItemHyperlinks, activity.id)
+
+    if not okLinks or not hyperlink then
+        return nil
+    end
+
+    local okLevel, itemLevel = pcall(C_Item.GetDetailedItemLevelInfo, hyperlink)
+
+    if okLevel and itemLevel and itemLevel > 0 then
+        return itemLevel
+    end
+
+    return nil
+
+end
+
+local function BuildVaultCategory(activityType)
+
+    local category =
+    {
+        totalSlots = 0,
+        unlockedSlots = 0,
+        slots = {},
+    }
+
+    if not activityType or not C_WeeklyRewards or not C_WeeklyRewards.GetActivities then
+        return category
+    end
+
+    local ok, activities = pcall(C_WeeklyRewards.GetActivities, activityType)
+
+    if not ok or type(activities) ~= "table" then
+        return category
+    end
+
+    for _, activity in pairs(activities) do
+
+        local threshold = tonumber(activity.threshold) or 0
+        local progress = tonumber(activity.progress) or 0
+        local level = tonumber(activity.level) or 0
+        local index = tonumber(activity.index) or (#category.slots + 1)
+        local unlocked = threshold > 0 and progress >= threshold
+
+        if unlocked then
+            category.unlockedSlots = category.unlockedSlots + 1
+        end
+
+        table.insert(category.slots,
+        {
+            index = index,
+            threshold = threshold,
+            progress = progress,
+            level = level,
+            unlocked = unlocked,
+            rewardItemLevel = unlocked and (GetActivityRewardItemLevel(activity) or GetActivityPreviewItemLevel(activity)) or nil,
+        })
+
+    end
+
+    table.sort(category.slots, function(a, b)
+        return a.index < b.index
+    end)
+
+    category.totalSlots = #category.slots
+
+    return category
+
+end
+
 -------------------------------------------------------------------------------
 -- Defaults
 -------------------------------------------------------------------------------
@@ -151,6 +225,7 @@ function WeeklyModule:ResetProfile()
         totalSlots = 0,
         unlockedSlots = 0,
         slots = {},
+        categories = {},
         hasAvailableRewards = false,
     }
 
@@ -188,7 +263,7 @@ function WeeklyModule:Initialize()
         key = "enabled",
         text = "Enable Weekly Module",
         default = true,
-        tooltip = "Track Great Vault (Mythic+ activity) reward-slot progress.",
+        tooltip = "Track Great Vault Dungeon and World reward-slot progress.",
     })
 
 end
@@ -300,9 +375,9 @@ end
 -------------------------------------------------------------------------------
 -- Refresh
 --
--- Reads C_WeeklyRewards.GetActivities(Enum.WeeklyRewardChestThresholdType.Activities)
--- -- the Mythic+ vault category. Both the namespace lookup and the call
--- itself are pcall-wrapped; if either the enum or the function is
+-- Reads C_WeeklyRewards.GetActivities for the Dungeon (Activities) and World
+-- categories. Both enum lookups and calls are pcall/nil guarded; if either
+-- enum or the function is missing/renamed, the relevant category
 -- missing/renamed, the profile simply reports zero slots rather than
 -- fabricating a count. "Unlocked" means Blizzard's own progress has
 -- reached its own threshold for that slot -- not a judgment this module
@@ -315,60 +390,19 @@ function WeeklyModule:Refresh()
         return
     end
 
-    local slots = {}
-    local unlockedSlots = 0
+    local thresholdTypes = Enum.WeeklyRewardChestThresholdType or {}
+    local dungeonCategory = BuildVaultCategory(thresholdTypes.Activities)
+    local worldCategory = BuildVaultCategory(thresholdTypes.World)
 
-    local activityType = Enum.WeeklyRewardChestThresholdType and Enum.WeeklyRewardChestThresholdType.Activities
-
-    if activityType and C_WeeklyRewards and C_WeeklyRewards.GetActivities then
-
-        local ok, activities = pcall(C_WeeklyRewards.GetActivities, activityType)
-
-        if ok and type(activities) == "table" then
-
-            for _, activity in pairs(activities) do
-
-                local threshold = tonumber(activity.threshold) or 0
-                local progress = tonumber(activity.progress) or 0
-                local level = tonumber(activity.level) or 0
-                local index = tonumber(activity.index) or (#slots + 1)
-
-                local unlocked = threshold > 0 and progress >= threshold
-
-                if unlocked then
-                    unlockedSlots = unlockedSlots + 1
-                end
-
-                -- Only resolved for unlocked slots -- a locked slot has
-                -- nothing to preview for this addon's purposes (unlike
-                -- Blizzard's own Great Vault UI, which previews every
-                -- slot; this module only needs the best REAL, currently-
-                -- earned reward for Home's "Highest Reward" fact).
-                local rewardItemLevel = unlocked and GetActivityRewardItemLevel(activity) or nil
-
-                table.insert(slots,
-                {
-                    index = index,
-                    threshold = threshold,
-                    progress = progress,
-                    level = level,
-                    unlocked = unlocked,
-                    rewardItemLevel = rewardItemLevel,
-                })
-
-            end
-
-        end
-
-    end
-
-    table.sort(slots, function(a, b)
-        return a.index < b.index
-    end)
-
-    self.Profile.slots = slots
-    self.Profile.totalSlots = #slots
-    self.Profile.unlockedSlots = unlockedSlots
+    -- Preserve the established Mythic+ projection for existing consumers.
+    self.Profile.slots = dungeonCategory.slots
+    self.Profile.totalSlots = dungeonCategory.totalSlots
+    self.Profile.unlockedSlots = dungeonCategory.unlockedSlots
+    self.Profile.categories =
+    {
+        Dungeons = dungeonCategory,
+        World = worldCategory,
+    }
 
     local hasAvailableRewards = false
 
@@ -399,6 +433,12 @@ end
 function WeeklyModule:GetVaultProgress()
 
     return self.Profile
+
+end
+
+function WeeklyModule:GetVaultCategoryProgress(categoryName)
+
+    return self.Profile.categories and self.Profile.categories[categoryName]
 
 end
 

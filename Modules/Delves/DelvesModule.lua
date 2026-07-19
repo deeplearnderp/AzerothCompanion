@@ -14,7 +14,103 @@ local tonumber = tonumber
 local HasActiveDelve = C_DelvesUI.HasActiveDelve
 local GetActiveDelveTier = C_DelvesUI.GetActiveDelveTier
 local GetDelveEntranceMapID = C_DelvesUI.GetDelveEntranceMapID
+local GetDelvesFactionForSeason = C_DelvesUI.GetDelvesFactionForSeason
+local GetFactionForCompanion = C_DelvesUI.GetFactionForCompanion
 local GetScenarioInfo = C_ScenarioInfo.GetScenarioInfo
+local GetMajorFactionRenownInfo = C_MajorFactions and C_MajorFactions.GetMajorFactionRenownInfo
+local HasMaximumRenown = C_MajorFactions and C_MajorFactions.HasMaximumRenown
+local GetFriendshipReputationRanks = C_GossipInfo and C_GossipInfo.GetFriendshipReputationRanks
+local GetFriendshipReputation = C_GossipInfo and C_GossipInfo.GetFriendshipReputation
+local GetFactionDataByID = C_Reputation and C_Reputation.GetFactionDataByID
+local GetCreatureDisplayInfoForCompanion = C_DelvesUI.GetCreatureDisplayInfoForCompanion
+local GetTraitTreeForCompanion = C_DelvesUI.GetTraitTreeForCompanion
+local GetRoleNodeForCompanion = C_DelvesUI.GetRoleNodeForCompanion
+local GetCurioNodeForCompanion = C_DelvesUI.GetCurioNodeForCompanion
+local GetCurioRarityByTraitCondAccountElementID = C_DelvesUI.GetCurioRarityByTraitCondAccountElementID
+local GetCurioLink = C_DelvesUI.GetCurioLink
+
+local function SafeCall(fn, ...)
+
+    if not fn then
+        return nil
+    end
+
+    local ok, result = pcall(fn, ...)
+
+    return ok and result or nil
+
+end
+
+local function GetCompanionSelection(configID, nodeID, includeCurioMetadata)
+
+    if not configID or not nodeID or not C_Traits then
+        return nil
+    end
+
+    local nodeInfo = SafeCall(C_Traits.GetNodeInfo, configID, nodeID)
+    local entryID = nodeInfo and nodeInfo.activeEntry and nodeInfo.activeEntry.entryID
+    local entryInfo = entryID and SafeCall(C_Traits.GetEntryInfo, configID, entryID)
+
+    if not entryInfo then
+        return nil
+    end
+
+    if entryInfo.subTreeID and C_Traits.GetSubTreeInfo then
+
+        local subTreeInfo = SafeCall(C_Traits.GetSubTreeInfo, configID, entryInfo.subTreeID)
+
+        return subTreeInfo and { name = subTreeInfo.name } or nil
+
+    end
+
+    if entryInfo.definitionID and C_Traits.GetDefinitionInfo and C_Spell and C_Spell.GetSpellInfo then
+
+        local definitionInfo = SafeCall(C_Traits.GetDefinitionInfo, entryInfo.definitionID)
+        local spellID = definitionInfo and (definitionInfo.overriddenSpellID or definitionInfo.spellID)
+        local spellInfo = spellID and SafeCall(C_Spell.GetSpellInfo, spellID)
+
+        if not spellInfo or not spellInfo.name then
+            return nil
+        end
+
+        local selection =
+        {
+            name = spellInfo.name,
+            spellID = spellID,
+            iconID = spellInfo.iconID,
+        }
+
+        if includeCurioMetadata then
+
+            local rarity
+
+            for _, conditionID in ipairs(entryInfo.conditionIDs or {}) do
+
+                local conditionInfo = C_Traits.GetConditionInfo and SafeCall(C_Traits.GetConditionInfo, configID, conditionID, true)
+
+                if conditionInfo and conditionInfo.traitCondAccountElementID then
+                    rarity = tonumber(SafeCall(GetCurioRarityByTraitCondAccountElementID, conditionInfo.traitCondAccountElementID)) or rarity
+                end
+
+            end
+
+            local maxRank = Enum.CurioRarity and tonumber(Enum.CurioRarity.Epic)
+
+            if rarity and rarity > 0 and maxRank and maxRank >= rarity then
+                selection.rank = rarity
+                selection.maxRank = maxRank
+                selection.link = SafeCall(GetCurioLink, spellID, rarity)
+            end
+
+        end
+
+        return selection
+
+    end
+
+    return nil
+
+end
 
 local DelvesModule =
 {
@@ -239,6 +335,127 @@ function DelvesModule:GetTrackedStatistics()
     end
 
     return statistics
+
+end
+
+-- Live progression remains Blizzard-owned. This projection gives UI consumers
+-- one stable, optional-field summary while tracked completion history continues
+-- to come from ActivityHistoryService through GetTrackedStatistics().
+function DelvesModule:GetProgressionSummary()
+
+    local summary =
+    {
+        statistics = self:GetTrackedStatistics(),
+    }
+
+    if GetMajorFactionRenownInfo and GetDelvesFactionForSeason then
+
+        local factionID = tonumber(GetDelvesFactionForSeason())
+        local info = factionID and factionID > 0 and GetMajorFactionRenownInfo(factionID)
+        local rank = tonumber(info and info.renownLevel)
+
+        if rank and rank > 0 then
+
+            summary.journey =
+            {
+                rank = rank,
+            }
+
+            local earned = tonumber(info.renownReputationEarned)
+            local threshold = tonumber(info.renownLevelThreshold)
+
+            -- Blizzard's Journey UI presents a completed final rank as a
+            -- full threshold even though renownReputationEarned resets to 0.
+            if threshold and SafeCall(HasMaximumRenown, factionID) then
+                earned = threshold
+            end
+
+            if earned and threshold and threshold > 0 then
+                summary.journey.progress = earned
+                summary.journey.threshold = threshold
+            end
+
+        end
+
+    end
+
+    if GetFactionForCompanion and GetFriendshipReputationRanks and GetFactionDataByID then
+
+        local factionID = tonumber(GetFactionForCompanion())
+        local rankInfo = factionID and factionID > 0 and GetFriendshipReputationRanks(factionID)
+        local reputationInfo = factionID and factionID > 0 and SafeCall(GetFriendshipReputation, factionID)
+        local factionInfo = factionID and factionID > 0 and GetFactionDataByID(factionID)
+        local level = tonumber(rankInfo and rankInfo.currentLevel)
+        local maxLevel = tonumber(rankInfo and rankInfo.maxLevel)
+        local name = factionInfo and factionInfo.name
+
+        if type(name) == "string" and name:match("%S") then
+
+            summary.companion =
+            {
+                name = name,
+            }
+
+            if level and level > 0 then
+                summary.companion.level = level
+            end
+
+            if maxLevel and maxLevel > 0 then
+                summary.companion.maxLevel = maxLevel
+            end
+
+            summary.companion.isMaximumLevel = level ~= nil
+                and maxLevel ~= nil
+                and level >= maxLevel
+
+            -- Blizzard uses a 1/1 sentinel when no next friendship threshold
+            -- exists. Keep that implementation detail out of the projection;
+            -- maximum level is represented explicitly instead.
+            if not summary.companion.isMaximumLevel and reputationInfo and reputationInfo.nextThreshold then
+
+                local standing = tonumber(reputationInfo.standing)
+                local reactionThreshold = tonumber(reputationInfo.reactionThreshold)
+                local nextThreshold = tonumber(reputationInfo.nextThreshold)
+
+                if standing and reactionThreshold and nextThreshold then
+
+                    local currentXP = standing - reactionThreshold
+                    local requiredXP = nextThreshold - reactionThreshold
+
+                    if currentXP >= 0 and requiredXP > 0 then
+                        summary.companion.currentXP = currentXP
+                        summary.companion.requiredXP = requiredXP
+                    end
+
+                end
+
+            end
+
+            local displayID = tonumber(SafeCall(GetCreatureDisplayInfoForCompanion))
+
+            if displayID and displayID > 0 then
+                summary.companion.displayID = displayID
+            end
+
+            local traitTreeID = tonumber(SafeCall(GetTraitTreeForCompanion))
+            local configID = traitTreeID and C_Traits and C_Traits.GetConfigIDByTreeID and SafeCall(C_Traits.GetConfigIDByTreeID, traitTreeID)
+
+            if configID then
+
+                local role = GetCompanionSelection(configID, SafeCall(GetRoleNodeForCompanion))
+                summary.companion.role = role and role.name or nil
+
+                local curioTypes = Enum.CurioType or {}
+                summary.companion.combatCurio = GetCompanionSelection(configID, curioTypes.Combat and SafeCall(GetCurioNodeForCompanion, curioTypes.Combat), true)
+                summary.companion.utilityCurio = GetCompanionSelection(configID, curioTypes.Utility and SafeCall(GetCurioNodeForCompanion, curioTypes.Utility), true)
+
+            end
+
+        end
+
+    end
+
+    return summary
 
 end
 

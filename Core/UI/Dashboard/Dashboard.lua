@@ -67,6 +67,7 @@ function Dashboard:Initialize()
     self.Frame = self:Create()
 
     AC.Events:Register("DEVELOPER_MODE_CHANGED", self, "OnDeveloperModeChanged")
+    AC.Events:Register("UPDATE_FACTION", self, "OnUpdateFaction")
     self:OnDeveloperModeChanged(AC.DeveloperModeService and AC.DeveloperModeService:IsEnabled())
 
 end
@@ -83,6 +84,14 @@ function Dashboard:OnDeveloperModeChanged(enabled)
         button:Show()
     else
         button:Hide()
+    end
+
+end
+
+function Dashboard:OnUpdateFaction()
+
+    if self.CurrentPage == "Dungeons" and self.Frame and self.Frame:IsShown() then
+        self:UpdateDungeonsPage(self.Frame)
     end
 
 end

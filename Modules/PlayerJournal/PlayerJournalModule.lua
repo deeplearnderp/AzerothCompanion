@@ -265,34 +265,49 @@ function PlayerJournalModule:Initialize()
         tooltip = "How long since Last Seen before a non-Favorite player is eligible for automatic pruning.",
     })
 
-    AC.Settings:RegisterSection("PlayerJournal", "Data",
+    AC.DataManagementRegistry:RegisterCleanup(
     {
-        title = "Data",
+        id = "player-journal",
+        order = 60,
+        displayNameKey = "DataManagement.PlayerJournal.Name",
+        descriptionKey = "DataManagement.PlayerJournal.Description",
+        actionLabelKey = "DataManagement.PlayerJournal.Action",
+        confirmationTitleKey = "DataManagement.PlayerJournal.ConfirmTitle",
+        confirmationDescriptionKey = "DataManagement.PlayerJournal.ConfirmDescription",
+        getStatus = function()
+            return AC.L:Format("DataManagement.StatusJournalEntries", self:GetJournalEntryCount())
+        end,
+        isAvailable = function()
+            return self:GetJournalEntryCount() > 0
+        end,
+        clear = function()
+            self:ClearJournalData()
+        end,
     })
 
-    -- Export/Import: real future-scope stubs, not settings values -- no
-    -- `key`, matching ContentPanel.lua's own "Button and not
-    -- controlDef.key" branch for a pure action button (BindControl/
-    -- RefreshPageValues both special-case this so the button's own label
-    -- text is never overwritten by a bound config value). SettingsManager
-    -- has no `enabled=false`-at-creation support for a settings-page
-    -- button today (ContentPanel.lua never reads a controlDef.enabled
-    -- field) -- rather than extend shared settings framework code for
-    -- two stub buttons, these stay clickable but genuinely inert, with an
-    -- honest tooltip explaining why.
-    AC.Settings:AddButton("PlayerJournal", "Data",
-    {
-        text = "Export Personal Notes",
-        tooltip = "Coming in a future update.",
-        onClick = function() end,
-    })
+end
 
-    AC.Settings:AddButton("PlayerJournal", "Data",
-    {
-        text = "Import Personal Notes",
-        tooltip = "Coming in a future update.",
-        onClick = function() end,
-    })
+function PlayerJournalModule:ClearJournalData()
+
+    local journal = GetJournal()
+
+    journal.SchemaVersion = 2
+    journal.Players = {}
+    journal.TotalPruned = 0
+
+    self:ResetRunTracking()
+
+end
+
+function PlayerJournalModule:GetJournalEntryCount()
+
+    local count = 0
+
+    for _ in pairs(GetJournal().Players) do
+        count = count + 1
+    end
+
+    return count
 
 end
 

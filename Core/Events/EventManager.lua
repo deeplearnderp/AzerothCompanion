@@ -34,10 +34,15 @@ EventManager.FrameworkEvents =
     "SETTINGS_CHANGED",
     "NOTIFICATION_CHANGED", -- Companion Intelligence V4: AC.NotificationService fires this whenever its Active notification changes (a new one shown, or dismissed to nil) -- the toast widget (Core/UI/Dashboard/Notifications.lua) is the intended listener, event-driven rather than polling.
     "DEVELOPER_MODE_CHANGED", -- Developer Mode & Live Verification Suite: AC.DeveloperModeService fires this whenever the Developer Mode flag is toggled -- the Developer Panel is the intended listener, so it can refresh its own visibility/content immediately rather than only on next manual open.
+    "USER_ACTION_STATE_CHANGED", -- UserActionService fires after debug or trace state changes so every presentation surface stays synchronized with slash commands.
+    "DATA_MANAGEMENT_PROVIDERS_CHANGED",
+    "DATA_MANAGEMENT_UPDATED",
+    "WEEKLY_DATA_UPDATED",
     "DEVELOPER_RUNTIME_UPDATED", -- Developer Runtime: AC.DeveloperRuntime fires this (payload: capability name, e.g. "ErrorCapture") whenever a capability has new data to show, deferred until combat ends if it occurred mid-combat. Generic across every current and future capability -- the Developer Panel is the intended listener, refreshing only the tab matching the payload.
     "PLAYER_JOURNAL_RUN_RECORDED", -- Player Journal: AC.PlayerJournalModule fires this after finalizing a completed run's roster (only when the "Prompt After Mythic+ Runs" setting is on) -- Core/UI/PlayerJournalWindow.lua is the intended listener, showing the end-of-run StaticPopup. Follows the same "service/module fires, UI listens" split NotificationService's own NOTIFICATION_CHANGED already established -- PlayerJournalModule never calls StaticPopup_Show directly.
     "STORAGE_SCAN_UPDATED", -- StorageModule fires after scan success/failure or source closure; Inventory Manager re-reads public scan APIs and never listens to Blizzard bank events directly.
     "INVENTORY_SNAPSHOT_UPDATED", -- InventoryModule fires after its authoritative bag cache changes; StorageModule forwards the aggregate-data update to presentation consumers.
+    "DELVE_HEADER_UPDATED", -- DelveHeaderProvider fires after Blizzard's ScenarioHeaderDelves visualization data changes; Dashboard rereads the provider's normalized model.
 }
 
 local FrameworkEventSet = {}

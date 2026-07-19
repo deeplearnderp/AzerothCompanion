@@ -73,34 +73,11 @@ function Slider:Initialize(manager, id, parent, options)
 
     self.Frame = frame
     self.Slider = slider
+    self.TooltipTargets = { slider }
 
     if opts.tooltip then
         self:SetTooltip(opts.tooltip)
     end
-
-end
-
--------------------------------------------------------------------------------
--- Tooltip
--------------------------------------------------------------------------------
-
-function Slider:SetTooltip(text)
-
-    self.Tooltip = text
-
-    if not self.Slider or not text or text == "" then
-        return
-    end
-
-    self.Slider:SetScript("OnEnter", function(control)
-        GameTooltip:SetOwner(control, "ANCHOR_RIGHT")
-        GameTooltip:SetText(text, 1, 1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-
-    self.Slider:SetScript("OnLeave", function()
-        GameTooltip:Hide()
-    end)
 
 end
 

@@ -90,6 +90,8 @@ function Dashboard:ShowPage(pageName)
         self:UpdateStatisticsPage(frame)
     elseif pageName == "Journey" then
         self:UpdateJourneyPage(frame)
+    elseif pageName == "Forecast" then
+        self:UpdateForecastPage(frame)
     elseif pageName == "RecommendationDetails" then
         self:UpdateRecommendationDetailsPage(frame)
     end

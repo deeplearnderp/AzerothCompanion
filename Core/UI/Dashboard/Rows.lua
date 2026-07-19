@@ -213,6 +213,138 @@ function Dashboard:LayoutItemRows(scrollChild, pool, items, yOffset, contentWidt
 end
 
 -------------------------------------------------------------------------------
+-- Forecast Rows
+--
+-- Shared pooled planning-card presentation. The row understands only the
+-- normalized ForecastItem display contract; collection and priority remain
+-- entirely owned by ForecastService.
+-------------------------------------------------------------------------------
+
+function Dashboard:BuildForecastRow(scrollChild)
+
+    local row = CreateFrame("Button", nil, scrollChild)
+    row:EnableMouse(true)
+    row:RegisterForClicks("LeftButtonUp")
+
+    local background = row:CreateTexture(nil, "BACKGROUND")
+    background:SetAllPoints()
+    background:SetColorTexture(1, 1, 1, 0.04)
+
+    local icon = row:CreateTexture(nil, "ARTWORK")
+    icon:SetSize(28, 28)
+    icon:SetPoint("TOPLEFT", 10, -10)
+
+    local title = row:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    title:SetPoint("TOPLEFT", icon, "TOPRIGHT", 10, 0)
+    title:SetJustifyH("LEFT")
+    Format.SetHighlightColor(title)
+
+    local description = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    description:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -5)
+    description:SetJustifyH("LEFT")
+    description:SetWordWrap(true)
+    description:SetTextColor(unpack(AC.Presentation.GetSemanticColor("dim")))
+
+    local priorityBadge = CreateFrame("Frame", nil, row)
+    priorityBadge:SetPoint("TOPRIGHT", -10, -8)
+    priorityBadge:SetHeight(18)
+
+    local priorityBackground = priorityBadge:CreateTexture(nil, "BACKGROUND")
+    priorityBackground:SetAllPoints()
+
+    local priority = priorityBadge:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    priority:SetPoint("CENTER")
+    priority:SetJustifyH("CENTER")
+
+    local action = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    action:SetJustifyH("LEFT")
+    action:SetTextColor(unpack(AC.Presentation.GetSemanticColor("accent")))
+
+    row.Icon = icon
+    row.TitleText = title
+    row.DescriptionText = description
+    row.PriorityBadge = priorityBadge
+    row.PriorityBackground = priorityBackground
+    row.PriorityText = priority
+    row.ActionText = action
+
+    return row
+
+end
+
+function Dashboard:LayoutForecastRows(scrollChild, pool, items, yOffset, contentWidth, emptyTextKey)
+
+    if not items or #items == 0 then
+        for _, row in ipairs(pool) do
+            row:Hide()
+        end
+        return self:ShowEmptyLine(pool, scrollChild, "EmptyText", yOffset, contentWidth, emptyTextKey)
+    end
+
+    if pool.EmptyText then
+        pool.EmptyText:Hide()
+    end
+
+    for index, item in ipairs(items) do
+
+        local row = pool[index]
+
+        if not row then
+            row = self:BuildForecastRow(scrollChild)
+            pool[index] = row
+        end
+
+        local priorityLabel, priorityColor = Format.GetPriorityLabel(item.priority)
+        local r, g, b = unpack(AC.Presentation.GetSemanticColor(priorityColor))
+
+        row:SetWidth(contentWidth)
+        row:ClearAllPoints()
+        row:SetPoint("TOPLEFT", 0, yOffset)
+
+        row.Icon:SetTexture(item.icon)
+        row.TitleText:SetWidth(contentWidth - 128)
+        row.TitleText:SetText(item.title)
+        row.DescriptionText:SetWidth(contentWidth - 68)
+        row.DescriptionText:SetText(item.description)
+        row.PriorityText:SetText(priorityLabel)
+        row.PriorityText:SetTextColor(r, g, b)
+        row.PriorityBadge:SetWidth((row.PriorityText:GetStringWidth() or 30) + 12)
+        row.PriorityBackground:SetColorTexture(r, g, b, 0.16)
+
+        row.ActionText:ClearAllPoints()
+        row.ActionText:SetPoint("TOPLEFT", row.DescriptionText, "BOTTOMLEFT", 0, -7)
+        row.ActionText:SetText(item.actionText)
+
+        -- Forecast rows are pooled, so the active item must be rebound on
+        -- every layout pass rather than captured only when the row is built.
+        row.ForecastItem = item
+        row:SetScript("OnClick", function(self)
+
+            local currentItem = self.ForecastItem
+
+            if currentItem then
+                AC.Dashboard:ExecuteForecastAction(currentItem.action)
+            end
+
+        end)
+
+        local rowHeight = math.max(28, (row.TitleText:GetStringHeight() or 14) + 5 + (row.DescriptionText:GetStringHeight() or 12) + 7 + (row.ActionText:GetStringHeight() or 12)) + 20
+        row:SetHeight(rowHeight)
+        row:Show()
+
+        yOffset = yOffset - rowHeight - 10
+
+    end
+
+    for index = #items + 1, #pool do
+        pool[index]:Hide()
+    end
+
+    return yOffset
+
+end
+
+-------------------------------------------------------------------------------
 -- Layout Text Lines (Progress Dashboard)
 --
 -- A minimal pooled list of one line per item, using a caller-supplied
@@ -494,145 +626,6 @@ function Dashboard:BuildHeroSection(page, scrollChild, yOffset, contentWidth, he
 end
 
 -------------------------------------------------------------------------------
--- Run Level Chart (v1.0 Polish Sprint)
---
--- A small visual timeline of recent runs -- one bar per record, height
--- proportional to key level (relative to the tallest bar in the set),
--- colored by outcome (timed/failed, the same green/red every other
--- status glyph already uses). Purely a different rendering of data this
--- addon already recorded (MythicPlusModule's own ActivityHistoryService
--- records via GetRecentRuns) -- computes nothing, invents nothing.
--- Generic over any record list shaped like { Data = { level = N },
--- Success = bool }, so a future module with its own recorded history
--- (Delves, Raids) can reuse it. Oldest run on the left, newest on the
--- right -- reads left-to-right as "how did I get here," matching how a
--- reader scans a timeline.
--------------------------------------------------------------------------------
-
-function Dashboard:LayoutRunLevelChart(page, poolKey, scrollChild, yOffset, contentWidth, records)
-
-    page.Pools = page.Pools or {}
-
-    local pool = page.Pools[poolKey]
-
-    if not pool then
-        pool = {}
-        page.Pools[poolKey] = pool
-    end
-
-    local CHART_HEIGHT = 44
-    local BAR_GAP = 4
-
-    if not records or #records == 0 then
-
-        for _, bar in ipairs(pool) do
-            bar:Hide()
-        end
-
-        return yOffset
-
-    end
-
-    local maxLevel = 1
-
-    for _, record in ipairs(records) do
-        local level = (record.Data or {}).level or 0
-        if level > maxLevel then
-            maxLevel = level
-        end
-    end
-
-    local count = #records
-    local barWidth = (contentWidth - (BAR_GAP * (count - 1))) / count
-
-    if not pool.Holder then
-
-        local holder = CreateFrame("Frame", nil, scrollChild)
-        pool.Holder = holder
-
-    end
-
-    pool.Holder:SetSize(contentWidth, CHART_HEIGHT)
-    pool.Holder:ClearAllPoints()
-    pool.Holder:SetPoint("TOPLEFT", 0, yOffset)
-    pool.Holder:Show()
-
-    -- Oldest first (records arrive newest-first from GetRecentRuns).
-    for displayIndex = 1, count do
-
-        local record = records[count - displayIndex + 1]
-        local data = record.Data or {}
-        local level = data.level or 0
-
-        local bar = pool[displayIndex]
-
-        if not bar then
-
-            bar = CreateFrame("Frame", nil, pool.Holder)
-
-            local fill = bar:CreateTexture(nil, "ARTWORK")
-            fill:SetPoint("BOTTOMLEFT")
-            fill:SetPoint("BOTTOMRIGHT")
-            bar.Fill = fill
-
-            bar:SetScript("OnEnter", function(self)
-
-                if not self.TooltipText then
-                    return
-                end
-
-                GameTooltip:SetOwner(self, "ANCHOR_TOP")
-                GameTooltip:SetText(self.TooltipText, 1, 1, 1, 1, true)
-                GameTooltip:Show()
-
-            end)
-
-            bar:SetScript("OnLeave", function()
-                GameTooltip:Hide()
-            end)
-
-            pool[displayIndex] = bar
-
-        end
-
-        local barHeight = math.max((level / maxLevel) * CHART_HEIGHT, 3)
-
-        bar:SetSize(barWidth, CHART_HEIGHT)
-        bar:ClearAllPoints()
-        bar:SetPoint("BOTTOMLEFT", pool.Holder, "BOTTOMLEFT", (displayIndex - 1) * (barWidth + BAR_GAP), 0)
-        bar:EnableMouse(true)
-
-        bar.Fill:ClearAllPoints()
-        bar.Fill:SetPoint("BOTTOMLEFT")
-        bar.Fill:SetPoint("BOTTOMRIGHT")
-        bar.Fill:SetHeight(barHeight)
-
-        if record.Success then
-            local r, g, b = unpack(AC.Presentation.GetSemanticColor("success"))
-            bar.Fill:SetColorTexture(r, g, b, 0.9)
-        else
-            local r, g, b = unpack(AC.Presentation.GetSemanticColor("critical"))
-            bar.Fill:SetColorTexture(r, g, b, 0.9)
-        end
-
-        bar.TooltipText = string.format("+%d  %s  %s",
-            level,
-            record.Success and AC.L:Get("Common.Timed") or AC.L:Get("Common.Failed"),
-            AC.Presentation.FormatDate(record.Timestamp, "short"))
-
-        bar:Show()
-
-    end
-
-    for index = count + 1, #pool do
-        pool[index]:Hide()
-    end
-
-    return yOffset - CHART_HEIGHT - Layout.SECTION_GROUP_GAP
-
-end
-
--------------------------------------------------------------------------------
 -- Statistics Grid
 --
 -- Two-column grid of label/value cells with larger typography than a
@@ -767,6 +760,7 @@ function Dashboard:BuildHistoryRow(scrollChild)
 
     local row = CreateFrame("Button", nil, scrollChild)
     row:EnableMouse(true)
+    row:RegisterForClicks("LeftButtonUp")
 
     -- Clear default Button textures to ensure visual transparency
     -- (WoW Buttons can have default visual styling even without a template)
@@ -793,9 +787,6 @@ function Dashboard:BuildHistoryRow(scrollChild)
         self.Background:SetColorTexture(1, 1, 1, 0)
     end)
 
-    local statusText = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    statusText:SetJustifyH("LEFT")
-
     local dateText = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     dateText:SetJustifyH("LEFT")
     dateText:SetTextColor(unpack(AC.Presentation.GetSemanticColor("dim")))
@@ -816,7 +807,6 @@ function Dashboard:BuildHistoryRow(scrollChild)
     detailText:SetSpacing(3)
     detailText:Hide()
 
-    row.StatusText = statusText
     row.DateText = dateText
     row.LevelText = levelText
     row.NameText = nameText
@@ -913,14 +903,16 @@ function Dashboard:LayoutAccordionRows(page, poolKey, scrollChild, yOffset, cont
         -- current and future accordion caller (MythicPlus's Recent Runs
         -- included) gets it automatically. Reuses the same isExpanded
         -- boolean the engine already computes for its own toggle logic
-        -- below, rather than a second comparison. Left uncolored
-        -- (default) rather than gold-highlighted -- reads as UI chrome,
-        -- not part of the row's own data.
+        -- below, rather than a second comparison. Centered vertically in
+        -- its reserved column and deliberately dimmed so it supports the
+        -- full clickable row without competing with the dungeon name.
         if not row.DisclosureIcon then
 
             local icon = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-            icon:SetJustifyH("LEFT")
-            icon:SetPoint("TOPLEFT", 0, 0)
+            icon:SetJustifyH("CENTER")
+            icon:SetPoint("LEFT", row, "LEFT", 0, 0)
+            icon:SetWidth(Layout.ACCORDION_DISCLOSURE_WIDTH)
+            icon:SetTextColor(unpack(AC.Presentation.GetSemanticColor("dim")))
 
             row.DisclosureIcon = icon
 
@@ -1126,16 +1118,62 @@ end
 
 -- buildDetailLines(record) returns an array of already-localized detail
 -- lines for the expanded state -- callers own what counts as a detail.
--- Thin wrapper over LayoutAccordionRows -- reproduces BuildHistoryRow's
--- 5-column collapsed layout and the original single-FontString detail
--- rendering (same anchor offset, same total-height arithmetic:
+-- Thin wrapper over LayoutAccordionRows -- lays out the collapsed row's
+-- dungeon/level/date/time fields plus optional pooled summary icons (same
+-- anchor offset and total-height arithmetic:
 -- collapsedHeight(=HISTORY_ROW_HEIGHT, now real-height-aware) +
 -- detailGap(4) + detailHeight + detailBottomPad(8)). Accordion Polish
 -- Pass: columns now shift right by Layout.ACCORDION_DISCLOSURE_WIDTH and
 -- gain the engine's own disclosure icon -- an intentional, real, visible
 -- change to MythicPlus's Recent Runs table (the one shared improvement
 -- this pass explicitly extends to it), everything else unchanged.
-function Dashboard:LayoutHistoryRows(page, poolKey, scrollChild, yOffset, contentWidth, records, buildDetailLines, onToggle)
+local function ShowHistorySuppliedTooltip(frame)
+
+    if not frame.TooltipTitle or frame.TooltipTitle == "" then
+        return
+    end
+
+    GameTooltip:SetOwner(frame, "ANCHOR_RIGHT")
+    GameTooltip:SetText(frame.TooltipTitle, 1, 1, 1)
+
+    if frame.TooltipText and frame.TooltipText ~= "" then
+        GameTooltip:AddLine(frame.TooltipText, nil, nil, nil, true)
+    end
+
+    GameTooltip:Show()
+
+end
+
+local function AcquireHistorySummaryIcon(row, index)
+
+    row.SummaryIcons = row.SummaryIcons or {}
+
+    local iconFrame = row.SummaryIcons[index]
+
+    if iconFrame then
+        return iconFrame
+    end
+
+    iconFrame = CreateFrame("Frame", nil, row)
+    iconFrame:SetSize(16, 16)
+    iconFrame:EnableMouse(true)
+
+    iconFrame.Icon = iconFrame:CreateTexture(nil, "ARTWORK")
+    iconFrame.Icon:SetAllPoints()
+
+    iconFrame:SetScript("OnEnter", ShowHistorySuppliedTooltip)
+    iconFrame:SetScript("OnLeave", GameTooltip_Hide)
+    iconFrame:SetScript("OnMouseUp", function()
+        row:Click()
+    end)
+
+    row.SummaryIcons[index] = iconFrame
+
+    return iconFrame
+
+end
+
+function Dashboard:LayoutHistoryRows(page, poolKey, scrollChild, yOffset, contentWidth, records, buildDetailLines, buildSummaryIcons, onToggle)
 
     -- Accordion Polish Pass -- every column shifts right by
     -- ACCORDION_DISCLOSURE_WIDTH to make room for LayoutAccordionRows' own
@@ -1143,7 +1181,11 @@ function Dashboard:LayoutHistoryRows(page, poolKey, scrollChild, yOffset, conten
     -- intentional change to MythicPlus's Recent Runs table -- the one
     -- shared improvement this pass explicitly extends to it.
     local baseX = Layout.ACCORDION_DISCLOSURE_WIDTH
-    local nameWidth = contentWidth - baseX - Layout.HISTORY_STATUS_WIDTH - Layout.HISTORY_DATE_WIDTH - Layout.HISTORY_LEVEL_WIDTH - Layout.HISTORY_TIME_WIDTH - (Layout.HISTORY_COLUMN_GAP * 4)
+    -- Date and time share one compact two-line block. This keeps both values
+    -- readable without allowing the year or AM/PM marker to wrap onto an
+    -- extra line, and returns the former time column's width to the name.
+    local dateTimeWidth = Layout.HISTORY_DATE_WIDTH + Layout.HISTORY_TIME_WIDTH
+    local nameWidth = contentWidth - baseX - Layout.HISTORY_LEVEL_WIDTH - dateTimeWidth - (Layout.HISTORY_COLUMN_GAP * 2)
 
     return self:LayoutAccordionRows(page, poolKey, scrollChild, yOffset, contentWidth, records,
     {
@@ -1160,48 +1202,64 @@ function Dashboard:LayoutHistoryRows(page, poolKey, scrollChild, yOffset, conten
         layoutCollapsed = function(row, record, width)
 
             local data = record.Data or {}
+            local summaryIcons = buildSummaryIcons and buildSummaryIcons(record) or {}
+            local iconSize = 16
+            local iconGap = 2
+            local iconLeadingGap = 5
+            local iconsWidth = #summaryIcons > 0 and ((#summaryIcons * iconSize) + ((#summaryIcons - 1) * iconGap) + iconLeadingGap) or 0
+            local availableNameWidth = math.max(20, nameWidth - iconsWidth)
 
-            row.StatusText:ClearAllPoints()
-            row.StatusText:SetPoint("TOPLEFT", baseX, 0)
-            row.StatusText:SetWidth(Layout.HISTORY_STATUS_WIDTH)
+            row.NameText:ClearAllPoints()
+            row.NameText:SetPoint("TOPLEFT", baseX, 0)
+            row.NameText:SetWidth(availableNameWidth)
+            row.NameText:SetWordWrap(false)
+            row.NameText:SetText(record.ActivityName ~= "" and record.ActivityName or AC.L:Get("Common.Unknown"))
 
-            if record.Success then
-                row.StatusText:SetText(Format.CHECK_SUCCESS)
-            else
-                row.StatusText:SetText(Format.CHECK_FAILURE)
+            local renderedNameWidth = math.min(row.NameText:GetStringWidth() or availableNameWidth, availableNameWidth)
+            local iconX = baseX + renderedNameWidth + iconLeadingGap
+
+            for index, descriptor in ipairs(summaryIcons) do
+
+                local iconFrame = AcquireHistorySummaryIcon(row, index)
+
+                iconFrame:ClearAllPoints()
+                iconFrame:SetPoint("LEFT", row, "LEFT", iconX + ((index - 1) * (iconSize + iconGap)), 0)
+                iconFrame.Icon:SetTexture(descriptor.icon)
+                iconFrame.TooltipTitle = descriptor.tooltipTitle
+                iconFrame.TooltipText = descriptor.tooltipText
+                iconFrame:Show()
+
             end
 
-            row.DateText:ClearAllPoints()
-            row.DateText:SetPoint("TOPLEFT", baseX + Layout.HISTORY_STATUS_WIDTH + Layout.HISTORY_COLUMN_GAP, 0)
-            row.DateText:SetWidth(Layout.HISTORY_DATE_WIDTH)
-            row.DateText:SetText(AC.Presentation.FormatDate(record.Timestamp, "short"))
+            for index = #summaryIcons + 1, #(row.SummaryIcons or {}) do
+                row.SummaryIcons[index]:Hide()
+            end
 
-            local levelX = baseX + Layout.HISTORY_STATUS_WIDTH + Layout.HISTORY_COLUMN_GAP + Layout.HISTORY_DATE_WIDTH + Layout.HISTORY_COLUMN_GAP
+            local levelX = baseX + nameWidth + Layout.HISTORY_COLUMN_GAP
 
             row.LevelText:ClearAllPoints()
             row.LevelText:SetPoint("TOPLEFT", levelX, 0)
             row.LevelText:SetWidth(Layout.HISTORY_LEVEL_WIDTH)
-            row.LevelText:SetText("+" .. tostring(data.level or 0))
+            row.LevelText:SetJustifyH("RIGHT")
+            row.LevelText:SetText("+" .. AC.Presentation.FormatNumber(data.level, 0))
 
-            local nameX = levelX + Layout.HISTORY_LEVEL_WIDTH + Layout.HISTORY_COLUMN_GAP
-
-            row.NameText:ClearAllPoints()
-            row.NameText:SetPoint("TOPLEFT", nameX, 0)
-            row.NameText:SetWidth(nameWidth)
-            row.NameText:SetText(record.ActivityName ~= "" and record.ActivityName or AC.L:Get("Common.Unknown"))
+            row.DateText:ClearAllPoints()
+            row.DateText:SetPoint("TOPRIGHT", 0, 2)
+            row.DateText:SetWidth(dateTimeWidth)
+            row.DateText:SetJustifyH("RIGHT")
+            row.DateText:SetWordWrap(false)
+            row.DateText:SetText(AC.Presentation.FormatDate(record.Timestamp, "short"))
 
             row.TimeText:ClearAllPoints()
-            row.TimeText:SetPoint("TOPRIGHT", 0, 0)
-            row.TimeText:SetWidth(Layout.HISTORY_TIME_WIDTH)
-            row.TimeText:SetText(Format.FormatClock(data.time or 0))
+            row.TimeText:SetPoint("TOPRIGHT", row.DateText, "BOTTOMRIGHT", 0, 1)
+            row.TimeText:SetWidth(dateTimeWidth)
+            row.TimeText:SetWordWrap(false)
+            row.TimeText:SetText(AC.Presentation.FormatDate(record.Ended or record.Timestamp, "time12"))
 
-            -- Accordion Polish Pass -- was a hardcoded Layout.HISTORY_ROW_HEIGHT
-            -- regardless of NameText's real rendered height; a long
-            -- dungeon name that wraps to 2 lines under-reported its
-            -- height. math.max keeps today's exact compact height for the
-            -- overwhelmingly common short-name case and only grows the
-            -- row on a genuine wrap.
-            return math.max(row.NameText:GetStringHeight() or Layout.HISTORY_ROW_HEIGHT, Layout.HISTORY_ROW_HEIGHT)
+            -- Summary row height remains unchanged. The name receives the
+            -- width left after its affix icons and clips instead of growing
+            -- the row; date/time share the compact metadata block above.
+            return Layout.HISTORY_ROW_HEIGHT
 
         end,
 
@@ -1213,9 +1271,9 @@ function Dashboard:LayoutHistoryRows(page, poolKey, scrollChild, yOffset, conten
             row.DetailText:SetPoint("TOPLEFT", 0, detailYOffset)
             row.DetailText:SetWidth(width)
             row.DetailText:SetText(table.concat(lines, "\n"))
-            row.DetailText:Show()
+            row.DetailText:SetShown(#lines > 0)
 
-            return row.DetailText:GetStringHeight() or 0
+            return #lines > 0 and (row.DetailText:GetStringHeight() or 0) or 0
 
         end,
 
@@ -1225,6 +1283,337 @@ function Dashboard:LayoutHistoryRows(page, poolKey, scrollChild, yOffset, conten
 
         onToggle = onToggle,
     })
+
+end
+
+-------------------------------------------------------------------------------
+-- Great Vault Overview
+--
+-- Shared, presentation-only projection of WeeklyModule's normalized category
+-- and slot models. It never calls C_WeeklyRewards or derives reward levels.
+-------------------------------------------------------------------------------
+
+local VAULT_SLOT_GAP = 8
+local VAULT_SLOT_HEIGHT = 140
+
+local function GetVaultSlotState(slot)
+
+    if slot.unlocked and (slot.nextUpgradeLevel or slot.nextUpgradeItemLevel) then
+        return "Weekly.StateUpgradeAvailable", "accent"
+    elseif slot.unlocked then
+        return "Weekly.StateUnlocked", "success"
+    elseif (slot.progress or 0) > 0 then
+        return "Weekly.StateInProgress", "warning"
+    end
+
+    return "Weekly.StateLocked", "dim"
+
+end
+
+local function HasCurrentVaultReward(slot)
+
+    if not slot.unlocked or not slot.rewardItemLevel then
+        return false
+    end
+
+    if not slot.rewardIsPreview then
+        return true
+    end
+
+    -- Blizzard's WeeklyRewardsActivityMixin presents the first hyperlink from
+    -- GetExampleRewardItemHyperlinks as CURRENT_REWARD for an unlocked slot;
+    -- the second hyperlink/GetNext*Increase value is the future upgrade. Keep
+    -- that current projection only while it remains strictly below a separately
+    -- reported next reward. Equal or inverted values are ambiguous and must not
+    -- be presented as already earned.
+    if slot.nextUpgradeItemLevel then
+        local currentItemLevel = tonumber(slot.rewardItemLevel)
+        local nextItemLevel = tonumber(slot.nextUpgradeItemLevel)
+
+        return currentItemLevel ~= nil and nextItemLevel ~= nil and currentItemLevel < nextItemLevel
+    end
+
+    return true
+
+end
+
+local function GetVaultUpgradeText(slot)
+
+    if slot.nextUpgradeLevel and slot.nextUpgradeItemLevel then
+        return AC.L:Format(
+            "Weekly.UpgradeRewardFormat",
+            AC.L:Format("Weekly.UpgradeLevelFormat", slot.nextUpgradeLevel),
+            AC.Presentation.FormatItemLevel(slot.nextUpgradeItemLevel))
+    elseif slot.nextUpgradeLevel then
+        return AC.L:Format("Weekly.UpgradeOnlyFormat", AC.L:Format("Weekly.UpgradeLevelFormat", slot.nextUpgradeLevel))
+    elseif slot.nextUpgradeItemLevel then
+        return AC.L:Format("Weekly.UpgradeItemLevelOnlyFormat", AC.Presentation.FormatItemLevel(slot.nextUpgradeItemLevel))
+    end
+
+    return nil
+
+end
+
+local function GetVaultUnitLabel(category, count)
+
+    return AC.L:Get(count == 1 and category.unitSingularKey or category.unitPluralKey)
+
+end
+
+local function GetVaultQualifyingText(category, slot)
+
+    if slot.raidString and slot.raidString ~= "" then
+        return slot.raidString
+    elseif not slot.level or slot.level <= 0 then
+        return nil
+    elseif category.id == "Dungeons" then
+        return AC.L:Format("Weekly.DungeonLevelFormat", slot.level)
+    elseif category.id == "Delves" then
+        return AC.L:Format("Weekly.DelveLevelFormat", slot.level)
+    end
+
+    return AC.L:Format("Weekly.ActivityLevelFormat", slot.level)
+
+end
+
+local function ShowVaultSlotTooltip(frame)
+
+    local slot = frame.Slot
+    local category = frame.Category
+
+    if not slot or not category then
+        return
+    end
+
+    GameTooltip:SetOwner(frame, "ANCHOR_RIGHT")
+
+    local hasCurrentReward = HasCurrentVaultReward(slot)
+
+    if hasCurrentReward and slot.rewardHyperlink then
+        GameTooltip:SetHyperlink(slot.rewardHyperlink)
+        GameTooltip:AddLine(" ")
+    else
+        GameTooltip:SetText(AC.L:Format("Weekly.ChestLabel", slot.index or 0), 1, 0.82, 0)
+    end
+
+    local stateKey = GetVaultSlotState(slot)
+    GameTooltip:AddLine(AC.L:Get(stateKey), 1, 0.82, 0)
+    GameTooltip:AddDoubleLine(
+        AC.L:Get("Weekly.TooltipProgress"),
+        AC.L:Format("Weekly.ProgressFormat", slot.progress or 0, slot.threshold or 0),
+        0.75, 0.75, 0.75, 1, 1, 1)
+
+    if slot.remaining and slot.remaining > 0 then
+        GameTooltip:AddLine(AC.L:Format("Weekly.RemainingFormat", slot.remaining, GetVaultUnitLabel(category, slot.remaining)), 0.85, 0.85, 0.85, true)
+    end
+
+    if hasCurrentReward and slot.rewardItemLevel then
+        GameTooltip:AddDoubleLine(
+            AC.L:Get("Weekly.TooltipItemLevel"),
+            AC.Presentation.FormatItemLevel(slot.rewardItemLevel),
+            0.75, 0.75, 0.75, 1, 1, 1)
+    end
+
+    local qualifyingText = GetVaultQualifyingText(category, slot)
+
+    if qualifyingText then
+        GameTooltip:AddLine(qualifyingText, 0.75, 0.75, 0.75, true)
+    end
+
+    local upgradeText = GetVaultUpgradeText(slot)
+
+    if upgradeText then
+        GameTooltip:AddDoubleLine(AC.L:Get("Weekly.TooltipNextUpgrade"), upgradeText, 0.75, 0.75, 0.75, 1, 1, 1)
+    end
+
+    GameTooltip:Show()
+
+end
+
+local function CreateVaultOverviewSlot(parent)
+
+    local slotFrame = CreateFrame("Frame", nil, parent)
+    slotFrame:EnableMouse(true)
+
+    slotFrame.Background = slotFrame:CreateTexture(nil, "BACKGROUND")
+    slotFrame.Background:SetAllPoints()
+    slotFrame.Background:SetColorTexture(1, 1, 1, 0.04)
+
+    slotFrame.StateBar = slotFrame:CreateTexture(nil, "ARTWORK")
+    slotFrame.StateBar:SetPoint("TOPLEFT")
+    slotFrame.StateBar:SetPoint("BOTTOMLEFT")
+    slotFrame.StateBar:SetWidth(3)
+
+    slotFrame.Title = slotFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    slotFrame.Title:SetPoint("TOPLEFT", 10, -9)
+    slotFrame.Title:SetJustifyH("LEFT")
+
+    slotFrame.State = slotFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    slotFrame.State:SetPoint("TOPLEFT", slotFrame.Title, "BOTTOMLEFT", 0, -5)
+    slotFrame.State:SetJustifyH("LEFT")
+    slotFrame.State:SetWordWrap(false)
+
+    slotFrame.ItemLevel = slotFrame:CreateFontString(nil, "OVERLAY")
+    slotFrame.ItemLevel:SetFontObject(Layout.HERO_VALUE_FONT)
+    slotFrame.ItemLevel:SetPoint("TOPLEFT", slotFrame.State, "BOTTOMLEFT", 0, -4)
+    slotFrame.ItemLevel:SetJustifyH("LEFT")
+
+    slotFrame.Quality = slotFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    slotFrame.Quality:SetPoint("TOPLEFT", slotFrame.ItemLevel, "BOTTOMLEFT", 0, 0)
+    slotFrame.Quality:SetJustifyH("LEFT")
+
+    slotFrame.Progress = slotFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    slotFrame.Progress:SetPoint("BOTTOMLEFT", 10, 10)
+    slotFrame.Progress:SetJustifyH("LEFT")
+
+    slotFrame.Remaining = slotFrame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    slotFrame.Remaining:SetPoint("BOTTOMRIGHT", -10, 11)
+    slotFrame.Remaining:SetJustifyH("RIGHT")
+
+    slotFrame:SetScript("OnEnter", function(self)
+        self.Background:SetColorTexture(1, 1, 1, 0.08)
+        ShowVaultSlotTooltip(self)
+    end)
+    slotFrame:SetScript("OnLeave", function(self)
+        self.Background:SetColorTexture(1, 1, 1, 0.04)
+        GameTooltip:Hide()
+    end)
+
+    return slotFrame
+
+end
+
+local function SetVaultOverviewSlot(slotFrame, category, slot, width)
+
+    local stateKey, colorKey = GetVaultSlotState(slot)
+    local r, g, b = unpack(AC.Presentation.GetSemanticColor(colorKey))
+
+    slotFrame:SetWidth(width)
+    slotFrame.Title:SetWidth(width - 20)
+    slotFrame.State:SetWidth(width - 20)
+    slotFrame.ItemLevel:SetWidth(width - 20)
+    slotFrame.Quality:SetWidth(width - 20)
+    slotFrame.Progress:SetWidth((width - 20) * 0.45)
+    slotFrame.Remaining:SetWidth((width - 20) * 0.55)
+
+    slotFrame.Title:SetText(AC.L:Format("Weekly.ChestLabel", slot.index or 0))
+    slotFrame.State:SetText(AC.L:Get(stateKey))
+    slotFrame.State:SetTextColor(r, g, b)
+    slotFrame.StateBar:SetColorTexture(r, g, b, 0.9)
+
+    if HasCurrentVaultReward(slot) and slot.rewardItemLevel then
+        local qualityName = slot.rewardQuality and _G["ITEM_QUALITY" .. tostring(slot.rewardQuality) .. "_DESC"]
+        local itemLevel = AC.Presentation.FormatItemLevel(slot.rewardItemLevel)
+        local qualityColor = slot.rewardQuality and ITEM_QUALITY_COLORS and ITEM_QUALITY_COLORS[slot.rewardQuality]
+
+        slotFrame.ItemLevel:SetText(itemLevel)
+        slotFrame.ItemLevel:SetTextColor(qualityColor and qualityColor.r or 1, qualityColor and qualityColor.g or 0.82, qualityColor and qualityColor.b or 0)
+        slotFrame.ItemLevel:Show()
+
+        if qualityName then
+            slotFrame.Quality:SetText(qualityName)
+            slotFrame.Quality:SetTextColor(qualityColor and qualityColor.r or 1, qualityColor and qualityColor.g or 1, qualityColor and qualityColor.b or 1)
+            slotFrame.Quality:Show()
+        else
+            slotFrame.Quality:Hide()
+        end
+    else
+        slotFrame.ItemLevel:Hide()
+        slotFrame.Quality:Hide()
+    end
+
+    slotFrame.Progress:SetText(AC.L:Format("Weekly.ProgressFormat", slot.progress or 0, slot.threshold or 0))
+
+    if slot.remaining and slot.remaining > 0 then
+        slotFrame.Remaining:SetText(AC.L:Format("Weekly.NeedMoreFormat", slot.remaining))
+        slotFrame.Remaining:Show()
+    else
+        slotFrame.Remaining:Hide()
+    end
+
+    slotFrame.Slot = slot
+    slotFrame.Category = category
+    slotFrame:Show()
+
+end
+
+function Dashboard:LayoutVaultOverview(page, poolKey, scrollChild, yOffset, width, categories)
+
+    page.Pools = page.Pools or {}
+    local pool = page.Pools[poolKey]
+
+    if not pool then
+        pool = { Categories = {}, HeaderKeys = {} }
+        page.Pools[poolKey] = pool
+    end
+
+    for titleKey in pairs(pool.HeaderKeys) do
+        local header = scrollChild.SectionHeaders and scrollChild.SectionHeaders[titleKey]
+        if header then
+            header:Hide()
+        end
+    end
+    pool.HeaderKeys = {}
+
+    for categoryIndex, category in ipairs(categories or {}) do
+
+        yOffset = self:BeginSection(scrollChild, category.titleKey, yOffset)
+        pool.HeaderKeys[category.titleKey] = true
+
+        local categoryFrame = pool.Categories[categoryIndex]
+
+        if not categoryFrame then
+            categoryFrame = CreateFrame("Frame", nil, scrollChild)
+            categoryFrame.Slots = {}
+            pool.Categories[categoryIndex] = categoryFrame
+        end
+
+        categoryFrame:ClearAllPoints()
+        categoryFrame:SetPoint("TOPLEFT", 0, yOffset)
+        local slots = category.slots or {}
+        local columnCount = math.min(3, math.max(1, #slots))
+        local rowCount = math.ceil(#slots / columnCount)
+        local categoryHeight = (rowCount * VAULT_SLOT_HEIGHT) + (math.max(0, rowCount - 1) * VAULT_SLOT_GAP)
+        local slotWidth = (width - (VAULT_SLOT_GAP * (columnCount - 1))) / columnCount
+
+        categoryFrame:SetSize(width, categoryHeight)
+
+        for slotIndex, slot in ipairs(slots) do
+
+            local slotFrame = categoryFrame.Slots[slotIndex]
+
+            if not slotFrame then
+                slotFrame = CreateVaultOverviewSlot(categoryFrame)
+                categoryFrame.Slots[slotIndex] = slotFrame
+            end
+
+            slotFrame:ClearAllPoints()
+            local columnIndex = (slotIndex - 1) % columnCount
+            local rowIndex = math.floor((slotIndex - 1) / columnCount)
+
+            slotFrame:SetPoint(
+                "TOPLEFT",
+                columnIndex * (slotWidth + VAULT_SLOT_GAP),
+                -rowIndex * (VAULT_SLOT_HEIGHT + VAULT_SLOT_GAP))
+            slotFrame:SetHeight(VAULT_SLOT_HEIGHT)
+            SetVaultOverviewSlot(slotFrame, category, slot, slotWidth)
+
+        end
+
+        for slotIndex = #slots + 1, #categoryFrame.Slots do
+            categoryFrame.Slots[slotIndex]:Hide()
+        end
+
+        categoryFrame:Show()
+        yOffset = self:EndSection(yOffset - categoryHeight)
+
+    end
+
+    for categoryIndex = #(categories or {}) + 1, #pool.Categories do
+        pool.Categories[categoryIndex]:Hide()
+    end
+
+    return yOffset
 
 end
 

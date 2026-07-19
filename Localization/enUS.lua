@@ -26,6 +26,62 @@ AC.Locales.enUS =
     ["Settings.LanguageTooltip"] = "Choose the language Azeroth Companion displays. Automatic follows your game client's language.",
 
     -----------------------------------------------------------------------
+    -- Data Management
+    -----------------------------------------------------------------------
+
+    ["DataManagement.Title"] = "Data Management",
+    ["DataManagement.Clear"] = "Clear",
+    ["DataManagement.ClearAll"] = "Clear All",
+    ["DataManagement.ClearAllTitle"] = "Clear All Module Data",
+    ["DataManagement.ClearAllDescription"] = "Remove historical and cached module data. Settings, preferences, profiles, and window positions are preserved.",
+    ["DataManagement.ConfirmAllTitle"] = "Clear ALL Module Data?",
+    ["DataManagement.ConfirmAllDescription"] = "This will permanently remove historical and cached data from every registered module. Settings and preferences will NOT be removed.",
+    ["DataManagement.ConfirmProviderTitle"] = "Clear module data?",
+    ["DataManagement.ConfirmProviderDescription"] = "This data will be permanently removed.",
+    ["DataManagement.StatusActivities"] = "%d activities recorded",
+    ["DataManagement.StatusRuns"] = "%d runs recorded",
+    ["DataManagement.StatusJournalEntries"] = "%d journal entries",
+    ["DataManagement.StatusLastScan"] = "Last scan: %s",
+    ["DataManagement.StatusNoCache"] = "No inventory cache",
+    ["DataManagement.StatusNoSnapshots"] = "No storage snapshots",
+
+    ["DataManagement.ActivityHistory.Name"] = "Activity History",
+    ["DataManagement.ActivityHistory.Description"] = "All recorded activities for the current character.",
+    ["DataManagement.ActivityHistory.Action"] = "Clear History",
+    ["DataManagement.ActivityHistory.ConfirmTitle"] = "Clear Activity History?",
+    ["DataManagement.ActivityHistory.ConfirmDescription"] = "This will permanently remove all recorded activities for the current character.",
+
+    ["DataManagement.MythicPlus.Name"] = "Mythic+",
+    ["DataManagement.MythicPlus.Description"] = "Recorded Mythic+ runs for the current character.",
+    ["DataManagement.MythicPlus.Action"] = "Clear Mythic+ History",
+    ["DataManagement.MythicPlus.ConfirmTitle"] = "Clear Mythic+ History?",
+    ["DataManagement.MythicPlus.ConfirmDescription"] = "This will permanently remove recorded Mythic+ runs for the current character.",
+
+    ["DataManagement.Delves.Name"] = "Delves",
+    ["DataManagement.Delves.Description"] = "Recorded Delve runs for the current character.",
+    ["DataManagement.Delves.Action"] = "Clear Delve History",
+    ["DataManagement.Delves.ConfirmTitle"] = "Clear Delve History?",
+    ["DataManagement.Delves.ConfirmDescription"] = "This will permanently remove recorded Delve runs for the current character.",
+
+    ["DataManagement.Inventory.Name"] = "Inventory",
+    ["DataManagement.Inventory.Description"] = "Cached bag and equipment snapshot for the current character.",
+    ["DataManagement.Inventory.Action"] = "Clear Inventory Cache",
+    ["DataManagement.Inventory.ConfirmTitle"] = "Clear Inventory Cache?",
+    ["DataManagement.Inventory.ConfirmDescription"] = "This will remove the current character's cached inventory data.",
+
+    ["DataManagement.Storage.Name"] = "Storage",
+    ["DataManagement.Storage.Description"] = "Cached bank, reagent bank, and Warband Bank snapshots for the current character.",
+    ["DataManagement.Storage.Action"] = "Clear Storage Snapshots",
+    ["DataManagement.Storage.ConfirmTitle"] = "Clear Storage Snapshots?",
+    ["DataManagement.Storage.ConfirmDescription"] = "This will remove all cached storage snapshots for the current character.",
+
+    ["DataManagement.PlayerJournal.Name"] = "Player Journal",
+    ["DataManagement.PlayerJournal.Description"] = "Account-wide journal entries, notes, tags, and recorded group history.",
+    ["DataManagement.PlayerJournal.Action"] = "Clear Journal",
+    ["DataManagement.PlayerJournal.ConfirmTitle"] = "Clear Player Journal?",
+    ["DataManagement.PlayerJournal.ConfirmDescription"] = "This will permanently remove all Player Journal entries, notes, tags, and recorded group history. Community Observations are not removed.",
+
+    -----------------------------------------------------------------------
     -- Dashboard (Home)
     -----------------------------------------------------------------------
 
@@ -42,6 +98,40 @@ AC.Locales.enUS =
     ["Dashboard.Accomplishments"] = "Accomplishments",
     ["Dashboard.Journey"] = "Journey",
     ["Dashboard.Recommendations"] = "Recommendations",
+
+    -----------------------------------------------------------------------
+    -- Forecast
+    -----------------------------------------------------------------------
+
+    ["Forecast.Title"] = "Forecast",
+    ["Forecast.Tooltip"] = "Plan the most valuable things to do next",
+    ["Forecast.HomePrimary"] = "Plan your next session",
+    ["Forecast.HomeSecondary"] = "Review upcoming opportunities",
+    ["Forecast.HeroHeadline"] = "Today's Outlook",
+    ["Forecast.SectionUpcoming"] = "Upcoming Opportunities",
+    ["Forecast.EmptyTitle"] = "Nothing urgent right now",
+    ["Forecast.EmptyDescription"] = "New opportunities will appear here as they become available.",
+    ["Forecast.GreatVault.Title"] = "Great Vault",
+    ["Forecast.GreatVault.Description"] = "Weekly reward planning will appear here.",
+    ["Forecast.GreatVault.Action"] = "Review weekly rewards",
+    ["Forecast.WeeklyReset.Title"] = "Weekly Reset",
+    ["Forecast.WeeklyReset.Description"] = "Reset timing and weekly deadlines will appear here.",
+    ["Forecast.WeeklyReset.Action"] = "Plan the week",
+    ["Forecast.Delves.Title"] = "Delves",
+    ["Forecast.Delves.Description"] = "Delve opportunities and companion planning will appear here.",
+    ["Forecast.Delves.Action"] = "Review Delves",
+    ["Forecast.MythicPlus.Title"] = "Mythic+",
+    ["Forecast.MythicPlus.Description"] = "Keystone and dungeon planning will appear here.",
+    ["Forecast.MythicPlus.Action"] = "Review Mythic+",
+    ["Forecast.WorldActivities.Title"] = "World Activities",
+    ["Forecast.WorldActivities.Description"] = "Relevant world opportunities will appear here.",
+    ["Forecast.WorldActivities.Action"] = "Review world activities",
+    ["Forecast.Reputation.Title"] = "Reputation",
+    ["Forecast.Reputation.Description"] = "Upcoming reputation milestones will appear here.",
+    ["Forecast.Reputation.Action"] = "Review reputations",
+    ["Forecast.Events.Title"] = "Events",
+    ["Forecast.Events.Description"] = "Limited-time event opportunities will appear here.",
+    ["Forecast.Events.Action"] = "Review events",
 
     -- Daily Briefing (Companion Intelligence Part 5)
     ["Dashboard.GreetingMorning"] = "Good Morning.",
@@ -150,6 +240,14 @@ AC.Locales.enUS =
     ["Delves.JourneyRank"] = "Journey Rank",
     ["Delves.JourneyProgress"] = "Journey Progress",
     ["Delves.JourneyOnboarding"] = "Your seasonal Delves progress will appear here.",
+    ["Delves.SectionCurrentRun"] = "Current Run",
+    ["Delves.CurrentRunTierFormat"] = "Tier %s",
+    ["Delves.CurrentRunLives"] = "Lives Remaining",
+    ["Delves.CurrentRunAffixes"] = "Active Affixes",
+    ["Delves.CurrentRunAffixStackFormat"] = "%s (%d)",
+    ["Delves.CurrentRunReward"] = "Reward State",
+    ["Delves.CurrentRunRewardAvailable"] = "Available",
+    ["Delves.CurrentRunRewardUnavailable"] = "Unavailable",
     ["Delves.SectionCompanion"] = "Companion",
     ["Delves.SectionProgress"] = "Progress",
     ["Delves.SectionGreatVault"] = "Great Vault",
@@ -436,7 +534,7 @@ AC.Locales.enUS =
     ["MythicPlus.StatFailedRuns"] = "Failed Runs",
     ["MythicPlus.StatSuccessRate"] = "Success Rate",
     ["MythicPlus.StatAverageKeyLevel"] = "Average Key Level",
-    ["MythicPlus.StatRatingGained"] = "Rating Gained",
+    ["MythicPlus.StatRatingChange"] = "Rating Change",
     ["MythicPlus.StatFastestRun"] = "Fastest Run",
     ["MythicPlus.StatAverageDeaths"] = "Average Deaths",
     ["MythicPlus.StatAverageCompletionTime"] = "Average Completion Time",
@@ -446,7 +544,8 @@ AC.Locales.enUS =
     ["MythicPlus.NoPerformanceTrends"] = "Performance trends will appear after your first completed run.",
     ["MythicPlus.NoConsumableData"] = "Consumable usage will appear after your first tracked run.",
 
-    ["MythicPlus.FastestRunFormat"] = "%s (+%d) in %s",
+    ["MythicPlus.FastestRunFormat"] = "%s  +%d  %s  %s",
+    ["MythicPlus.RatingNoChange"] = "No Change",
     ["MythicPlus.ConsumablePotion"] = "Potions",
     ["MythicPlus.ConsumableFlask"] = "Flasks",
     ["MythicPlus.ConsumableFood"] = "Food Buffs",
@@ -454,19 +553,20 @@ AC.Locales.enUS =
     ["MythicPlus.ConsumableItemEnhancement"] = "Weapon Enhancements",
     ["MythicPlus.ConsumablesTrackedFormat"] = "Based on %d tracked run(s)",
 
-    ["MythicPlus.RunDetailLevel"] = "Level: +%d",
+    ["MythicPlus.RunDetailOutcome"] = "Outcome: %s",
+    ["MythicPlus.OutcomeNotTimed"] = "Not Timed",
     ["MythicPlus.RunDetailTime"] = "Completion Time: %s",
     ["MythicPlus.RunDetailDeaths"] = "Deaths: %d",
     ["MythicPlus.RunDetailStarted"] = "Started: %s",
     ["MythicPlus.RunDetailFinished"] = "Finished: %s",
     ["MythicPlus.RunDetailRatingChange"] = "Rating Change: %s",
-    ["MythicPlus.RunDetailAffixes"] = "Affixes: %s",
 
     -----------------------------------------------------------------------
     -- Delve presentation
     -----------------------------------------------------------------------
 
     ["Delves.SectionRecentDelves"] = "Recent Delves",
+    ["Delves.OpenActivityTooltip"] = "Open in Activity History",
     ["Delves.NoDelvesRecorded"] = "No Delves completed yet.",
 
     -----------------------------------------------------------------------
@@ -497,6 +597,8 @@ AC.Locales.enUS =
     ["ActivityLog.ContextMythicPlus"] = "Mythic+",
     ["ActivityLog.ContextNotTimed"] = "Not Timed",
     ["ActivityLog.ContextDelveTierFormat"] = "Tier %d Delve",
+    ["ActivityLog.ContextDelveTierSummaryFormat"] = "Tier %d",
+    ["ActivityLog.ContextDelveDurationFormat"] = "Time %s",
     ["ActivityLog.ContextDelve"] = "Delve",
     ["ActivityLog.ContextHeroic"] = "Heroic Dungeon",
     ["ActivityLog.ContextMythic0"] = "Mythic 0",
@@ -849,19 +951,37 @@ AC.Locales.enUS =
     -- Weekly Page
     -----------------------------------------------------------------------
 
-    ["Weekly.SectionVaultProgress"] = "Vault Progress",
     ["Weekly.NoVaultData"] = "No Great Vault data available.",
-    ["Weekly.StatUnlockedSlots"] = "Unlocked Slots",
-    ["Weekly.StatRewardAvailable"] = "Reward Available",
-    ["Weekly.SlotsFormat"] = "%d / %d",
-    ["Weekly.SlotLabelFormat"] = "Slot %d",
-    ["Weekly.SlotProgressFormat"] = "%d / %d",
+    ["Weekly.RewardReady"] = "GREAT VAULT REWARD READY",
+    ["Weekly.CategoryDungeons"] = "Dungeons",
+    ["Weekly.CategoryDelves"] = "Delves",
+    ["Weekly.CategoryRaid"] = "Raid",
+    ["Weekly.ChestLabel"] = "Chest %d",
+    ["Weekly.StateUnlocked"] = "UNLOCKED",
+    ["Weekly.StateInProgress"] = "IN PROGRESS",
+    ["Weekly.StateLocked"] = "LOCKED",
+    ["Weekly.StateUpgradeAvailable"] = "UPGRADE AVAILABLE",
+    ["Weekly.ProgressFormat"] = "%d / %d",
+    ["Weekly.NeedMoreFormat"] = "Need %d More",
+    ["Weekly.RemainingFormat"] = "Complete %d more %s",
+    ["Weekly.DungeonLevelFormat"] = "Qualifying level: +%d",
+    ["Weekly.DelveLevelFormat"] = "Qualifying tier: %d",
+    ["Weekly.ActivityLevelFormat"] = "Qualifying level: %d",
+    ["Weekly.UpgradeLevelFormat"] = "+%d",
+    ["Weekly.UpgradeRewardFormat"] = "Next upgrade: %s rewards item level %s",
+    ["Weekly.UpgradeOnlyFormat"] = "Next upgrade: %s",
+    ["Weekly.UpgradeItemLevelOnlyFormat"] = "Next reward item level: %s",
+    ["Weekly.TooltipProgress"] = "Weekly Progress",
+    ["Weekly.TooltipItemLevel"] = "Current Item Level",
+    ["Weekly.TooltipNextUpgrade"] = "Next Upgrade",
+    ["Weekly.UnitDungeon"] = "dungeon",
+    ["Weekly.UnitDungeons"] = "dungeons",
+    ["Weekly.UnitDelve"] = "delve",
+    ["Weekly.UnitDelves"] = "delves",
+    ["Weekly.UnitRaidBoss"] = "raid boss",
+    ["Weekly.UnitRaidBosses"] = "raid bosses",
 
-    ["Weekly.SectionRecommendations"] = "Recommendations",
     ["Weekly.NoRecommendations"] = "You're all caught up.",
-
-    ["Weekly.SectionInsights"] = "Insights",
-    ["Weekly.NoInsights"] = "No vault insights right now.",
 
     -----------------------------------------------------------------------
     -- Common
@@ -1245,6 +1365,7 @@ AC.Locales.enUS =
     ["Developer.Refresh"] = "Refresh",
     ["Developer.NoError"] = "None",
     ["Developer.OpenTooltip"] = "Open Developer Panel",
+    ["Developer.EnableTooltip"] = "Enable Developer Mode and open Developer Panel",
 
     ["Developer.TabOverview"] = "Overview",
     ["Developer.TabModules"] = "Modules",
@@ -1263,6 +1384,19 @@ AC.Locales.enUS =
 
     ["Developer.ClearNotifications"] = "Clear Notifications",
     ["Developer.ForceRefresh"] = "Force Refresh",
+    ["Developer.ActionsDeveloper"] = "Developer",
+    ["Developer.ActionsTracing"] = "Tracing",
+    ["Developer.ActionsDiagnostics"] = "Diagnostics",
+    ["Developer.ActionsNavigation"] = "Navigation",
+    ["Developer.ActionDeveloperMode"] = "Developer Mode",
+    ["Developer.ActionDebugLogging"] = "Debug Logging",
+    ["Developer.ActionTraceAll"] = "All Traces",
+    ["Developer.ActionTraceMythicPlus"] = "Mythic+",
+    ["Developer.ActionOpenLog"] = "Open Log",
+    ["Developer.ActionCopyLog"] = "Copy Log",
+    ["Developer.ActionClearLog"] = "Clear Log",
+    ["Developer.ActionDashboard"] = "Dashboard",
+    ["Developer.ActionSettings"] = "Settings",
     ["Developer.TracingOn"] = "Tracing: On",
     ["Developer.TracingOff"] = "Tracing: Off",
     ["Developer.ClearHistory"] = "Clear History",

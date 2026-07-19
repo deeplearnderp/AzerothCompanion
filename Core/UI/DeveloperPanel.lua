@@ -346,6 +346,10 @@ function DeveloperPanel:HideOtherTabs(activeTab)
         self.MaintenanceContainer:Hide()
     end
 
+    if self.ActionControls and activeTab ~= "Overview" then
+        self.ActionControls:Hide()
+    end
+
 end
 
 -------------------------------------------------------------------------------
@@ -463,6 +467,7 @@ function DeveloperPanel:Initialize()
     -- enable/disable state).
     AC.Events:Register("DEVELOPER_RUNTIME_UPDATED", self, "OnDeveloperRuntimeUpdated")
     AC.Events:Register("DEVELOPER_MODE_CHANGED", self, "OnDeveloperModeChanged")
+    AC.Events:Register("USER_ACTION_STATE_CHANGED", self, "OnUserActionStateChanged")
 
 end
 
@@ -518,6 +523,20 @@ function DeveloperPanel:OnDeveloperModeChanged(enabled)
 
 end
 
+function DeveloperPanel:OnUserActionStateChanged()
+
+    self:RefreshActionControls()
+
+    if self.TraceToggleButton then
+        self.TraceToggleButton:SetText(AC.UserActionService:GetTraceState().description == "off" and AC.L:Get("Developer.TracingOff") or AC.L:Get("Developer.TracingOn"))
+    end
+
+    if self.Frame and self.Frame:IsShown() and self.CurrentTab == "Overview" then
+        self:ShowTab("Overview")
+    end
+
+end
+
 -------------------------------------------------------------------------------
 -- Destructive Maintenance Actions
 --
@@ -537,11 +556,7 @@ end
 
 local function ClearCapturedErrorsData()
 
-    local errorCapture = AC.DeveloperRuntime and AC.DeveloperRuntime:GetCapability("ErrorCapture")
-
-    if errorCapture then
-        errorCapture:ClearErrors()
-    end
+    AC.UserActionService:ClearCapturedErrors()
 
 end
 
@@ -594,7 +609,6 @@ end
 function DeveloperPanel:ClearCapturedErrors()
 
     ClearCapturedErrorsData()
-    AC.Logger:Info("Developer Panel: captured errors cleared.")
     self:RefreshAfterMaintenance()
 
 end
@@ -902,11 +916,7 @@ function DeveloperPanel:BuildQoLRow(topY)
 
     forceRefresh:SetScript("OnClick", function()
 
-        if AC.Dashboard then
-            AC.Dashboard:RefreshEngines(nil)
-        end
-
-        AC.Logger:Info("Developer Panel: forced a full refresh.")
+        AC.UserActionService:RefreshAll()
         self:ShowTab(self.CurrentTab)
 
     end)
@@ -921,11 +931,10 @@ function DeveloperPanel:BuildQoLRow(topY)
 
     traceToggle:SetScript("OnClick", function()
 
-        if AC.Logger:GetActiveTraceDescription() == "off" then
-            AC.Logger:SetDebugEnabled(true)
-            AC.Logger:EnableAllTrace()
+        if AC.UserActionService:GetTraceState().description == "off" then
+            AC.UserActionService:EnableAllTracing()
         else
-            AC.Logger:DisableAllTrace()
+            AC.UserActionService:DisableAllTracing()
         end
 
         UpdateTraceButtonText()
@@ -934,7 +943,145 @@ function DeveloperPanel:BuildQoLRow(topY)
 
     UpdateTraceButtonText()
 
+    self.TraceToggleButton = traceToggle
+
     self.QoLButtons = { clearNotifications, forceRefresh, traceToggle }
+
+end
+
+-------------------------------------------------------------------------------
+-- Shared User Actions
+-------------------------------------------------------------------------------
+
+local function CreateActionCheckbox(parent, label, x, y, onClick)
+
+    local checkbox = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
+    checkbox:SetPoint("TOPLEFT", x, y)
+    checkbox.Text:SetText(label)
+    checkbox:SetScript("OnClick", function(control)
+        onClick(control:GetChecked() == true)
+    end)
+
+    return checkbox
+
+end
+
+local function CreateActionButton(parent, label, width, x, y, onClick)
+
+    local button = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+    button:SetSize(width, 22)
+    button:SetPoint("TOPLEFT", x, y)
+    button:SetText(label)
+    button:SetScript("OnClick", onClick)
+
+    return button
+
+end
+
+
+function DeveloperPanel:BuildActionControls(parent)
+
+    if self.ActionControls then
+        return self.ActionControls
+    end
+
+    local panel = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+    panel:SetSize(CONTENT_WIDTH, 118)
+    AC.Presentation.ApplyCardBackdrop(panel)
+
+    local developerLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    developerLabel:SetPoint("TOPLEFT", 12, -10)
+    developerLabel:SetText(AC.L:Get("Developer.ActionsDeveloper"))
+
+    local tracingLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    tracingLabel:SetPoint("TOPLEFT", 220, -10)
+    tracingLabel:SetText(AC.L:Get("Developer.ActionsTracing"))
+
+    local diagnosticsLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    diagnosticsLabel:SetPoint("TOPLEFT", 430, -10)
+    diagnosticsLabel:SetText(AC.L:Get("Developer.ActionsDiagnostics"))
+
+    local navigationLabel = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    navigationLabel:SetPoint("TOPLEFT", 680, -10)
+    navigationLabel:SetText(AC.L:Get("Developer.ActionsNavigation"))
+
+    panel.DeveloperMode = CreateActionCheckbox(panel, AC.L:Get("Developer.ActionDeveloperMode"), 8, -28, function(enabled)
+        AC.UserActionService:SetDeveloperModeEnabled(enabled)
+    end)
+
+    panel.DebugLogging = CreateActionCheckbox(panel, AC.L:Get("Developer.ActionDebugLogging"), 8, -56, function(enabled)
+        AC.UserActionService:SetDebugLoggingEnabled(enabled)
+    end)
+
+    panel.AllTracing = CreateActionCheckbox(panel, AC.L:Get("Developer.ActionTraceAll"), 216, -28, function(enabled)
+
+        if enabled then
+            AC.UserActionService:EnableAllTracing()
+        else
+            AC.UserActionService:DisableAllTracing()
+        end
+
+    end)
+
+    local traceDescriptor = AC.UserActionService:GetAvailableTraceCategories()[1]
+
+    panel.CategoryTracing = CreateActionCheckbox(panel, AC.L:Get(traceDescriptor.labelKey), 216, -56, function(enabled)
+
+        if enabled then
+            AC.UserActionService:EnableTraceCategory(traceDescriptor.category)
+        else
+            AC.UserActionService:DisableTraceCategory(traceDescriptor.category)
+        end
+
+    end)
+
+    CreateActionButton(panel, AC.L:Get("Developer.ActionOpenLog"), 72, 430, -32, function()
+        AC.UserActionService:OpenLog()
+    end)
+    CreateActionButton(panel, AC.L:Get("Developer.ActionCopyLog"), 72, 508, -32, function()
+        AC.UserActionService:CopyLog()
+    end)
+    CreateActionButton(panel, AC.L:Get("Developer.ActionClearLog"), 72, 586, -32, function()
+        AC.UserActionService:ClearLog()
+    end)
+
+    CreateActionButton(panel, AC.L:Get("Developer.ActionDashboard"), 90, 680, -32, function()
+        AC.UserActionService:OpenDashboard()
+    end)
+    CreateActionButton(panel, AC.L:Get("Developer.ActionSettings"), 90, 776, -32, function()
+        AC.UserActionService:OpenSettings()
+    end)
+    CreateActionButton(panel, AC.L:Get("Developer.ForceRefresh"), 90, 680, -62, function()
+
+        if AC.UserActionService:RefreshAll() then
+            self:ShowTab(self.CurrentTab)
+        end
+
+    end)
+
+    self.ActionControls = panel
+
+    return panel
+
+end
+
+
+function DeveloperPanel:RefreshActionControls()
+
+    local panel = self.ActionControls
+
+    if not panel or not AC.UserActionService then
+        return
+    end
+
+    local traceState = AC.UserActionService:GetTraceState()
+    local traceDescriptor = AC.UserActionService:GetAvailableTraceCategories()[1]
+
+    panel.DeveloperMode:SetChecked(AC.UserActionService:IsDeveloperModeEnabled())
+    panel.DebugLogging:SetChecked(AC.UserActionService:IsDebugLoggingEnabled())
+    panel.AllTracing:SetChecked(traceState.all)
+    panel.CategoryTracing:SetChecked(AC.UserActionService:IsTraceCategoryEnabled(traceDescriptor.category))
+    panel.CategoryTracing:SetEnabled(not traceState.all)
 
 end
 
@@ -1094,6 +1241,13 @@ function DeveloperPanel:BuildOverviewTab()
         { label = "Developer.HeroErrors", value = tostring(errorCount) },
         { label = "Developer.HeroMode", value = AC.L:Get(AC.DeveloperModeService and AC.DeveloperModeService:IsEnabled() and "Developer.Yes" or "Developer.No") },
     })
+
+    local actionControls = self:BuildActionControls(self.ScrollChild)
+    actionControls:ClearAllPoints()
+    actionControls:SetPoint("TOPLEFT", 0, yOffset)
+    actionControls:Show()
+    self:RefreshActionControls()
+    yOffset = yOffset - actionControls:GetHeight() - 8
 
     yOffset = self:LayoutLines("Overview", lines, yOffset, CONTENT_WIDTH)
 
@@ -1614,18 +1768,14 @@ function DeveloperPanel:BuildErrorsToolbar()
 
     self.ErrorsClearButton = clearButton
 
-    -- Generate Test Error -- calls the exact same entry point as
-    -- /ac dev testerror (AC.SlashCommandManager:HandleDev), never a
-    -- second copy of the test-error logic. Whatever that command does
-    -- (currently: throw a real, unwrapped error()) is exactly what this
-    -- button does too, by construction, not by keeping two paths in sync.
+    -- Generate Test Error -- shares UserActionService with /ac dev testerror.
     local testButton = CreateFrame("Button", nil, self.ScrollChild, "UIPanelButtonTemplate")
     testButton:SetSize(150, 20)
     testButton:SetPoint("RIGHT", clearButton, "LEFT", -6, 0)
     testButton:SetText(AC.L:Get("Developer.GenerateTestError"))
 
     testButton:SetScript("OnClick", function()
-        AC.SlashCommandManager:HandleDev("testerror")
+        AC.UserActionService:GenerateTestError()
     end)
 
     self.ErrorsTestButton = testButton

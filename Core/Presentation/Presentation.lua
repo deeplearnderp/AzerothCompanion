@@ -122,17 +122,10 @@ end
 -- this is one implementation with readable names at the call site, not
 -- three separate formatters.
 --
--- Of the 3 signed "+/-" call sites (Profile's itemLevelGained, Inventory's
--- bagUsageChange, MythicPlus's rating-change line), only Profile's is
--- consolidated below (Home Dashboard Evolution, Profile card pass) --
--- it now has two real call sites (the Profile page and Home's Profile
--- card) sharing one implementation instead of drifting into two copies.
--- Inventory's and MythicPlus's own sites are deliberately untouched --
--- out of scope for this pass, not overlooked. FormatSignedNumber matches
--- the behavior Profile's page already shipped (exactly 0 gets no "+")
--- rather than resolving it fresh -- docs/DEVELOPMENT_BACKLOG.md's open
--- question (whether 0 SHOULD earn a "+") is a UX judgment call, not
--- something this consolidation settles; it still needs a live look.
+-- FormatSignedNumber preserves the established Profile behavior (zero has
+-- no "+"). FormatSignedNumberCompact lets a caller explicitly request a
+-- plus sign for displayed zero where that domain calls for it, as Mythic+
+-- rating change does.
 -------------------------------------------------------------------------------
 
 function Presentation.FormatNumber(value, decimals)
@@ -155,9 +148,43 @@ function Presentation.FormatSignedNumber(value, decimals)
 
 end
 
+-- Keeps up to the requested precision, but removes zero-only fractional
+-- digits. Useful for statistics where a real fraction is meaningful while
+-- values such as 11.0 should still read as 11.
+function Presentation.FormatNumberCompact(value, maxDecimals)
+
+    local formatted = Presentation.FormatNumber(value, maxDecimals)
+
+    if formatted:find("%.") then
+        formatted = formatted:gsub("0+$", ""):gsub("%.$", "")
+    end
+
+    return formatted
+
+end
+
+function Presentation.FormatSignedNumberCompact(value, maxDecimals, showPlusForZero)
+
+    local formatted = Presentation.FormatNumberCompact(value, maxDecimals)
+    local displayedValue = tonumber(formatted) or 0
+
+    if displayedValue > 0 or (showPlusForZero and displayedValue == 0) then
+        return "+" .. formatted:gsub("^-", "")
+    end
+
+    return formatted
+
+end
+
 function Presentation.FormatPercent(value, decimals)
 
     return Presentation.FormatNumber(value, decimals) .. "%"
+
+end
+
+function Presentation.FormatPercentCompact(value, maxDecimals)
+
+    return Presentation.FormatNumberCompact(value, maxDecimals) .. "%"
 
 end
 
@@ -177,11 +204,8 @@ end
 -- Dates -- every date-bearing style includes a 4-digit year. The time-only
 -- style is reserved for rows already grouped beneath a full date heading.
 --
--- "shortTime"'s double space before %H:%M matches the exact convention
--- RecommendationInspector.lua's own already-correct date call sites
--- already used (its Timestamp field, its Recommendation History section)
--- -- migrated output matches this addon's existing correct convention,
--- not a third variant.
+-- Explicit 12-hour variants keep page-level clock preferences in the shared
+-- formatter without changing existing consumers of the canonical styles.
 -------------------------------------------------------------------------------
 
 local DATE_STYLES =
@@ -190,13 +214,24 @@ local DATE_STYLES =
     monthDay = "%b %d",
     shortTime = "%b %d, %Y  %H:%M",
     time = "%H:%M",
+    shortTime12 = "%b %d, %Y  %I:%M %p",
+    time12 = "%I:%M %p",
 }
 
 function Presentation.FormatDate(timestamp, style)
 
     timestamp = timestamp or time()
 
-    return date(DATE_STYLES[style or "short"], timestamp)
+    style = style or "short"
+
+    local formatted = date(DATE_STYLES[style], timestamp)
+
+    if style == "shortTime12" or style == "time12" then
+        formatted = formatted:gsub("^0(%d:%d%d [AP]M)$", "%1")
+        formatted = formatted:gsub("(%s)0(%d:%d%d [AP]M)$", "%1%2")
+    end
+
+    return formatted
 
 end
 

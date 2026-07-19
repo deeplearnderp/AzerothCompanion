@@ -117,6 +117,26 @@ function ActivityHistoryService:Initialize()
         AC.Logger:Info(string.format("ActivityHistoryService initialized (%d records loaded).", #self.Records))
     end
 
+    AC.DataManagementRegistry:RegisterCleanup(
+    {
+        id = "activity-history",
+        order = 10,
+        displayNameKey = "DataManagement.ActivityHistory.Name",
+        descriptionKey = "DataManagement.ActivityHistory.Description",
+        actionLabelKey = "DataManagement.ActivityHistory.Action",
+        confirmationTitleKey = "DataManagement.ActivityHistory.ConfirmTitle",
+        confirmationDescriptionKey = "DataManagement.ActivityHistory.ConfirmDescription",
+        getStatus = function()
+            return AC.L:Format("DataManagement.StatusActivities", self:Count())
+        end,
+        isAvailable = function()
+            return self:Count() > 0
+        end,
+        clear = function()
+            self:ClearAll()
+        end,
+    })
+
 end
 
 -------------------------------------------------------------------------------
@@ -504,6 +524,31 @@ function ActivityHistoryService:ClearAll()
     end
 
     self:RebuildIndexes()
+
+end
+
+function ActivityHistoryService:ClearByModule(moduleName)
+
+    if not self.Records or type(moduleName) ~= "string" or moduleName == "" then
+        return 0
+    end
+
+    local removed = 0
+
+    for i = #self.Records, 1, -1 do
+
+        if self.Records[i].Module == moduleName then
+            tremove(self.Records, i)
+            removed = removed + 1
+        end
+
+    end
+
+    if removed > 0 then
+        self:RebuildIndexes()
+    end
+
+    return removed
 
 end
 

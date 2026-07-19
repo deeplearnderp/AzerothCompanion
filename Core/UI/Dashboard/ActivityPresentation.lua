@@ -111,6 +111,53 @@ local function BuildTimelineContext(record, moduleLabel)
 
     elseif record.Module == "Delves" or record.ActivityType == "Delve" then
 
+        if tonumber(data.delveSummaryVersion) then
+
+            local parts = {}
+            local tierText = type(data.tierText) == "string" and data.tierText or nil
+            local tier = tonumber(data.tier)
+
+            if tierText and tierText:match("%S") then
+                table.insert(parts, tierText)
+            elseif tier and tier > 0 then
+                table.insert(parts, AC.L:Format("ActivityLog.ContextDelveTierSummaryFormat", tier))
+            end
+
+            for _, resource in ipairs(data.resources or {}) do
+
+                local resourceParts = {}
+                local leadingText = type(resource.leadingText) == "string" and resource.leadingText or nil
+                local text = type(resource.text) == "string" and resource.text or nil
+                local iconFileID = tonumber(resource.iconFileID)
+
+                if leadingText and leadingText:match("%S") then
+                    table.insert(resourceParts, leadingText)
+                end
+
+                if iconFileID then
+                    table.insert(resourceParts, ("|T%d:14:14:0:0|t"):format(iconFileID))
+                end
+
+                if text and text:match("%S") then
+                    table.insert(resourceParts, text)
+                end
+
+                if #resourceParts > 0 then
+                    table.insert(parts, table.concat(resourceParts, " "))
+                end
+
+            end
+
+            local durationSeconds = tonumber(data.durationSeconds)
+
+            if durationSeconds and durationSeconds >= 0 then
+                table.insert(parts, AC.L:Format("ActivityLog.ContextDelveDurationFormat", AC.Presentation.FormatClock(durationSeconds)))
+            end
+
+            return table.concat(parts, " " .. Format.BULLET .. " ")
+
+        end
+
         local tier = tonumber(data.tier)
 
         if tier and tier > 0 then

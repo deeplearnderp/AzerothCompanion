@@ -64,34 +64,11 @@ function EditBox:Initialize(manager, id, parent, options)
 
     self.Frame = frame
     self.EditBox = editBox
+    self.TooltipTargets = { editBox }
 
     if opts.tooltip then
         self:SetTooltip(opts.tooltip)
     end
-
-end
-
--------------------------------------------------------------------------------
--- Tooltip
--------------------------------------------------------------------------------
-
-function EditBox:SetTooltip(text)
-
-    self.Tooltip = text
-
-    if not self.EditBox or not text or text == "" then
-        return
-    end
-
-    self.EditBox:SetScript("OnEnter", function(control)
-        GameTooltip:SetOwner(control, "ANCHOR_RIGHT")
-        GameTooltip:SetText(text, 1, 1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-
-    self.EditBox:SetScript("OnLeave", function()
-        GameTooltip:Hide()
-    end)
 
 end
 

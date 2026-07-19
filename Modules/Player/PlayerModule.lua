@@ -19,8 +19,6 @@ local PlayerModule =
 local Defaults =
 {
     enabled = true,
-    showCoordinates = true,
-    showZoneName = true,
     updateInterval = 1.0,
     coordinatePrecision = 2,
 }
@@ -74,22 +72,6 @@ function PlayerModule:Initialize()
         text = "Enable Player Module",
         default = true,
         tooltip = "Enable player zone and coordinate tracking.",
-    })
-
-    AC.Settings:AddCheckbox("Player", "General",
-    {
-        key = "showCoordinates",
-        text = "Show Coordinates",
-        default = true,
-        tooltip = "Reserved for a future on-screen coordinate display.",
-    })
-
-    AC.Settings:AddCheckbox("Player", "General",
-    {
-        key = "showZoneName",
-        text = "Show Zone Name",
-        default = true,
-        tooltip = "Reserved for a future on-screen zone display.",
     })
 
     AC.Settings:AddSlider("Player", "General",

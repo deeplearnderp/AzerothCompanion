@@ -196,7 +196,6 @@ DashboardLayout.STAT_LABEL_GAP = 2
 -- Runs table -- generic enough for a future module's own recorded history
 -- to reuse the same table/expand mechanism.
 
-DashboardLayout.HISTORY_STATUS_WIDTH = 16
 DashboardLayout.HISTORY_DATE_WIDTH = 44
 DashboardLayout.HISTORY_LEVEL_WIDTH = 30
 DashboardLayout.HISTORY_TIME_WIDTH = 44
@@ -228,7 +227,7 @@ DashboardLayout.ACCORDION_DETAIL_BOTTOM_PADDING = 8
 -- collapsed-row content shifts right by this much), and how far expanded
 -- detail fields indent beyond that so they read as visually nested under
 -- the row's own (now-shifted) title rather than flush with it.
-DashboardLayout.ACCORDION_DISCLOSURE_WIDTH = 14
+DashboardLayout.ACCORDION_DISCLOSURE_WIDTH = 20
 DashboardLayout.ACCORDION_DETAIL_INDENT = DashboardLayout.ACCORDION_DISCLOSURE_WIDTH + DashboardLayout.ROW_INDENT + 8
 
 -------------------------------------------------------------------------------
@@ -268,6 +267,7 @@ DashboardLayout.VALID_PAGES =
     Progress = true,
     Statistics = true,
     Journey = true,
+    Forecast = true,
 
     -- Navigation UX Sprint -- Recommendation Details, formerly the
     -- standalone RecommendationInspector popup, is now a real Dashboard

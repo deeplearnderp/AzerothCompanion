@@ -246,13 +246,15 @@ end
 -- render one of these two colored glyphs per record -- previously
 -- written out as an inline literal only in Rows.lua; promoted here once
 -- a second call site needed the exact same glyph (Home Dashboard
--- Evolution). The bare glyphs themselves (Presentation.CHECK_GLYPH/
--- CROSS_GLYPH) are addon-wide primitives -- these constants just add the
--- Dashboard's own color composition on top (Presentation Asset Audit).
+-- Evolution). Dashboard uses compact ASCII marks here because its runtime
+-- font does not render the addon-wide Unicode diagnostic glyphs reliably.
 -------------------------------------------------------------------------------
 
-DashboardFormat.CHECK_SUCCESS = "|cff40c040" .. AC.Presentation.CHECK_GLYPH .. "|r" -- green "✓"
-DashboardFormat.CHECK_FAILURE = "|cffc04040" .. AC.Presentation.CROSS_GLYPH .. "|r" -- red "✗"
+-- Retail runtime verification confirmed the Unicode check/cross glyphs render
+-- as empty boxes in Dashboard text. Keep the semantic color while using the
+-- addon's established ASCII fallback convention for compact status columns.
+DashboardFormat.CHECK_SUCCESS = "|cff40c040+|r"
+DashboardFormat.CHECK_FAILURE = "|cffc04040x|r"
 
 -------------------------------------------------------------------------------
 -- Bullet

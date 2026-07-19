@@ -41,30 +41,6 @@ function Button:Initialize(manager, id, parent, options)
 end
 
 -------------------------------------------------------------------------------
--- Tooltip
--------------------------------------------------------------------------------
-
-function Button:SetTooltip(text)
-
-    self.Tooltip = text
-
-    if not self.Frame or not text or text == "" then
-        return
-    end
-
-    self.Frame:SetScript("OnEnter", function(frame)
-        GameTooltip:SetOwner(frame, "ANCHOR_RIGHT")
-        GameTooltip:SetText(text, 1, 1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-
-    self.Frame:SetScript("OnLeave", function()
-        GameTooltip:Hide()
-    end)
-
-end
-
--------------------------------------------------------------------------------
 -- Value
 -------------------------------------------------------------------------------
 

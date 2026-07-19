@@ -56,36 +56,40 @@ function Dashboard:UpdateMythicPlusPage(frame)
         local data = record.Data or {}
         local lines = {}
 
-        table.insert(lines, AC.L:Format("MythicPlus.RunDetailLevel", data.level or 0))
+        table.insert(lines, AC.L:Format("MythicPlus.RunDetailOutcome", AC.L:Get(record.Success and "Common.Timed" or "MythicPlus.OutcomeNotTimed")))
         table.insert(lines, AC.L:Format("MythicPlus.RunDetailTime", Format.FormatClock(data.time or 0)))
-        table.insert(lines, AC.L:Format("MythicPlus.RunDetailDeaths", data.deathCount or 0))
-        table.insert(lines, AC.L:Format("MythicPlus.RunDetailStarted", AC.Presentation.FormatDate(record.Started or record.Timestamp, "shortTime")))
-        table.insert(lines, AC.L:Format("MythicPlus.RunDetailFinished", AC.Presentation.FormatDate(record.Ended or record.Timestamp, "shortTime")))
+        table.insert(lines, AC.L:Format("MythicPlus.RunDetailDeaths", tonumber(data.deathCount) or 0))
+        table.insert(lines, AC.L:Format(
+            "MythicPlus.RunDetailRatingChange",
+            AC.Presentation.FormatSignedNumberCompact(data.scoreChange, 1, true)))
+        table.insert(lines, AC.L:Format("MythicPlus.RunDetailStarted", AC.Presentation.FormatDate(record.Started or record.Timestamp, "shortTime12")))
+        table.insert(lines, AC.L:Format("MythicPlus.RunDetailFinished", AC.Presentation.FormatDate(record.Ended or record.Timestamp, "shortTime12")))
 
-        local scoreChange = data.scoreChange or 0
-        local sign = scoreChange >= 0 and "+" or ""
+        return lines
 
-        table.insert(lines, AC.L:Format("MythicPlus.RunDetailRatingChange", sign .. string.format("%.1f", scoreChange)))
+    end
 
-        if data.affixIDs and #data.affixIDs > 0 then
+    local function BuildRunSummaryIcons(record)
 
-            local affixNames = {}
+        local icons = {}
+        local data = record.Data or {}
 
-            for _, affixID in ipairs(data.affixIDs) do
+        for _, affixEntry in ipairs(data.affixIDs or {}) do
 
-                local affixInfo = mythicPlusModule.GetAffixDisplayInfo and mythicPlusModule:GetAffixDisplayInfo(affixID)
+            local affixInfo = mythicPlusModule.GetAffixDisplayInfo and mythicPlusModule:GetAffixDisplayInfo(affixEntry)
 
-                -- Falls back to the raw ID only if Blizzard's own
-                -- GetAffixInfo couldn't resolve it -- never a guessed name.
-                table.insert(affixNames, (affixInfo and affixInfo.name) or tostring(affixID))
-
+            if affixInfo then
+                table.insert(icons,
+                {
+                    icon = affixInfo.icon,
+                    tooltipTitle = affixInfo.name,
+                    tooltipText = affixInfo.description,
+                })
             end
-
-            table.insert(lines, AC.L:Format("MythicPlus.RunDetailAffixes", table.concat(affixNames, ", ")))
 
         end
 
-        return lines
+        return icons
 
     end
 
@@ -109,13 +113,13 @@ function Dashboard:UpdateMythicPlusPage(frame)
         if profile.activeRun then
 
             headline = (profile.currentDungeonName ~= "" and profile.currentDungeonName) or AC.L:Get("Common.Unknown")
-            bigValue = "+" .. tostring(profile.activeRun.keystoneLevel or 0)
+            bigValue = "+" .. AC.Presentation.FormatNumber(profile.activeRun.keystoneLevel, 0)
             caption = AC.L:Get("MythicPlus.HeroRunInProgress")
 
         elseif profile.hasKeystone then
 
             headline = (profile.currentDungeonName ~= "" and profile.currentDungeonName) or ("#" .. tostring(profile.currentDungeonID or 0))
-            bigValue = "+" .. tostring(profile.currentLevel or 0)
+            bigValue = "+" .. AC.Presentation.FormatNumber(profile.currentLevel, 0)
             caption = AC.L:Get("MythicPlus.HeroCurrentKeystone")
 
         else
@@ -131,19 +135,6 @@ function Dashboard:UpdateMythicPlusPage(frame)
         yOffset = heroEndOffset
 
         -----------------------------------------------------------------------
-        -- Recent Runs Chart (v1.0 Polish Sprint)
-        --
-        -- A visual timeline of the same records the Recent Runs table
-        -- below already lists -- oldest to newest, bar height = key
-        -- level, color = timed/failed. Skipped entirely when there's
-        -- nothing recorded yet rather than showing an empty chart.
-        -----------------------------------------------------------------------
-
-        if #recentRuns > 0 then
-            yOffset = self:LayoutRunLevelChart(page, "RunLevelChart", scrollChild, yOffset, width, recentRuns)
-        end
-
-        -----------------------------------------------------------------------
         -- Key Statistics
         -----------------------------------------------------------------------
 
@@ -152,9 +143,9 @@ function Dashboard:UpdateMythicPlusPage(frame)
         local keyStats =
         {
             { label = "MythicPlus.StatRating", value = AC.Presentation.FormatRating(profile.rating) },
-            { label = "MythicPlus.StatSeason", value = tostring(profile.currentSeason or 0) },
-            { label = "MythicPlus.StatBestTimed", value = bestTimed > 0 and tostring(bestTimed) or AC.L:Get("Common.Unknown") },
-            { label = "MythicPlus.StatBestCompleted", value = bestLevel > 0 and tostring(bestLevel) or AC.L:Get("Common.Unknown") },
+            { label = "MythicPlus.StatSeason", value = AC.Presentation.FormatNumber(profile.currentSeason, 0) },
+            { label = "MythicPlus.StatBestTimed", value = bestTimed > 0 and AC.Presentation.FormatNumber(bestTimed, 0) or AC.L:Get("Common.Unknown") },
+            { label = "MythicPlus.StatBestCompleted", value = bestLevel > 0 and AC.Presentation.FormatNumber(bestLevel, 0) or AC.L:Get("Common.Unknown") },
         }
 
         yOffset = self:LayoutStatisticsGrid(page, "KeyStats", scrollChild, yOffset, width, keyStats)
@@ -175,7 +166,7 @@ function Dashboard:UpdateMythicPlusPage(frame)
                 page.RunsEmptyText:Hide()
             end
 
-            yOffset = self:LayoutHistoryRows(page, "RecentRuns", scrollChild, yOffset, width, recentRuns, BuildRunDetailLines, function(recordID)
+            yOffset = self:LayoutHistoryRows(page, "RecentRuns", scrollChild, yOffset, width, recentRuns, BuildRunDetailLines, BuildRunSummaryIcons, function(recordID)
 
                 if page.ExpandedRunID == recordID then
                     page.ExpandedRunID = nil
@@ -212,19 +203,28 @@ function Dashboard:UpdateMythicPlusPage(frame)
         if seasonStats.runsCompleted ~= 0 then
 
             local fastestText = AC.L:Get("Common.Unknown")
+            local ratingChange = tonumber(seasonStats.ratingGained) or 0
+            local ratingChangeText = ratingChange == 0
+                and AC.L:Get("MythicPlus.RatingNoChange")
+                or AC.Presentation.FormatSignedNumberCompact(ratingChange, 1, false)
 
             if seasonStats.fastestRun then
-                fastestText = AC.L:Format("MythicPlus.FastestRunFormat", seasonStats.fastestRun.dungeonName or AC.L:Get("Common.Unknown"), seasonStats.fastestRun.level or 0, Format.FormatClock(seasonStats.fastestRun.time))
+                fastestText = AC.L:Format(
+                    "MythicPlus.FastestRunFormat",
+                    seasonStats.fastestRun.dungeonName or AC.L:Get("Common.Unknown"),
+                    seasonStats.fastestRun.level or 0,
+                    Format.BULLET,
+                    Format.FormatClock(seasonStats.fastestRun.time))
             end
 
             seasonGridStats =
             {
-                { label = "MythicPlus.StatRunsCompleted", value = tostring(seasonStats.runsCompleted) },
-                { label = "MythicPlus.StatTimedRuns", value = tostring(seasonStats.timedRuns) },
-                { label = "MythicPlus.StatFailedRuns", value = tostring(seasonStats.failedRuns) },
-                { label = "MythicPlus.StatSuccessRate", value = AC.Presentation.FormatPercent(seasonStats.successRate) },
-                { label = "MythicPlus.StatAverageKeyLevel", value = string.format("%.1f", seasonStats.averageKeyLevel) },
-                { label = "MythicPlus.StatRatingGained", value = string.format("%.1f", seasonStats.ratingGained) },
+                { label = "MythicPlus.StatRunsCompleted", value = AC.Presentation.FormatNumber(seasonStats.runsCompleted, 0) },
+                { label = "MythicPlus.StatTimedRuns", value = AC.Presentation.FormatNumber(seasonStats.timedRuns, 0) },
+                { label = "MythicPlus.StatFailedRuns", value = AC.Presentation.FormatNumber(seasonStats.failedRuns, 0) },
+                { label = "MythicPlus.StatSuccessRate", value = AC.Presentation.FormatPercentCompact(seasonStats.successRate, 1) },
+                { label = "MythicPlus.StatAverageKeyLevel", value = AC.Presentation.FormatNumberCompact(seasonStats.averageKeyLevel, 1) },
+                { label = "MythicPlus.StatRatingChange", value = ratingChangeText },
                 { label = "MythicPlus.StatFastestRun", value = fastestText },
             }
 
@@ -242,7 +242,7 @@ function Dashboard:UpdateMythicPlusPage(frame)
 
             trendGridStats =
             {
-                { label = "MythicPlus.StatAverageDeaths", value = string.format("%.1f", seasonStats.averageDeaths) },
+                { label = "MythicPlus.StatAverageDeaths", value = AC.Presentation.FormatNumberCompact(seasonStats.averageDeaths, 1) },
                 { label = "MythicPlus.StatAverageCompletionTime", value = Format.FormatClock(seasonStats.averageCompletionTime) },
             }
 
@@ -277,11 +277,11 @@ function Dashboard:UpdateMythicPlusPage(frame)
 
             local consumableGridStats =
             {
-                { label = "MythicPlus.ConsumablePotion", value = tostring(totals.potion or 0) },
-                { label = "MythicPlus.ConsumableFlask", value = tostring(totals.flask or 0) },
-                { label = "MythicPlus.ConsumableFood", value = tostring(totals.food or 0) },
-                { label = "MythicPlus.ConsumableHealthstone", value = tostring(totals.healthstone or 0) },
-                { label = "MythicPlus.ConsumableItemEnhancement", value = tostring(totals.itemEnhancement or 0) },
+                { label = "MythicPlus.ConsumablePotion", value = AC.Presentation.FormatNumber(totals.potion, 0) },
+                { label = "MythicPlus.ConsumableFlask", value = AC.Presentation.FormatNumber(totals.flask, 0) },
+                { label = "MythicPlus.ConsumableFood", value = AC.Presentation.FormatNumber(totals.food, 0) },
+                { label = "MythicPlus.ConsumableHealthstone", value = AC.Presentation.FormatNumber(totals.healthstone, 0) },
+                { label = "MythicPlus.ConsumableItemEnhancement", value = AC.Presentation.FormatNumber(totals.itemEnhancement, 0) },
             }
 
             yOffset = self:LayoutStatisticsGrid(page, "Consumables", scrollChild, yOffset, width, consumableGridStats)

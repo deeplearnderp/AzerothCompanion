@@ -40,10 +40,8 @@
 --
 -- ORDERING -- oldest-to-newest, grouped by year. A deliberate, explicit
 -- departure from every other Dashboard list (all newest-first): this page
--- tells a story arc, not "what's new." Direct existing precedent:
--- Rows.lua's LayoutRunLevelChart already ships this exact reasoning today
--- ("oldest run on the left, newest on the right -- reader scans a
--- timeline"). Grouped by YEAR only, not expansion -- year is the one axis
+-- tells a story arc, not "what's new." Grouped by YEAR only, not expansion
+-- -- year is the one axis
 -- every entry can honestly provide (MilestoneService entries have no
 -- expansion concept at all); expansion stays a per-entry field in the
 -- expanded detail instead, mirroring Accomplishments' own honest-omission

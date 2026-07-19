@@ -178,7 +178,10 @@ function Dashboard:Create()
     developerButton:SetScript("OnEnter", function(self)
 
         GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-        GameTooltip:SetText(AC.L:Get("Developer.OpenTooltip"), 1, 1, 1, 1, true)
+        local tooltipKey = AC.UserActionService and AC.UserActionService:IsDeveloperModeEnabled()
+            and "Developer.OpenTooltip"
+            or "Developer.EnableTooltip"
+        GameTooltip:SetText(AC.L:Get(tooltipKey), 1, 1, 1, 1, true)
         GameTooltip:Show()
 
     end)
@@ -188,6 +191,10 @@ function Dashboard:Create()
     end)
 
     developerButton:SetScript("OnClick", function()
+
+        if AC.UserActionService and not AC.UserActionService:IsDeveloperModeEnabled() then
+            AC.UserActionService:SetDeveloperModeEnabled(true)
+        end
 
         local panel = AC.Core:GetModule("DeveloperPanel")
 
@@ -205,13 +212,7 @@ function Dashboard:Create()
     settingsButton:SetText(AC.L:Get("Dashboard.Settings"))
 
     settingsButton:SetScript("OnClick", function()
-
-        local window = AC.Core:GetModule("SettingsWindow")
-
-        if window then
-            window:Toggle()
-        end
-
+        AC.UserActionService:OpenSettings()
     end)
 
     frame.SettingsButton = settingsButton
@@ -307,6 +308,24 @@ function Dashboard:Create()
 
     frame.BriefingCard = briefingCard
 
+    -- Forecast Card --------------------------------------------------------
+    -- A navigation summary only; ForecastService's prioritized plan remains
+    -- owned and rendered on the Forecast page.
+
+    local forecastCard = CreateHomeCard(homeScrollChild, "Forecast.Title",
+    {
+        width = Layout.CARD_WIDTH,
+        tooltip = AC.L:Get("Forecast.Tooltip"),
+        onClick = function()
+            Dashboard:Navigate("Forecast")
+        end,
+    }, briefingCard)
+
+    forecastCard:SetPrimaryValue(AC.L:Get("Forecast.HomePrimary"))
+    forecastCard:SetSecondaryText(AC.L:Get("Forecast.HomeSecondary"))
+
+    frame.ForecastCard = forecastCard
+
     -- Today's Companion Notes Card (Companion Intelligence vNext) ----------
     --
     -- SessionNotesService's own real, session-relative facts (this
@@ -318,7 +337,7 @@ function Dashboard:Create()
     {
         width = Layout.CARD_WIDTH,
         tooltip = AC.L:Get("Dashboard.TooltipTodaysCompanionNotes"),
-    }, briefingCard)
+    }, forecastCard)
 
     frame.CompanionNotesCard = companionNotesCard
 
@@ -785,6 +804,14 @@ function Dashboard:Create()
     frame.Pages.Journey = journeyPage
 
     -----------------------------------------------------------------------
+    -- Forecast Page
+    -----------------------------------------------------------------------
+
+    local forecastPage = self:CreateDataPage(contentArea, AC.L:Get("Forecast.Title"))
+
+    frame.Pages.Forecast = forecastPage
+
+    -----------------------------------------------------------------------
     -- Recommendation Details Page (Navigation UX Sprint)
     --
     -- Replaces the standalone RecommendationInspector popup -- the exact
@@ -1045,12 +1072,6 @@ function Dashboard:UpdateContent(frame)
         frame.InventoryCard:SetBarValue(percentage, barR, barG, barB)
 
         local detailLines = {}
-
-        local equipmentSummary = inventoryModule.GetEquipmentSummary and inventoryModule:GetEquipmentSummary()
-
-        if equipmentSummary and equipmentSummary.averageItemLevel and equipmentSummary.averageItemLevel > 0 then
-            table.insert(detailLines, AC.L:Format("Dashboard.EquippedItemLevelFormat", AC.Presentation.FormatItemLevel(equipmentSummary.averageItemLevel)))
-        end
 
         -- Storage Status -- read directly, the same cross-module pattern
         -- already used elsewhere on Home.

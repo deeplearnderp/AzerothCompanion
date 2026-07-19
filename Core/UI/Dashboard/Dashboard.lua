@@ -68,6 +68,8 @@ function Dashboard:Initialize()
 
     AC.Events:Register("DEVELOPER_MODE_CHANGED", self, "OnDeveloperModeChanged")
     AC.Events:Register("UPDATE_FACTION", self, "OnUpdateFaction")
+    AC.Events:Register("DELVE_HEADER_UPDATED", self, "OnDelveHeaderUpdated")
+    AC.Events:Register("WEEKLY_DATA_UPDATED", self, "OnWeeklyDataUpdated")
     self:OnDeveloperModeChanged(AC.DeveloperModeService and AC.DeveloperModeService:IsEnabled())
 
 end
@@ -80,10 +82,22 @@ function Dashboard:OnDeveloperModeChanged(enabled)
         return
     end
 
-    if enabled then
-        button:Show()
-    else
-        button:Hide()
+    button:Show()
+
+end
+
+function Dashboard:OnWeeklyDataUpdated()
+
+    if self.CurrentPage == "Weekly" and self.Frame and self.Frame:IsShown() then
+        self:UpdateWeeklyPage(self.Frame)
+    end
+
+end
+
+function Dashboard:OnDelveHeaderUpdated()
+
+    if self.CurrentPage == "Dungeons" and self.Frame and self.Frame:IsShown() then
+        self:UpdateDungeonsPage(self.Frame)
     end
 
 end

@@ -243,6 +243,14 @@ function PlayerJournalWindow:GetPool(tabName)
 
 end
 
+function PlayerJournalWindow:ClearPool(tabName)
+
+    for _, row in ipairs(self:GetPool(tabName)) do
+        row:Hide()
+    end
+
+end
+
 function PlayerJournalWindow:LayoutLines(tabName, lines, yOffset, contentWidth, fontTemplate)
 
     local pool = self:GetPool(tabName)

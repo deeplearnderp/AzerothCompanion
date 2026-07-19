@@ -57,11 +57,10 @@ function ColorPicker:Initialize(manager, id, parent, options)
     inner:SetPoint("BOTTOMRIGHT", -1, 1)
     inner:SetColorTexture(self.Color.r, self.Color.g, self.Color.b, self.Color.a)
 
-    -- Hover feedback -- Button's built-in highlight texture, shown/hidden
-    -- automatically on hover independent of OnEnter/OnLeave, so it never
-    -- conflicts with SetTooltip's own OnEnter/OnLeave wiring below. Every
-    -- other clickable swatch/card/link in this addon hover-highlights;
-    -- this was the one that didn't.
+    -- Hover feedback -- Button's built-in highlight texture is independent
+    -- of the shared BaseWidget tooltip handlers. Every other clickable
+    -- swatch/card/link in this addon hover-highlights; this was the one that
+    -- didn't.
     local highlight = frame:CreateTexture(nil, "HIGHLIGHT")
     highlight:SetAllPoints()
     highlight:SetColorTexture(1, 1, 1, 0.25)
@@ -150,30 +149,6 @@ function ColorPicker:OpenPicker()
 
         end,
     })
-
-end
-
--------------------------------------------------------------------------------
--- Tooltip
--------------------------------------------------------------------------------
-
-function ColorPicker:SetTooltip(text)
-
-    self.Tooltip = text
-
-    if not self.Frame or not text or text == "" then
-        return
-    end
-
-    self.Frame:SetScript("OnEnter", function(control)
-        GameTooltip:SetOwner(control, "ANCHOR_RIGHT")
-        GameTooltip:SetText(text, 1, 1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-
-    self.Frame:SetScript("OnLeave", function()
-        GameTooltip:Hide()
-    end)
 
 end
 

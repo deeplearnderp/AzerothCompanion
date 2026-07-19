@@ -285,6 +285,8 @@ function PlayerJournalWindow:BuildPersonalNotesTab()
 
     end
 
+    self:ClearPool("PersonalNotes")
+
     for i = #record.notes, 1, -1 do
 
         local note = record.notes[i]

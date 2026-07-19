@@ -274,14 +274,17 @@ end
 -- Events
 -------------------------------------------------------------------------------
 
-function AccomplishmentsModule:OnPlayerEnteringWorld()
+function AccomplishmentsModule:OnPlayerEnteringWorld(isInitialLogin)
 
     if not self:IsModuleEnabled() then
         return
     end
 
     self:Refresh()
-    self.Session.initialPoints = self.TotalPoints
+
+    if isInitialLogin then
+        self.Session.initialPoints = self.TotalPoints
+    end
 
 end
 

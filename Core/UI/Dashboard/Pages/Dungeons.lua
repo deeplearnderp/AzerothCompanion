@@ -62,27 +62,274 @@ local function HideSectionHeader(scrollChild, titleKey)
 end
 
 
-local function FormatActiveDelve(activeDelve)
+local function ShowSuppliedTooltip(frame)
 
-    if not activeDelve then
-        return nil
+    if not frame.TooltipText or frame.TooltipText == "" then
+        return
     end
 
-    local name = activeDelve.area
+    GameTooltip:SetOwner(frame, "ANCHOR_RIGHT")
+    GameTooltip:SetText(frame.TooltipText, 1, 1, 1, 1, true)
+    GameTooltip:Show()
 
-    if type(name) ~= "string" or not name:match("%S") then
-        name = activeDelve.name
+end
+
+
+local function CreateTooltipFrame(parent)
+
+    local frame = CreateFrame("Frame", nil, parent)
+    frame:EnableMouse(true)
+    frame:SetScript("OnEnter", ShowSuppliedTooltip)
+    frame:SetScript("OnLeave", GameTooltip_Hide)
+
+    return frame
+
+end
+
+
+local function EnsureCurrentRunContent(page, scrollChild)
+
+    if page.CurrentRunContent then
+        return page.CurrentRunContent
     end
 
-    if type(name) ~= "string" or not name:match("%S") then
-        return nil
+    local content = CreateTooltipFrame(scrollChild)
+
+    content.Name = content:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    content.Name:SetJustifyH("LEFT")
+
+    content.TierFrame = CreateFrame("Frame", nil, content)
+    content.TierFrame:EnableMouse(true)
+    content.TierFrame:SetScript("OnEnter", function(self)
+        if self.TooltipSpellID then
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetSpellByID(self.TooltipSpellID)
+            GameTooltip:Show()
+        end
+    end)
+    content.TierFrame:SetScript("OnLeave", GameTooltip_Hide)
+
+    content.TierFrame.Text = content.TierFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightLarge")
+    content.TierFrame.Text:SetAllPoints()
+    content.TierFrame.Text:SetJustifyH("RIGHT")
+
+    content.ResourcesLabel = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    content.ResourcesLabel:SetJustifyH("LEFT")
+    content.ResourcesLabel:SetTextColor(unpack(AC.Presentation.GetSemanticColor("dim")))
+
+    content.AffixesLabel = content:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    content.AffixesLabel:SetJustifyH("LEFT")
+    content.AffixesLabel:SetTextColor(unpack(AC.Presentation.GetSemanticColor("dim")))
+
+    content.RewardFrame = CreateTooltipFrame(content)
+    content.RewardFrame.Label = content.RewardFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    content.RewardFrame.Label:SetPoint("LEFT")
+    content.RewardFrame.Label:SetTextColor(unpack(AC.Presentation.GetSemanticColor("dim")))
+    content.RewardFrame.Value = content.RewardFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    content.RewardFrame.Value:SetPoint("LEFT", content.RewardFrame.Label, "RIGHT", 8, 0)
+
+    content.ResourceFrames = {}
+    content.AffixFrames = {}
+    page.CurrentRunContent = content
+
+    return content
+
+end
+
+
+local function AcquireResourceFrame(content, index)
+
+    local frame = content.ResourceFrames[index]
+
+    if frame then
+        return frame
     end
 
-    if activeDelve.tier then
-        return AC.L:Format("Dungeons.DelveTierFormat", name, activeDelve.tier)
+    frame = CreateTooltipFrame(content)
+    frame.LeadingText = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    frame.LeadingText:SetPoint("LEFT")
+    frame.LeadingText:SetJustifyH("LEFT")
+    frame.Icon = frame:CreateTexture(nil, "ARTWORK")
+    frame.Icon:SetSize(18, 18)
+    frame.Text = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    frame.Text:SetPoint("LEFT", frame.Icon, "RIGHT", 5, 0)
+    frame.Text:SetJustifyH("LEFT")
+    content.ResourceFrames[index] = frame
+
+    return frame
+
+end
+
+
+local function AcquireAffixFrame(content, index)
+
+    local frame = content.AffixFrames[index]
+
+    if frame then
+        return frame
     end
 
-    return name
+    frame = CreateFrame("Frame", nil, content)
+    frame:EnableMouse(true)
+    frame:SetScript("OnEnter", function(self)
+
+        if self.SpellID then
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetSpellByID(self.SpellID)
+            GameTooltip:Show()
+        end
+
+    end)
+    frame:SetScript("OnLeave", GameTooltip_Hide)
+    frame.Icon = frame:CreateTexture(nil, "ARTWORK")
+    frame.Icon:SetPoint("LEFT")
+    frame.Icon:SetSize(22, 22)
+    frame.Name = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    frame.Name:SetPoint("LEFT", frame.Icon, "RIGHT", 7, 0)
+    frame.Name:SetJustifyH("LEFT")
+    content.AffixFrames[index] = frame
+
+    return frame
+
+end
+
+
+local function LayoutCurrentRun(page, scrollChild, yOffset, width, currentRun)
+
+    local content = page.CurrentRunContent
+
+    if not currentRun then
+        HideSectionHeader(scrollChild, "Delves.SectionCurrentRun")
+
+        if content then
+            content:Hide()
+        end
+
+        return yOffset
+    end
+
+    yOffset = Dashboard:BeginSection(scrollChild, "Delves.SectionCurrentRun", yOffset)
+    content = EnsureCurrentRunContent(page, scrollChild)
+
+    local contentWidth = width - (Layout.ROW_INDENT * 2)
+    local contentY = 0
+
+    content:ClearAllPoints()
+    content:SetPoint("TOPLEFT", Layout.ROW_INDENT, yOffset)
+    content:SetWidth(contentWidth)
+    content.TooltipText = currentRun.tooltip
+
+    content.Name:ClearAllPoints()
+    content.Name:SetPoint("TOPLEFT", 0, contentY)
+    content.Name:SetWidth(contentWidth - 80)
+    content.Name:SetText(currentRun.name or "")
+
+    content.TierFrame:ClearAllPoints()
+    content.TierFrame:SetPoint("TOPRIGHT", 0, contentY)
+    content.TierFrame:SetSize(72, 20)
+    content.TierFrame.Text:SetText(AC.L:Format("Delves.CurrentRunTierFormat", currentRun.tierText or ""))
+    content.TierFrame.TooltipSpellID = currentRun.tierTooltipSpellID
+
+    contentY = contentY - 30
+
+    content.ResourcesLabel:ClearAllPoints()
+    content.ResourcesLabel:SetPoint("TOPLEFT", 0, contentY)
+    content.ResourcesLabel:SetText(AC.L:Get("Delves.CurrentRunLives"))
+
+    local resourceX = content.ResourcesLabel:GetStringWidth() + 8
+
+    for index, resource in ipairs(currentRun.resources) do
+        local frame = AcquireResourceFrame(content, index)
+        local leadingText = resource.leadingText or ""
+
+        frame:ClearAllPoints()
+        frame:SetPoint("TOPLEFT", resourceX, contentY + 2)
+        frame:SetSize(math.max(50, contentWidth - resourceX), 20)
+        frame.LeadingText:SetText(leadingText)
+        frame.LeadingText:SetShown(leadingText ~= "")
+        frame.Icon:ClearAllPoints()
+
+        if leadingText ~= "" then
+            frame.Icon:SetPoint("LEFT", frame.LeadingText, "RIGHT", 5, 0)
+        else
+            frame.Icon:SetPoint("LEFT")
+        end
+
+        frame.Icon:SetTexture(resource.iconFileID)
+        frame.Icon:SetDesaturated(resource.enabledState == Enum.WidgetEnabledState.Disabled)
+        frame.Text:SetText(resource.text or "")
+        frame.TooltipText = resource.tooltip
+        frame:Show()
+
+        resourceX = resourceX + frame.LeadingText:GetStringWidth() + frame.Icon:GetWidth()
+            + frame.Text:GetStringWidth() + 19
+    end
+
+    for index = #currentRun.resources + 1, #content.ResourceFrames do
+        content.ResourceFrames[index]:Hide()
+    end
+
+    content.ResourcesLabel:SetShown(#currentRun.resources > 0)
+
+    if #currentRun.resources > 0 then
+        contentY = contentY - 28
+    end
+
+    content.AffixesLabel:ClearAllPoints()
+    content.AffixesLabel:SetPoint("TOPLEFT", 0, contentY)
+    content.AffixesLabel:SetText(AC.L:Get("Delves.CurrentRunAffixes"))
+    content.AffixesLabel:SetShown(#currentRun.affixes > 0)
+
+    if #currentRun.affixes > 0 then
+        contentY = contentY - 18
+    end
+
+    for index, affix in ipairs(currentRun.affixes) do
+        local frame = AcquireAffixFrame(content, index)
+        local name = affix.name or ""
+
+        if affix.stackDisplay and affix.stackDisplay > 0 then
+            name = AC.L:Format("Delves.CurrentRunAffixStackFormat", name, affix.stackDisplay)
+        end
+
+        frame:ClearAllPoints()
+        frame:SetPoint("TOPLEFT", 0, contentY)
+        frame:SetSize(contentWidth, 24)
+        frame.Icon:SetTexture(affix.iconFileID)
+        frame.Icon:SetDesaturated(affix.enabledState == Enum.WidgetEnabledState.Disabled)
+        frame.Name:SetWidth(contentWidth - 29)
+        frame.Name:SetText(name)
+        frame.SpellID = affix.spellID
+        frame:Show()
+
+        contentY = contentY - 27
+    end
+
+    for index = #currentRun.affixes + 1, #content.AffixFrames do
+        content.AffixFrames[index]:Hide()
+    end
+
+    if currentRun.reward then
+        content.RewardFrame:ClearAllPoints()
+        content.RewardFrame:SetPoint("TOPLEFT", 0, contentY)
+        content.RewardFrame:SetSize(contentWidth, 20)
+        content.RewardFrame.Label:SetText(AC.L:Get("Delves.CurrentRunReward"))
+        content.RewardFrame.Value:SetText(AC.L:Get(currentRun.reward.isEarned
+            and "Delves.CurrentRunRewardAvailable"
+            or "Delves.CurrentRunRewardUnavailable"))
+        content.RewardFrame.TooltipText = currentRun.reward.tooltip
+        content.RewardFrame:Show()
+        contentY = contentY - 24
+    else
+        content.RewardFrame:Hide()
+    end
+
+    local contentHeight = math.max(40, -contentY)
+
+    content:SetHeight(contentHeight)
+    content:Show()
+
+    return Dashboard:EndSection(yOffset - contentHeight)
 
 end
 
@@ -117,6 +364,103 @@ local function FormatRecentDelve(record)
     end
 
     return AC.L:Format("Delves.RecentRunFormat", record.ActivityName, dateText)
+
+end
+
+
+local function BuildRecentDelveRow(parent)
+
+    local row = CreateFrame("Button", nil, parent)
+    row:EnableMouse(true)
+    row:RegisterForClicks("LeftButtonUp")
+
+    local background = row:CreateTexture(nil, "BACKGROUND")
+    background:SetAllPoints()
+    background:SetColorTexture(1, 1, 1, 0)
+
+    local text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    text:SetPoint("LEFT")
+    text:SetJustifyH("LEFT")
+
+    row.Background = background
+    row.Text = text
+
+    row:SetScript("OnEnter", function(self)
+        self.Background:SetColorTexture(1, 1, 1, 0.06)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(AC.L:Get("Delves.OpenActivityTooltip"), 1, 1, 1, 1, true)
+        GameTooltip:Show()
+    end)
+
+    row:SetScript("OnLeave", function(self)
+        self.Background:SetColorTexture(1, 1, 1, 0)
+        GameTooltip:Hide()
+    end)
+
+    row:SetScript("OnClick", function(self)
+
+        if self.RecordID then
+            Dashboard:OpenActivity(self.RecordID)
+        end
+
+    end)
+
+    return row
+
+end
+
+
+local function LayoutRecentDelves(page, scrollChild, yOffset, width, records)
+
+    yOffset = Dashboard:BeginSection(scrollChild, "Delves.SectionRecentDelves", yOffset)
+
+    page.Pools = page.Pools or {}
+    page.Pools.RecentDelves = page.Pools.RecentDelves or {}
+
+    local pool = page.Pools.RecentDelves
+
+    if #records == 0 then
+
+        for _, row in ipairs(pool) do
+            row:Hide()
+        end
+
+        yOffset = Dashboard:ShowEmptyLine(pool, scrollChild, "EmptyText", yOffset, width, "Delves.NoDelvesRecorded")
+
+    else
+
+        if pool.EmptyText then
+            pool.EmptyText:Hide()
+        end
+
+        for index, record in ipairs(records) do
+
+            local row = pool[index]
+
+            if not row then
+                row = BuildRecentDelveRow(scrollChild)
+                pool[index] = row
+            end
+
+            row:ClearAllPoints()
+            row:SetPoint("TOPLEFT", Layout.ROW_INDENT, yOffset)
+            row:SetSize(width - Layout.ROW_INDENT, Layout.ROW_HEIGHT)
+            row.Text:SetWidth(width - Layout.ROW_INDENT)
+            row.Text:SetText(FormatRecentDelve(record))
+            row.RecordID = record.ID
+            row:Show()
+
+            yOffset = yOffset - Layout.ROW_HEIGHT
+
+        end
+
+        for index = #records + 1, #pool do
+            pool[index]:Hide()
+        end
+
+    end
+
+    return Dashboard:EndSection(yOffset)
 
 end
 
@@ -539,7 +883,7 @@ function Dashboard:UpdateDungeonsPage(frame)
     local delvesModule = AC.Core and AC.Core:GetModule("Delves")
     local weeklyModule = AC.Core and AC.Core:GetModule("Weekly")
     local summary = delvesModule and delvesModule.GetProgressionSummary and delvesModule:GetProgressionSummary() or {}
-    local activeDelve = delvesModule and delvesModule.GetActiveDelveInfo and delvesModule:GetActiveDelveInfo()
+    local currentRun = AC.DelveHeaderProvider and AC.DelveHeaderProvider:GetCurrentRun()
     local recentDelves = BuildRecentDelves(delvesModule and delvesModule.GetRecentDelves and delvesModule:GetRecentDelves(6) or {})
     local dungeonVault = weeklyModule and weeklyModule.GetVaultCategoryProgress and weeklyModule:GetVaultCategoryProgress("Dungeons")
     local worldVault = weeklyModule and weeklyModule.GetVaultCategoryProgress and weeklyModule:GetVaultCategoryProgress("World")
@@ -560,18 +904,14 @@ function Dashboard:UpdateDungeonsPage(frame)
             table.insert(heroStats, { label = "Delves.JourneyProgress", value = AC.L:Format("Dashboard.DelvesProgressFormat", summary.journey.progress, summary.journey.threshold) })
         end
 
-        local activeDelveText = FormatActiveDelve(activeDelve)
-
-        if activeDelveText then
-            table.insert(heroStats, { label = "Dungeons.StatActiveDelve", value = activeDelveText })
-        end
-
         if #heroStats > 0 then
             yOffset = self:LayoutStatisticsGrid(page, "DelvesHeroStats", scrollChild, heroEndOffset, width, heroStats)
         else
             self:LayoutStatisticsGrid(page, "DelvesHeroStats", scrollChild, heroEndOffset, width, {})
             yOffset = heroEndOffset
         end
+
+        yOffset = LayoutCurrentRun(page, scrollChild, yOffset, width, currentRun)
 
         yOffset = LayoutCompanion(page, scrollChild, yOffset, width, summary.companion)
 
@@ -594,7 +934,7 @@ function Dashboard:UpdateDungeonsPage(frame)
 
         yOffset = LayoutVaultSection(page, scrollChild, yOffset, width, dungeonVault, worldVault)
 
-        yOffset = self:AppendTextSection(page, "RecentDelves", "Delves.SectionRecentDelves", yOffset, recentDelves, "Delves.NoDelvesRecorded", FormatRecentDelve)
+        yOffset = LayoutRecentDelves(page, scrollChild, yOffset, width, recentDelves)
 
         return (-yOffset) + Layout.PAGE_BOTTOM_PADDING
 

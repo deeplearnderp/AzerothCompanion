@@ -136,6 +136,48 @@ function InventoryModule:Initialize()
         self:LoadSnapshot(character.Inventory)
     end
 
+    AC.DataManagementRegistry:RegisterCleanup(
+    {
+        id = "inventory-cache",
+        order = 40,
+        displayNameKey = "DataManagement.Inventory.Name",
+        descriptionKey = "DataManagement.Inventory.Description",
+        actionLabelKey = "DataManagement.Inventory.Action",
+        confirmationTitleKey = "DataManagement.Inventory.ConfirmTitle",
+        confirmationDescriptionKey = "DataManagement.Inventory.ConfirmDescription",
+        getStatus = function()
+
+            local snapshot = self:GetInventorySnapshot()
+
+            if snapshot.timestamp then
+                return AC.L:Format("DataManagement.StatusLastScan", AC.Presentation.FormatDate(snapshot.timestamp, "shortTime"))
+            end
+
+            return AC.L:Get("DataManagement.StatusNoCache")
+
+        end,
+        isAvailable = function()
+            local currentCharacter = AC.DatabaseService and AC.DatabaseService:GetCharacter()
+            return self.InventorySnapshotTimestamp ~= nil or (currentCharacter and currentCharacter.Inventory ~= nil) or false
+        end,
+        clear = function()
+            self:ClearInventoryCache()
+        end,
+    })
+
+end
+
+function InventoryModule:ClearInventoryCache()
+
+    local character = AC.DatabaseService and AC.DatabaseService:GetCharacter()
+
+    if character then
+        character.Inventory = nil
+    end
+
+    self:ResetCaches()
+    AC.Events:Fire("INVENTORY_SNAPSHOT_UPDATED")
+
 end
 
 -------------------------------------------------------------------------------
@@ -194,7 +236,7 @@ end
 -- Events
 -------------------------------------------------------------------------------
 
-function InventoryModule:OnPlayerEnteringWorld()
+function InventoryModule:OnPlayerEnteringWorld(isInitialLogin)
 
     if not self:IsModuleEnabled() then
         return
@@ -203,11 +245,12 @@ function InventoryModule:OnPlayerEnteringWorld()
     self:ScanInventory()
     self:ScanEquipment()
 
-    -- Capture initial bag fullness for session tracking
-    local bagSummary = self:GetBagSummary()
+    if isInitialLogin then
+        local bagSummary = self:GetBagSummary()
 
-    self.Session.initialBagFullness = bagSummary.percentage
-    self.Session.initialTotalItemCount = self:GetTotalItemCount()
+        self.Session.initialBagFullness = bagSummary.percentage
+        self.Session.initialTotalItemCount = self:GetTotalItemCount()
+    end
 
 end
 

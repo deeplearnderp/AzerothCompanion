@@ -54,18 +54,10 @@ function MinimapIcon:Initialize()
         OnClick = function(_, button)
 
             if button == "LeftButton" then
-
-                if AC.Dashboard then
-                    AC.Dashboard:Toggle()
-                end
+                AC.UserActionService:ToggleDashboard()
 
             elseif button == "RightButton" then
-
-                local window = AC.Core and AC.Core:GetModule("SettingsWindow")
-
-                if window then
-                    window:Toggle()
-                end
+                AC.UserActionService:OpenSettings()
 
             end
 

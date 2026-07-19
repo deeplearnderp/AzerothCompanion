@@ -272,7 +272,13 @@ end
 
 local function BuildTimelineRow(parent)
 
-    local row = CreateFrame("Frame", nil, parent)
+    local row = CreateFrame("Button", nil, parent)
+    row:EnableMouse(true)
+    row:RegisterForClicks("LeftButtonUp")
+
+    local background = row:CreateTexture(nil, "BACKGROUND")
+    background:SetAllPoints()
+    background:SetColorTexture(1, 1, 1, 0)
 
     local timeText = row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
     timeText:SetJustifyH("LEFT")
@@ -290,6 +296,23 @@ local function BuildTimelineRow(parent)
     row.TimeText = timeText
     row.TitleText = titleText
     row.ContextText = contextText
+    row.Background = background
+
+    row:SetScript("OnEnter", function(self)
+        self.Background:SetColorTexture(1, 1, 1, self.IsSelected and 0.10 or 0.06)
+    end)
+
+    row:SetScript("OnLeave", function(self)
+        self.Background:SetColorTexture(1, 1, 1, self.IsSelected and 0.10 or 0)
+    end)
+
+    row:SetScript("OnClick", function(self)
+
+        if self.RecordID then
+            Dashboard:OpenActivity(self.RecordID)
+        end
+
+    end)
 
     return row
 
@@ -314,6 +337,10 @@ local function LayoutTimelineRows(scrollChild, pool, records, yOffset, contentWi
         row:SetSize(contentWidth, Layout.ACTIVITY_TIMELINE_ROW_HEIGHT)
         row:ClearAllPoints()
         row:SetPoint("TOPLEFT", 0, yOffset)
+        row.RecordID = record.ID
+        row.ActivityScrollOffset = -yOffset
+        row.IsSelected = row.RecordID ~= nil and row.RecordID == scrollChild.ActivityLogSelectedID
+        row.Background:SetColorTexture(1, 1, 1, row.IsSelected and 0.10 or 0)
 
         row.TimeText:ClearAllPoints()
         row.TimeText:SetPoint("TOPLEFT", Layout.ROW_INDENT, 0)
@@ -341,6 +368,37 @@ local function LayoutTimelineRows(scrollChild, pool, records, yOffset, contentWi
     end
 
     return yOffset
+
+end
+
+local function ScrollToActivity(page, recordID)
+
+    local datePools = page.Pools and page.Pools.ActivityLogDates
+
+    if not datePools or not page.ScrollFrame then
+        return false
+    end
+
+    for _, pool in pairs(datePools) do
+
+        for _, row in ipairs(pool) do
+
+            if row:IsShown() and row.RecordID == recordID then
+
+                local viewportHeight = page.ScrollFrame:GetHeight() or 0
+                local target = math.max(0, (row.ActivityScrollOffset or 0) - (viewportHeight / 3))
+                local range = page.ScrollFrame:GetVerticalScrollRange() or 0
+
+                page.ScrollFrame:SetVerticalScroll(math.min(target, range))
+                return true
+
+            end
+
+        end
+
+    end
+
+    return false
 
 end
 
@@ -396,6 +454,8 @@ function Dashboard:UpdateActivityLogPage(frame)
     local filteredActivities = FilterAndSortActivities(allActivities, page.ActivityLogFilter, page.ActivityLogSort)
     local dateGroups = GroupActivitiesByDate(filteredActivities)
     local scrollChild = page.ScrollChild
+
+    scrollChild.ActivityLogSelectedID = page.SelectedActivityID
 
     local function Layout_(width)
 
@@ -496,6 +556,37 @@ function Dashboard:UpdateActivityLogPage(frame)
     end
 
     self:MeasureAndApplyScrolling(page, scrollChild, Layout_)
+
+    if page.PendingActivityID and ScrollToActivity(page, page.PendingActivityID) then
+        page.PendingActivityID = nil
+    end
+
+end
+
+
+function Dashboard:OpenActivity(recordID)
+
+    local history = AC.ActivityHistoryService
+    local page = self.Frame and self.Frame.Pages and self.Frame.Pages.ActivityLog
+    local record = history and history:GetActivity(recordID)
+
+    if not record or not page then
+        return false
+    end
+
+    page.ActivityLogFilter = "All"
+    page.SelectedActivityID = record.ID
+    page.PendingActivityID = record.ID
+
+    if self.CurrentPage == "ActivityLog" and self.Frame and self.Frame:IsShown() then
+        self:UpdateActivityLogPage(self.Frame)
+    elseif self.CurrentPage == "ActivityLog" then
+        AC.NavigationService:Push(AC.NavigationService.Windows.Dashboard, "ActivityLog")
+    else
+        self:Navigate("ActivityLog")
+    end
+
+    return true
 
 end
 

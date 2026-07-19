@@ -37,12 +37,15 @@ Core/Managers/ModuleManager.lua
 
 Core/Services/DatabaseService.lua
 Core/Logging/Logger.lua
+Core/Services/DataManagementRegistry.lua
 Core/Services/ActivityHistoryService.lua
 Core/Services/LoadoutService.lua
 Core/Events/EventManager.lua
+Core/Services/DelveHeaderProvider.lua
 Core/Services/NotificationService.lua
 Core/Diagnostics/DiagnosticsService.lua
 Core/Services/DeveloperModeService.lua
+Core/Services/UserActionService.lua
 Core/Runtime/DeveloperRuntime.lua
 Core/Runtime/ErrorCapture.lua
 Core/Runtime/SecretValueEvents.lua
@@ -56,12 +59,14 @@ Core/Services/BriefingService.lua
 Core/Services/MilestoneService.lua
 Core/Services/ProgressSummaryService.lua
 Core/Services/SessionNotesService.lua
+Core/Services/ForecastService.lua
 
 Core/UI/Settings/SettingsSection.lua
 Core/UI/Settings/SettingsPage.lua
 Core/Managers/SettingsManager.lua
 
 Core/Services/LocalizationService.lua
+Core/UI/Settings/DataManagementPage.lua
 
 Core/Commands/SlashCommandManager.lua
 
@@ -104,6 +109,7 @@ Core/UI/Dashboard/Pages/Recommendations.lua
 Core/UI/Dashboard/Pages/Progress.lua
 Core/UI/Dashboard/Pages/Statistics.lua
 Core/UI/Dashboard/Pages/Journey.lua
+Core/UI/Dashboard/Pages/Forecast.lua
 Core/UI/Dashboard/Pages/RecommendationDetails.lua
 Core/UI/Dashboard/Home.lua
 Core/UI/Dashboard/Navigation.lua

@@ -8,8 +8,8 @@
 -- module exists only for the one aggregate API Blizzard already
 -- provides -- C_WeeklyRewards. The established profile remains the Dungeon
 -- category consumed by MythicPlusModule/RecommendationEngine; category
--- projections additionally expose World for the Delves overview. Raid and
--- PvP remain outside the current product surfaces and are not gathered.
+-- projections additionally expose Delves/World and Raid when Blizzard
+-- returns those categories. PvP remains outside the current product surface.
 --
 -- VERIFICATION STATUS (Blizzard API Verification pass): `threshold`,
 -- `progress`, `level`, `index` on `WeeklyRewardActivityInfo` are now
@@ -19,7 +19,7 @@
 -- activityInfo.progress >= activityInfo.threshold`, exactly matching
 -- this module's own unlock comparison below; `level` documented there as
 -- "dungeon level (e.g., Mythic+10)" for the Activities/Mythic+ category,
--- i.e. the KEY level, not an item level -- see GetActivityRewardItemLevel
+-- i.e. the KEY level, not an item level -- see GetActivityReward
 -- below for where the real reward item level actually comes from, and
 -- why `level` alone was previously mislabeled as one on Home's "Highest
 -- Reward" card). `Enum.WeeklyRewardChestThresholdType.Activities` is
@@ -51,8 +51,8 @@ local WeeklyModule =
 -- `activity.level` (used for `slot.level` below) is the Mythic+ KEY level
 -- (e.g. 15 for a +15) -- confirmed directly against Blizzard's own
 -- Blizzard_WeeklyRewards.lua (WeeklyRewardActivityItemMixin:OnEnter's
--- sibling SetDisplayedItem), not an item level. That file resolves the
--- actual reward item level through a completely different path:
+-- sibling SetDisplayedItem), not an item level. That file resolves actual
+-- reward item information through a completely different path:
 -- `activity.rewards` (an array of reward entries, each with `.type`,
 -- `.id`, `.itemDBID`) -> pick the best-quality/then-highest-base-level
 -- Item-type reward via C_Item.GetItemInfo(rewardInfo.id) -> resolve its
@@ -62,18 +62,39 @@ local WeeklyModule =
 -- pass had wrongly assumed (see docs/DEVELOPMENT_BACKLOG.md).
 --
 -- Both C_Item.GetItemInfo and C_Item.GetDetailedItemLevelInfo can return
--- nil the first time an item is seen this session (Blizzard's own item
--- cache not yet populated -- MayReturnNothing, per Warcraft Wiki) --
--- pcall-wrapped and nil-guarded throughout; a cache miss simply means no
--- item level is available THIS refresh, resolved on a later one, never a
--- guessed number. The Delves overview additionally falls back to Blizzard's
--- GetExampleRewardItemHyperlinks preview for an unlocked slot whose generated
--- reward array is not populated yet. Still needs an in-game spot check to confirm this
+-- nil the first time an item is seen this session. Calls are pcall-wrapped
+-- and nil-guarded; GET_ITEM_INFO_RECEIVED triggers a later refresh rather
+-- than guessing. The overview also falls back to Blizzard's
+-- GetExampleRewardItemHyperlinks preview when generated reward data is not
+-- populated yet. Still needs an in-game spot check to confirm this
 -- resolves reliably rather than intermittently missing -- see the Live
 -- Verification checklist in docs/DEVELOPMENT_BACKLOG.md.
 -------------------------------------------------------------------------------
 
-local function GetActivityRewardItemLevel(activity)
+local function GetItemDetails(hyperlink)
+
+    if not hyperlink or not C_Item or not C_Item.GetItemInfo or not C_Item.GetDetailedItemLevelInfo then
+        return nil
+    end
+
+    local okInfo, name, resolvedLink, quality = pcall(C_Item.GetItemInfo, hyperlink)
+    local okLevel, itemLevel = pcall(C_Item.GetDetailedItemLevelInfo, hyperlink)
+
+    if (not okInfo and not okLevel) or (not name and not resolvedLink and not quality and not itemLevel) then
+        return nil
+    end
+
+    return
+    {
+        name = okInfo and name or nil,
+        hyperlink = (okInfo and resolvedLink) or hyperlink,
+        quality = okInfo and quality or nil,
+        itemLevel = okLevel and itemLevel or nil,
+    }
+
+end
+
+local function GetActivityReward(activity)
 
     if type(activity.rewards) ~= "table" then
         return nil
@@ -119,42 +140,70 @@ local function GetActivityRewardItemLevel(activity)
         return nil
     end
 
-    local okLevel, actualItemLevel = pcall(C_Item.GetDetailedItemLevelInfo, hyperlink)
-
-    if okLevel and actualItemLevel and actualItemLevel > 0 then
-        return actualItemLevel
-    end
-
-    return nil
+    return GetItemDetails(hyperlink)
 
 end
 
-local function GetActivityPreviewItemLevel(activity)
+local function GetActivityPreviewRewards(activity)
 
     if not activity or not activity.id or not C_WeeklyRewards or not C_WeeklyRewards.GetExampleRewardItemHyperlinks or not C_Item or not C_Item.GetDetailedItemLevelInfo then
         return nil
     end
 
-    local okLinks, hyperlink = pcall(C_WeeklyRewards.GetExampleRewardItemHyperlinks, activity.id)
+    local okLinks, hyperlink, upgradeHyperlink = pcall(C_WeeklyRewards.GetExampleRewardItemHyperlinks, activity.id)
 
     if not okLinks or not hyperlink then
         return nil
     end
 
-    local okLevel, itemLevel = pcall(C_Item.GetDetailedItemLevelInfo, hyperlink)
+    return GetItemDetails(hyperlink), GetItemDetails(upgradeHyperlink)
 
-    if okLevel and itemLevel and itemLevel > 0 then
-        return itemLevel
+end
+
+local function GetNextUpgrade(activity, categoryID)
+
+    if not C_WeeklyRewards then
+        return nil
+    end
+
+    if categoryID == "Dungeons" and C_WeeklyRewards.GetNextMythicPlusIncrease then
+
+        local ok, hasSeasonData, nextLevel, itemLevel = pcall(C_WeeklyRewards.GetNextMythicPlusIncrease, tonumber(activity.level) or 0)
+
+        if ok and hasSeasonData and nextLevel then
+            return { level = nextLevel, itemLevel = itemLevel }
+        end
+
+    elseif C_WeeklyRewards.GetNextActivitiesIncrease and activity.activityTierID then
+
+        local ok, hasSeasonData, nextActivityTierID, nextLevel, itemLevel = pcall(
+            C_WeeklyRewards.GetNextActivitiesIncrease,
+            activity.activityTierID,
+            tonumber(activity.level) or 0)
+
+        if ok and hasSeasonData and (nextActivityTierID or nextLevel or itemLevel) then
+            return
+            {
+                activityTierID = nextActivityTierID,
+                level = nextLevel,
+                itemLevel = itemLevel,
+            }
+        end
+
     end
 
     return nil
 
 end
 
-local function BuildVaultCategory(activityType)
+local function BuildVaultCategory(categoryID, titleKey, activityType, unitSingularKey, unitPluralKey)
 
     local category =
     {
+        id = categoryID,
+        titleKey = titleKey,
+        unitSingularKey = unitSingularKey,
+        unitPluralKey = unitPluralKey,
         totalSlots = 0,
         unlockedSlots = 0,
         slots = {},
@@ -177,6 +226,14 @@ local function BuildVaultCategory(activityType)
         local level = tonumber(activity.level) or 0
         local index = tonumber(activity.index) or (#category.slots + 1)
         local unlocked = threshold > 0 and progress >= threshold
+        local actualReward = unlocked and GetActivityReward(activity) or nil
+        local previewReward, previewUpgrade = GetActivityPreviewRewards(activity)
+        local reward = actualReward or previewReward
+        local nextUpgrade = GetNextUpgrade(activity, categoryID)
+
+        if nextUpgrade and not nextUpgrade.itemLevel and previewUpgrade then
+            nextUpgrade.itemLevel = previewUpgrade.itemLevel
+        end
 
         if unlocked then
             category.unlockedSlots = category.unlockedSlots + 1
@@ -187,9 +244,18 @@ local function BuildVaultCategory(activityType)
             index = index,
             threshold = threshold,
             progress = progress,
+            remaining = math.max(0, threshold - progress),
             level = level,
             unlocked = unlocked,
-            rewardItemLevel = unlocked and (GetActivityRewardItemLevel(activity) or GetActivityPreviewItemLevel(activity)) or nil,
+            activityTierID = activity.activityTierID,
+            raidString = activity.raidString,
+            rewardName = reward and reward.name or nil,
+            rewardHyperlink = reward and reward.hyperlink or nil,
+            rewardQuality = reward and reward.quality or nil,
+            rewardItemLevel = reward and reward.itemLevel or nil,
+            rewardIsPreview = actualReward == nil,
+            nextUpgradeLevel = nextUpgrade and nextUpgrade.level or nil,
+            nextUpgradeItemLevel = nextUpgrade and nextUpgrade.itemLevel or nil,
         })
 
     end
@@ -226,6 +292,7 @@ function WeeklyModule:ResetProfile()
         unlockedSlots = 0,
         slots = {},
         categories = {},
+        categoryOrder = {},
         hasAvailableRewards = false,
     }
 
@@ -288,6 +355,9 @@ function WeeklyModule:Enable()
         AC.Logger:Error(("WeeklyModule failed to register WEEKLY_REWARDS_UPDATE: %s"):format(tostring(err)))
     end
 
+    pcall(AC.Events.Register, AC.Events, "WEEKLY_REWARDS_ITEM_CHANGED", self, "OnWeeklyRewardsUpdate")
+    pcall(AC.Events.Register, AC.Events, "GET_ITEM_INFO_RECEIVED", self, "OnWeeklyRewardsUpdate")
+
     AC.Events:Register("SETTINGS_CHANGED", self, "OnSettingsChanged")
 
     if self:IsModuleEnabled() then
@@ -333,14 +403,17 @@ end
 -- Events
 -------------------------------------------------------------------------------
 
-function WeeklyModule:OnPlayerEnteringWorld()
+function WeeklyModule:OnPlayerEnteringWorld(isInitialLogin)
 
     if not self:IsModuleEnabled() then
         return
     end
 
     self:Refresh()
-    self.Session.initialUnlockedSlots = self.Profile.unlockedSlots
+
+    if isInitialLogin then
+        self.Session.initialUnlockedSlots = self.Profile.unlockedSlots
+    end
 
 end
 
@@ -391,18 +464,44 @@ function WeeklyModule:Refresh()
     end
 
     local thresholdTypes = Enum.WeeklyRewardChestThresholdType or {}
-    local dungeonCategory = BuildVaultCategory(thresholdTypes.Activities)
-    local worldCategory = BuildVaultCategory(thresholdTypes.World)
+    local categoryDefinitions =
+    {
+        { id = "Dungeons", titleKey = "Weekly.CategoryDungeons", activityType = thresholdTypes.Activities, unitSingularKey = "Weekly.UnitDungeon", unitPluralKey = "Weekly.UnitDungeons" },
+        { id = "Delves", titleKey = "Weekly.CategoryDelves", activityType = thresholdTypes.World, unitSingularKey = "Weekly.UnitDelve", unitPluralKey = "Weekly.UnitDelves" },
+        { id = "Raid", titleKey = "Weekly.CategoryRaid", activityType = thresholdTypes.Raid, unitSingularKey = "Weekly.UnitRaidBoss", unitPluralKey = "Weekly.UnitRaidBosses" },
+    }
+    local categories = {}
+    local categoryOrder = {}
+
+    for _, definition in ipairs(categoryDefinitions) do
+
+        if definition.activityType then
+
+            local category = BuildVaultCategory(
+                definition.id,
+                definition.titleKey,
+                definition.activityType,
+                definition.unitSingularKey,
+                definition.unitPluralKey)
+
+            if category.totalSlots > 0 then
+                categories[definition.id] = category
+                table.insert(categoryOrder, category)
+            end
+
+        end
+
+    end
+
+    local dungeonCategory = categories.Dungeons or { totalSlots = 0, unlockedSlots = 0, slots = {} }
 
     -- Preserve the established Mythic+ projection for existing consumers.
     self.Profile.slots = dungeonCategory.slots
     self.Profile.totalSlots = dungeonCategory.totalSlots
     self.Profile.unlockedSlots = dungeonCategory.unlockedSlots
-    self.Profile.categories =
-    {
-        Dungeons = dungeonCategory,
-        World = worldCategory,
-    }
+    self.Profile.categories = categories
+    self.Profile.categories.World = categories.Delves
+    self.Profile.categoryOrder = categoryOrder
 
     local hasAvailableRewards = false
 
@@ -417,6 +516,10 @@ function WeeklyModule:Refresh()
     end
 
     self.Profile.hasAvailableRewards = hasAvailableRewards
+
+    if AC.Events then
+        AC.Events:Fire("WEEKLY_DATA_UPDATED")
+    end
 
 end
 
@@ -439,6 +542,12 @@ end
 function WeeklyModule:GetVaultCategoryProgress(categoryName)
 
     return self.Profile.categories and self.Profile.categories[categoryName]
+
+end
+
+function WeeklyModule:GetVaultCategories()
+
+    return self.Profile.categoryOrder or {}
 
 end
 

@@ -2,7 +2,7 @@
 -- Azeroth Companion
 -- Delves Module
 --
--- Owns completed Delve detection and Delve history records. Persistence,
+-- Owns active Delve projection and completed Delve detection. Persistence,
 -- indexing, and pruning remain owned by ActivityHistoryService.
 -------------------------------------------------------------------------------
 
@@ -10,10 +10,12 @@ local AC = _G.AzerothCompanion
 
 local time = time
 local tonumber = tonumber
+local GetInstanceInfo = GetInstanceInfo
+local IsInInstance = IsInInstance
+local GetBestMapForUnit = C_Map.GetBestMapForUnit
 
 local HasActiveDelve = C_DelvesUI.HasActiveDelve
 local GetActiveDelveTier = C_DelvesUI.GetActiveDelveTier
-local GetDelveEntranceMapID = C_DelvesUI.GetDelveEntranceMapID
 local GetDelvesFactionForSeason = C_DelvesUI.GetDelvesFactionForSeason
 local GetFactionForCompanion = C_DelvesUI.GetFactionForCompanion
 local GetScenarioInfo = C_ScenarioInfo.GetScenarioInfo
@@ -115,24 +117,137 @@ end
 local DelvesModule =
 {
     Name = "Delves",
+    ActiveDelve = nil,
+    PendingCompletion = nil,
 }
 
--- ScenarioInformation.name is the scenario-level label; area is the
--- specific Delve adventure shown to the player (for example, The Sinkhole).
--- Both values come from the same synchronous completion snapshot.
-local function GetCompletedDelveName(scenarioInfo)
+local function IsValidActivityName(name)
 
-    if type(scenarioInfo.area) == "string" and scenarioInfo.area:match("%S") then
-        return scenarioInfo.area
+    if type(name) ~= "string" then
+        return false
     end
 
-    if type(scenarioInfo.name) == "string" and scenarioInfo.name:match("%S") then
-        return scenarioInfo.name
-    end
+    local normalized = name:match("^%s*(.-)%s*$")
 
-    return ""
+    return normalized ~= "" and normalized:lower() ~= "unknown"
 
 end
+
+
+local function GetCurrentHeaderName()
+
+    local currentRun = AC.DelveHeaderProvider and AC.DelveHeaderProvider:GetCurrentRun()
+    local name = currentRun and currentRun.name
+
+    return IsValidActivityName(name) and name or nil
+
+end
+
+local function CopyHeaderResources(resources)
+
+    local snapshot = {}
+
+    for _, resource in ipairs(resources or {}) do
+
+        local iconFileID = tonumber(resource.iconFileID)
+        local leadingText = type(resource.leadingText) == "string" and resource.leadingText or nil
+        local text = type(resource.text) == "string" and resource.text or nil
+
+        if iconFileID or (leadingText and leadingText ~= "") or (text and text ~= "") then
+            table.insert(snapshot,
+            {
+                iconFileID = iconFileID,
+                leadingText = leadingText,
+                text = text,
+            })
+        end
+
+    end
+
+    return #snapshot > 0 and snapshot or nil
+
+end
+
+local function ApplyHeaderSnapshot(activeDelve, currentRun)
+
+    if not activeDelve or not currentRun then
+        return
+    end
+
+    if IsValidActivityName(currentRun.name) then
+        activeDelve.headerName = currentRun.name
+    end
+
+    if type(currentRun.tierText) == "string" and currentRun.tierText ~= "" then
+        activeDelve.tierText = currentRun.tierText
+    end
+
+    local resources = CopyHeaderResources(currentRun.resources)
+
+    if resources then
+        activeDelve.headerResources = resources
+    end
+
+    local elapsedSeconds = tonumber(currentRun.elapsedSeconds)
+
+    if elapsedSeconds and elapsedSeconds >= 0 then
+        activeDelve.elapsedSeconds = elapsedSeconds
+    end
+
+end
+
+local function IsCurrentScenario(activeDelve)
+
+    local inInstance = IsInInstance()
+    local _, instanceType, _, _, _, _, _, instanceMapID = GetInstanceInfo()
+
+    return inInstance == true
+        and instanceType == "scenario"
+        and tonumber(instanceMapID) == activeDelve.instanceMapID
+
+end
+
+
+function DelvesModule:Initialize()
+
+    AC.DataManagementRegistry:RegisterCleanup(
+    {
+        id = "delves-history",
+        order = 30,
+        displayNameKey = "DataManagement.Delves.Name",
+        descriptionKey = "DataManagement.Delves.Description",
+        actionLabelKey = "DataManagement.Delves.Action",
+        confirmationTitleKey = "DataManagement.Delves.ConfirmTitle",
+        confirmationDescriptionKey = "DataManagement.Delves.ConfirmDescription",
+        getStatus = function()
+            local count = AC.ActivityHistoryService:Count({ Module = "Delves" })
+            return AC.L:Format("DataManagement.StatusRuns", count)
+        end,
+        isAvailable = function()
+            return AC.ActivityHistoryService:Count({ Module = "Delves" }) > 0
+        end,
+        clear = function()
+            AC.ActivityHistoryService:ClearByModule("Delves")
+        end,
+    })
+
+end
+
+
+function DelvesModule:ClearActiveDelveIfLeft()
+
+    if self.ActiveDelve and not IsCurrentScenario(self.ActiveDelve) then
+
+        if self.PendingCompletion and AC.Logger then
+            AC.Logger:Warn("A completed Delve was not recorded because Blizzard did not supply its header name before the scenario ended.")
+        end
+
+        self.PendingCompletion = nil
+        self.ActiveDelve = nil
+    end
+
+end
+
 
 -------------------------------------------------------------------------------
 -- Lifecycle
@@ -140,11 +255,88 @@ end
 
 function DelvesModule:Enable()
 
+    AC.Events:Register("PLAYER_ENTERING_WORLD", self)
+    AC.Events:Register("ZONE_CHANGED_NEW_AREA", self)
+    AC.Events:Register("SCENARIO_UPDATE", self)
     AC.Events:Register("SCENARIO_COMPLETED", self)
+    AC.Events:Register("DELVE_HEADER_UPDATED", self, "OnDelveHeaderUpdated")
+
+end
+
+
+function DelvesModule:OnDelveHeaderUpdated(currentRun)
+
+    if not self.ActiveDelve then
+        return
+    end
+
+    ApplyHeaderSnapshot(self.ActiveDelve, currentRun)
+
+    local name = self.ActiveDelve.headerName
+
+    if IsValidActivityName(name) and self.PendingCompletion and self.PendingCompletion.activeDelve == self.ActiveDelve then
+        self:RecordCompletion(self.ActiveDelve, self.PendingCompletion, name)
+    end
+
+end
+
+
+function DelvesModule:OnPlayerEnteringWorld()
+
+    self:ClearActiveDelveIfLeft()
+
+end
+
+
+function DelvesModule:OnZoneChangedNewArea()
+
+    self:ClearActiveDelveIfLeft()
+
+end
+
+
+function DelvesModule:OnScenarioUpdate()
+
+    self:ClearActiveDelveIfLeft()
+
+    if self.ActiveDelve then
+        return
+    end
+
+    local inInstance = IsInInstance()
+    local _,
+          instanceType,
+          difficultyID,
+          difficultyName,
+          maxPlayers,
+          dynamicDifficulty,
+          isDynamic,
+          instanceMapID = GetInstanceInfo()
+    instanceMapID = tonumber(instanceMapID)
+
+    if inInstance ~= true or instanceType ~= "scenario" or not instanceMapID or instanceMapID <= 0 then
+        return
+    end
+
+    self.ActiveDelve =
+    {
+        instanceMapID = instanceMapID,
+        difficultyID = tonumber(difficultyID),
+        difficultyName = difficultyName,
+        uiMapID = tonumber(GetBestMapForUnit("player")),
+        startedAt = time(),
+        headerName = GetCurrentHeaderName(),
+    }
+
+    local currentRun = AC.DelveHeaderProvider and AC.DelveHeaderProvider:GetCurrentRun()
+    ApplyHeaderSnapshot(self.ActiveDelve, currentRun)
 
 end
 
 function DelvesModule:Disable()
+
+    self.ActiveDelve = nil
+    self.PendingCompletion = nil
 
     if AC.Events then
         AC.Events:UnregisterAll(self)
@@ -164,32 +356,10 @@ end
 -- Completion
 -------------------------------------------------------------------------------
 
-function DelvesModule:OnScenarioCompleted(questID, xp, money)
+function DelvesModule:RecordCompletion(activeDelve, completion, activityName)
 
-    if not HasActiveDelve() then
+    if not activeDelve or not IsValidActivityName(activityName) then
         return
-    end
-
-    local scenarioInfo = GetScenarioInfo()
-
-    if not scenarioInfo or not scenarioInfo.isComplete then
-        return
-    end
-
-    local tierInfo = GetActiveDelveTier()
-    local tier = tonumber(tierInfo and tierInfo.tier)
-    local mapID = tonumber(GetDelveEntranceMapID())
-    local activityName = GetCompletedDelveName(scenarioInfo)
-
-    -- Retail 12.0.7 can return tier 0 at completion. Blizzard exposes no
-    -- other authoritative numeric Delve-tier API at this point, so zero is
-    -- not promoted into a gameplay tier and no inferred value is stored.
-    if not tier or tier <= 0 then
-        tier = nil
-    end
-
-    if not mapID or mapID <= 0 then
-        mapID = nil
     end
 
     if not AC.ActivityHistoryService then
@@ -203,43 +373,94 @@ function DelvesModule:OnScenarioCompleted(questID, xp, money)
         return
     end
 
-    local now = time()
     local data =
     {
-        recordVersion = 2,
-        scenarioID = scenarioInfo.scenarioID,
-        scenarioName = scenarioInfo.name,
-        currentStage = scenarioInfo.currentStage,
-        numStages = scenarioInfo.numStages,
-        area = scenarioInfo.area,
-        questID = questID,
-        xp = xp,
-        money = money,
+        recordVersion = 4,
+        delveSummaryVersion = 1,
+        mapID = activeDelve.instanceMapID,
+        uiMapID = activeDelve.uiMapID,
+        difficultyID = activeDelve.difficultyID,
+        difficultyName = activeDelve.difficultyName,
+        questID = completion.questID,
+        xp = completion.xp,
+        money = completion.money,
     }
 
-    if tier then
-        data.tier = tier
+    if completion.tier then
+        data.tier = completion.tier
     end
 
-    if mapID then
-        data.mapID = mapID
+    if activeDelve.tierText then
+        data.tierText = activeDelve.tierText
     end
 
-    AC.ActivityHistoryService:Append(
+    if activeDelve.headerResources then
+        data.resources = CopyHeaderResources(activeDelve.headerResources)
+    end
+
+    if activeDelve.elapsedSeconds then
+        data.durationSeconds = activeDelve.elapsedSeconds
+    end
+
+    local storedRecord = AC.ActivityHistoryService:Append(
     {
         Character = characterProfile.name,
         Realm = characterProfile.realm or "",
         Module = "Delves",
         ActivityType = "Delve",
         ActivityName = activityName,
-        Difficulty = tier and ("Tier " .. tier) or "",
+        Difficulty = completion.tier and ("Tier " .. completion.tier) or activeDelve.difficultyName or "",
         Expansion = GetExpansionLevel and GetExpansionLevel() or 0,
-        Started = now,
-        Ended = now,
+        Started = activeDelve.startedAt,
+        Ended = completion.ended,
         Completed = true,
         Success = true,
         Data = data,
     })
+
+    if storedRecord then
+        self.PendingCompletion = nil
+        self.ActiveDelve = nil
+    end
+
+end
+
+
+function DelvesModule:OnScenarioCompleted(questID, xp, money)
+
+    local activeDelve = self.ActiveDelve
+
+    if not activeDelve then
+        return
+    end
+
+    local tierInfo = GetActiveDelveTier()
+    local tier = tonumber(tierInfo and tierInfo.tier)
+
+    -- Retail 12.0.7 can return tier 0 at completion. Blizzard exposes no
+    -- other authoritative numeric Delve-tier API at this point, so zero is
+    -- not promoted into a gameplay tier and no inferred value is stored.
+    if not tier or tier <= 0 then
+        tier = nil
+    end
+
+    local completion =
+    {
+        activeDelve = activeDelve,
+        questID = questID,
+        xp = xp,
+        money = money,
+        tier = tier,
+        ended = time(),
+    }
+    local activityName = GetCurrentHeaderName() or activeDelve.headerName
+
+    if not IsValidActivityName(activityName) then
+        self.PendingCompletion = completion
+        return
+    end
+
+    self:RecordCompletion(activeDelve, completion, activityName)
 
 end
 

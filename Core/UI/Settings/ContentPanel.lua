@@ -784,9 +784,20 @@ function ContentPanel:RefreshPageValues(cached)
         local widget = binding.Widget
 
         if controlDef.type == "Button" and not controlDef.key then
-            -- action button
+
+            if controlDef.getText then
+                widget:SetValue(controlDef.getText())
+            end
+
+            if controlDef.isEnabled then
+                widget:SetEnabled(controlDef.isEnabled() == true)
+            end
+
         elseif controlDef.type == "Label" and not controlDef.key then
-            -- static label
+
+            if controlDef.getText then
+                widget:SetValue(controlDef.getText())
+            end
         else
 
             local moduleName = controlDef.module or controlDef.moduleName or page.Module

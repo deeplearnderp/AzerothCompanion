@@ -39,6 +39,7 @@ function Dropdown:Initialize(manager, id, parent, options)
 
     self.Frame = frame
     self.Dropdown = dropdown
+    self.TooltipTargets = { dropdown }
 
     self:RefreshMenu()
     self:UpdateLabel()
@@ -135,30 +136,6 @@ function Dropdown:SetSelectedIndex(index, silent)
         local option = self.OptionsList[index]
         self.OnChanged(self, self:GetOptionValue(option, index), index)
     end
-
-end
-
--------------------------------------------------------------------------------
--- Tooltip
--------------------------------------------------------------------------------
-
-function Dropdown:SetTooltip(text)
-
-    self.Tooltip = text
-
-    if not self.Dropdown or not text or text == "" then
-        return
-    end
-
-    self.Dropdown:SetScript("OnEnter", function(control)
-        GameTooltip:SetOwner(control, "ANCHOR_RIGHT")
-        GameTooltip:SetText(text, 1, 1, 1, 1, true)
-        GameTooltip:Show()
-    end)
-
-    self.Dropdown:SetScript("OnLeave", function()
-        GameTooltip:Hide()
-    end)
 
 end
 

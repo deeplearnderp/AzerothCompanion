@@ -97,6 +97,70 @@ function BaseWidget:Initialize(manager, id, parent, options)
 
 end
 
+-------------------------------------------------------------------------------
+-- Tooltip
+-------------------------------------------------------------------------------
+
+function BaseWidget:GetTooltipTargets()
+
+    return self.TooltipTargets or { self.Frame }
+
+end
+
+function BaseWidget:SetTooltip(text, anchor)
+
+    local targets = self:GetTooltipTargets()
+
+    for _, control in ipairs(targets) do
+
+        if control then
+            control:SetScript("OnEnter", nil)
+            control:SetScript("OnLeave", nil)
+
+            if self.TooltipMouseTargets and self.TooltipMouseTargets[control] then
+                control:EnableMouse(false)
+            end
+
+            if GameTooltip and GameTooltip.IsOwned and GameTooltip:IsOwned(control) then
+                GameTooltip:Hide()
+            end
+        end
+
+    end
+
+    self.Tooltip = text
+
+    if not text or text == "" then
+        self.TooltipAnchor = nil
+        return
+    end
+
+    self.TooltipAnchor = anchor or (self.Options and self.Options.tooltipAnchor) or "ANCHOR_RIGHT"
+
+    for _, control in ipairs(targets) do
+
+        if control then
+
+            if self.TooltipMouseTargets and self.TooltipMouseTargets[control] then
+                control:EnableMouse(true)
+            end
+
+            control:SetScript("OnEnter", function(owner)
+                GameTooltip:SetOwner(owner, self.TooltipAnchor)
+                GameTooltip:SetText(self.Tooltip, 1, 1, 1, 1, true)
+                GameTooltip:Show()
+            end)
+
+            control:SetScript("OnLeave", function()
+                GameTooltip:Hide()
+            end)
+
+        end
+
+    end
+
+end
+
 function BaseWidget:Enable()
 
     self.Active = true
@@ -201,6 +265,8 @@ function BaseWidget:ApplyFontColor(fontString, color)
 end
 
 function BaseWidget:InternalDestroy()
+
+    self:SetTooltip(nil)
 
     if self.Frame then
         self.Frame:SetScript("OnShow", nil)

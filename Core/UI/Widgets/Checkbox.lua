@@ -55,41 +55,12 @@ function Checkbox:Initialize(manager, id, parent, options)
     self.Frame = frame
     self.CheckButton = check
     self.Label = label
+    self.TooltipTargets = { frame, check }
+    self.TooltipMouseTargets = { [frame] = true }
 
     if opts.tooltip then
         self:SetTooltip(opts.tooltip)
     end
-
-end
-
--------------------------------------------------------------------------------
--- Tooltip
--------------------------------------------------------------------------------
-
-function Checkbox:SetTooltip(text)
-
-    self.Tooltip = text
-
-    if not self.Frame or not text or text == "" then
-        return
-    end
-
-    local function ShowTooltip(frame)
-        GameTooltip:SetOwner(frame, "ANCHOR_RIGHT")
-        GameTooltip:SetText(text, 1, 1, 1, 1, true)
-        GameTooltip:Show()
-    end
-
-    self.Frame:EnableMouse(true)
-    self.Frame:SetScript("OnEnter", ShowTooltip)
-    self.CheckButton:SetScript("OnEnter", ShowTooltip)
-
-    local function HideTooltip()
-        GameTooltip:Hide()
-    end
-
-    self.Frame:SetScript("OnLeave", HideTooltip)
-    self.CheckButton:SetScript("OnLeave", HideTooltip)
 
 end
 

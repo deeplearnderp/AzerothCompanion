@@ -277,6 +277,51 @@ function StorageModule:Initialize()
         list = profileList,
     })
 
+    AC.DataManagementRegistry:RegisterCleanup(
+    {
+        id = "storage-snapshots",
+        order = 50,
+        displayNameKey = "DataManagement.Storage.Name",
+        descriptionKey = "DataManagement.Storage.Description",
+        actionLabelKey = "DataManagement.Storage.Action",
+        confirmationTitleKey = "DataManagement.Storage.ConfirmTitle",
+        confirmationDescriptionKey = "DataManagement.Storage.ConfirmDescription",
+        getStatus = function()
+
+            local snapshot = self:GetSnapshot()
+
+            if snapshot and snapshot.timestamp then
+                return AC.L:Format("DataManagement.StatusLastScan", AC.Presentation.FormatDate(snapshot.timestamp, "shortTime"))
+            end
+
+            return AC.L:Get("DataManagement.StatusNoSnapshots")
+
+        end,
+        isAvailable = function()
+            local character = AC.DatabaseService and AC.DatabaseService:GetCharacter()
+            return self.LastSnapshot ~= nil
+                or self.LastKnownStorage ~= nil
+                or (character and character.Storage and character.Storage.LastKnownStorage ~= nil)
+                or false
+        end,
+        clear = function()
+            self:ClearStorageSnapshots()
+        end,
+    })
+
+end
+
+function StorageModule:ClearStorageSnapshots()
+
+    local character = AC.DatabaseService and AC.DatabaseService:GetCharacter()
+
+    if character and character.Storage then
+        character.Storage.LastKnownStorage = nil
+    end
+
+    self:ResetState()
+    AC.Events:Fire("STORAGE_SCAN_UPDATED")
+
 end
 
 -------------------------------------------------------------------------------

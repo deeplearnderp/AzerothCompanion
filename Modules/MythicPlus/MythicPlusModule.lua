@@ -357,6 +357,27 @@ function MythicPlusModule:Initialize()
     -- layer at all.
     AC.ConfigurationManager:Register("MythicPlus", Defaults)
 
+    AC.DataManagementRegistry:RegisterCleanup(
+    {
+        id = "mythic-plus-history",
+        order = 20,
+        displayNameKey = "DataManagement.MythicPlus.Name",
+        descriptionKey = "DataManagement.MythicPlus.Description",
+        actionLabelKey = "DataManagement.MythicPlus.Action",
+        confirmationTitleKey = "DataManagement.MythicPlus.ConfirmTitle",
+        confirmationDescriptionKey = "DataManagement.MythicPlus.ConfirmDescription",
+        getStatus = function()
+            local count = AC.ActivityHistoryService:Count({ Module = "MythicPlus" })
+            return AC.L:Format("DataManagement.StatusRuns", count)
+        end,
+        isAvailable = function()
+            return AC.ActivityHistoryService:Count({ Module = "MythicPlus" }) > 0
+        end,
+        clear = function()
+            AC.ActivityHistoryService:ClearByModule("MythicPlus")
+        end,
+    })
+
 end
 
 -------------------------------------------------------------------------------
@@ -436,13 +457,9 @@ end
 -------------------------------------------------------------------------------
 -- Diagnostics
 --
--- Investigation-only instrumentation for the login-refresh bug (see
--- DiagnosticsService for the independent raw-Blizzard-API tracer this is
--- meant to be cross-checked against). Reports what THIS module's own
--- Profile cache holds immediately after handling the named event, tagged
--- "(module)" to distinguish it from DiagnosticsService's "(Mythic+)"-
--- category raw snapshots at the same event. Delegates all storage to
--- Logger -- this is one Trace() call, not a second logging system.
+-- Reports the module's cached profile after relevant Mythic+ events.
+-- DiagnosticsService supplies the corresponding raw Blizzard API snapshot;
+-- both use Logger's production trace-category filtering and storage.
 -------------------------------------------------------------------------------
 
 local function TraceState(self, eventName)
@@ -754,17 +771,8 @@ function MythicPlusModule:OnChallengeModeMapsUpdate()
         return
     end
 
-    -- CHALLENGE_MODE_MAPS_UPDATE was previously assumed to be Blizzard's
-    -- signal that season map data (requested via RequestMapInfo() in
-    -- Enable()/OnPlayerEnteringWorld) has arrived, on the theory that a
-    -- fresh login's initial Refresh() runs before that data lands. That
-    -- assumption did NOT resolve the reported bug in practice -- the
-    -- refreshes below are kept because they are still correct/harmless
-    -- (re-reading map-data-dependent fields once this event fires is
-    -- never wrong), but this is no longer believed to be the actual fix.
-    -- See DiagnosticsService/TraceState -- "/ac trace mythic" plus a
-    -- fresh login capture is how the real event sequence gets found,
-    -- instead of guessing again.
+    -- Map-dependent fields are refreshed when Blizzard reports updated
+    -- Challenge Mode map data, in addition to the initial world refresh.
     self:RefreshCurrentSeason()
     self:RefreshRating()
     self:RefreshOwnedKeystone()
@@ -870,12 +878,15 @@ end
 -- flagged as "not yet built" (the Dashboard rendered raw affix ID
 -- numbers). Memoized since an affix's display info is static for the
 -- life of the session. Returns nil rather than a guessed name if the
--- call fails or the affix ID is unrecognized -- the Dashboard falls back
--- to the raw ID in that case, exactly as it already did before this
--- existed.
+-- call fails or the affix ID is unrecognized. Presentation callers can
+-- then omit the unresolved entry instead of exposing implementation data.
 -------------------------------------------------------------------------------
 
 function MythicPlusModule:GetAffixDisplayInfo(affixID)
+
+    if type(affixID) == "table" then
+        affixID = affixID.id or affixID.affixID
+    end
 
     affixID = tonumber(affixID)
 
@@ -901,7 +912,7 @@ function MythicPlusModule:GetAffixDisplayInfo(affixID)
         return nil
     end
 
-    local info = { name = name, description = description or "", icon = icon }
+    local info = { affixID = affixID, name = name, description = description or "", icon = icon }
     self.AffixDisplayCache[affixID] = info
 
     return info

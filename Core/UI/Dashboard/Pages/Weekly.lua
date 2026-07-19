@@ -2,9 +2,8 @@
 -- Azeroth Companion
 -- Dashboard Page: Weekly
 --
--- Vault slot progress, Recommendations, Insights -- the same three pieces
--- the Home card summarizes, just with room to actually list each slot's
--- own threshold/progress instead of a single "X / Y" number.
+-- Focused Great Vault status: category and reward-slot presentation only.
+-- Guidance remains owned by Home and the Recommendations destination.
 -------------------------------------------------------------------------------
 
 local AC = _G.AzerothCompanion
@@ -31,8 +30,7 @@ function Dashboard:UpdateWeeklyPage(frame)
     local scrollChild = page.ScrollChild
 
     local vaultProgress = weeklyModule:GetVaultProgress()
-
-    local recommendations, insights = self:GetCategorizedRecommendationsAndInsights("Weekly")
+    local vaultCategories = weeklyModule.GetVaultCategories and weeklyModule:GetVaultCategories() or {}
 
     -- Delegates to the shared Dashboard:ShowEmptyLine.
     local function ShowEmptyLine(cacheKey, yOffset, width, textKey)
@@ -45,13 +43,26 @@ function Dashboard:UpdateWeeklyPage(frame)
 
         local yOffset = -4
 
-        -----------------------------------------------------------------------
-        -- Vault Progress
-        -----------------------------------------------------------------------
+        if vaultProgress and vaultProgress.hasAvailableRewards then
 
-        yOffset = self:BeginSection(scrollChild, "Weekly.SectionVaultProgress", yOffset)
+            if not page.VaultRewardReadyText then
+                page.VaultRewardReadyText = scrollChild:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+                page.VaultRewardReadyText:SetJustifyH("LEFT")
+                page.VaultRewardReadyText:SetTextColor(unpack(AC.Presentation.GetSemanticColor("success")))
+            end
 
-        if not vaultProgress or not vaultProgress.totalSlots or vaultProgress.totalSlots == 0 then
+            page.VaultRewardReadyText:ClearAllPoints()
+            page.VaultRewardReadyText:SetPoint("TOPLEFT", 0, yOffset)
+            page.VaultRewardReadyText:SetWidth(width)
+            page.VaultRewardReadyText:SetText(AC.L:Get("Weekly.RewardReady"))
+            page.VaultRewardReadyText:Show()
+            yOffset = yOffset - Layout.ROW_HEIGHT
+
+        elseif page.VaultRewardReadyText then
+            page.VaultRewardReadyText:Hide()
+        end
+
+        if #vaultCategories == 0 then
 
             yOffset = ShowEmptyLine("VaultEmptyText", yOffset, width, "Weekly.NoVaultData")
 
@@ -61,44 +72,9 @@ function Dashboard:UpdateWeeklyPage(frame)
                 page.VaultEmptyText:Hide()
             end
 
-            local vaultStats =
-            {
-                { label = "Weekly.StatUnlockedSlots", value = AC.L:Format("Weekly.SlotsFormat", vaultProgress.unlockedSlots or 0, vaultProgress.totalSlots) },
-                { label = "Weekly.StatRewardAvailable", value = vaultProgress.hasAvailableRewards and AC.L:Get("Common.Yes") or AC.L:Get("Common.No") },
-            }
-
-            yOffset = self:LayoutStatisticsGrid(page, "VaultProgress", scrollChild, yOffset, width, vaultStats)
-
-            -- Per-slot threshold/progress -- the detail the Home card
-            -- doesn't have room for.
-            page.Pools = page.Pools or {}
-            page.Pools.VaultSlots = page.Pools.VaultSlots or {}
-
-            local slotRows = {}
-
-            for _, slot in ipairs(vaultProgress.slots or {}) do
-                table.insert(slotRows, { label = AC.L:Format("Weekly.SlotLabelFormat", slot.index or 0), value = AC.L:Format("Weekly.SlotProgressFormat", slot.progress or 0, slot.threshold or 0) })
-            end
-
-            if #slotRows > 0 then
-                yOffset = self:LayoutStatisticsGrid(page, "VaultSlotDetail", scrollChild, yOffset, width, slotRows)
-            end
+            yOffset = self:LayoutVaultOverview(page, "WeeklyVault", scrollChild, yOffset, width, vaultCategories)
 
         end
-
-        yOffset = self:EndSection(yOffset)
-
-        -----------------------------------------------------------------------
-        -- Recommendations
-        -----------------------------------------------------------------------
-
-        yOffset = self:AppendDynamicSection(page, "Recommendations", "Weekly.SectionRecommendations", yOffset, recommendations, "Weekly.NoRecommendations", true)
-
-        -----------------------------------------------------------------------
-        -- Insights
-        -----------------------------------------------------------------------
-
-        yOffset = self:AppendDynamicSection(page, "Insights", "Weekly.SectionInsights", yOffset, insights, "Weekly.NoInsights")
 
         return (-yOffset) + Layout.PAGE_BOTTOM_PADDING
 

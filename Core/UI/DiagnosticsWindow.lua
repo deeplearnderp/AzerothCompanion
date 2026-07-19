@@ -121,10 +121,7 @@ function DiagnosticsWindow:Initialize()
     clearButton:SetText("Clear")
 
     clearButton:SetScript("OnClick", function()
-
-        AC.Logger:ClearBuffer()
-        self:Refresh()
-
+        AC.UserActionService:ClearLog()
     end)
 
     local copyButton = CreateFrame(
@@ -139,10 +136,7 @@ function DiagnosticsWindow:Initialize()
     copyButton:SetText("Copy")
 
     copyButton:SetScript("OnClick", function()
-
-        editBox:SetFocus()
-        editBox:HighlightText()
-
+        AC.UserActionService:CopyLog()
     end)
 
     local autoScrollButton = CreateFrame(
@@ -194,13 +188,13 @@ end
 -- Refresh
 -------------------------------------------------------------------------------
 
-function DiagnosticsWindow:Refresh()
+function DiagnosticsWindow:Refresh(force)
 
     if not self.EditBox then
         return
     end
 
-    if self.Paused then
+    if self.Paused and not force then
         return
     end
 
@@ -211,6 +205,20 @@ function DiagnosticsWindow:Refresh()
     if self.AutoScroll then
         self.EditBox:SetCursorPosition(#text)
     end
+
+end
+
+-- WoW exposes native EditBox clipboard shortcuts rather than an addon
+-- clipboard API. Freeze the exact Logger snapshot rendered into the EditBox
+-- before selecting it so the live refresh cannot invalidate the selection
+-- while the user presses Ctrl+C.
+function DiagnosticsWindow:PrepareCopy()
+
+    self.Paused = true
+    self:UpdateButtonLabels()
+    self:Refresh(true)
+    self.EditBox:SetFocus()
+    self.EditBox:HighlightText()
 
 end
 

@@ -1201,6 +1201,7 @@ function RecommendationEngine:AddRecommendation(recommendation)
 
     local recommendationRecord =
     {
+        id = recommendation.id,
         title = recommendation.title,
         description = recommendation.description,
         priority = recommendation.priority,

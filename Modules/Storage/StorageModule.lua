@@ -2678,15 +2678,37 @@ local SUPPLY_FORECAST_MIN_TRACKED_RUNS = 5
 function StorageModule:GetSupplyForecast(inventory)
 
     local mythicPlusModule = AC.Core and AC.Core:GetModule("MythicPlus")
+    local availability =
+    {
+        state = "unavailable",
+        reason = "mythic_plus_unavailable",
+        trackedRunCount = 0,
+        minimumTrackedRuns = SUPPLY_FORECAST_MIN_TRACKED_RUNS,
+        empty = true,
+    }
 
-    if not mythicPlusModule then
-        return {}
+    if not mythicPlusModule or not mythicPlusModule.GetSeasonStatistics then
+        return {}, availability
+    end
+
+    if mythicPlusModule.IsModuleEnabled and not mythicPlusModule:IsModuleEnabled() then
+        availability.reason = "mythic_plus_disabled"
+        return {}, availability
     end
 
     local seasonStats = mythicPlusModule:GetSeasonStatistics()
 
-    if not seasonStats or not seasonStats.trackedRunCount or seasonStats.trackedRunCount < SUPPLY_FORECAST_MIN_TRACKED_RUNS then
-        return {}
+    if not seasonStats or not seasonStats.trackedRunCount then
+        availability.reason = "season_data_unavailable"
+        return {}, availability
+    end
+
+    availability.trackedRunCount = seasonStats.trackedRunCount
+
+    if seasonStats.trackedRunCount < SUPPLY_FORECAST_MIN_TRACKED_RUNS then
+        availability.state = "insufficient_history"
+        availability.reason = "insufficient_history"
+        return {}, availability
     end
 
     inventory = inventory or self:GetConsumableInventory()
@@ -2713,7 +2735,11 @@ function StorageModule:GetSupplyForecast(inventory)
 
     end
 
-    return forecast
+    availability.state = "available"
+    availability.reason = nil
+    availability.empty = next(forecast) == nil
+
+    return forecast, availability
 
 end
 

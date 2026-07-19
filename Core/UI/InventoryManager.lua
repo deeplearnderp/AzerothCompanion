@@ -45,11 +45,11 @@ local PAGE_DEFINITIONS =
     { id = "Categories", label = "InventoryManager.NavCategories" },
     { id = "Explorer", label = "InventoryManager.NavExplorer" },
     { id = "Search", label = "InventoryManager.NavSearch" },
-    { id = "Transfers", label = "InventoryManager.NavTransfers", placeholder = "InventoryManager.TransfersPlanned" },
+    { id = "Transfers", label = "InventoryManager.NavTransfers" },
     { id = "ShoppingList", label = "InventoryManager.NavShoppingList" },
-    { id = "Consumables", label = "InventoryManager.NavConsumables", placeholder = "InventoryManager.ConsumablesPlanned" },
+    { id = "Consumables", label = "InventoryManager.NavConsumables" },
     { id = "Loadouts", label = "InventoryManager.NavLoadouts" },
-    { id = "Forecast", label = "InventoryManager.NavForecast", placeholder = "InventoryManager.ForecastPlanned" },
+    { id = "Forecast", label = "InventoryManager.NavForecast" },
     { id = "Settings", label = "InventoryManager.NavSettings", placeholder = "InventoryManager.SettingsPlanned" },
 }
 
@@ -1575,9 +1575,10 @@ function InventoryManager:GetConsumableSubclassLabel(subclass)
 
 end
 
-function InventoryManager:GetConsumableInventorySummary()
+function InventoryManager:GetConsumableInventorySummary(context)
 
-    local storageModule = AC.Core and AC.Core:GetModule("Storage")
+    context = context or self:GetStorageContext()
+    local storageModule = context.storageModule
 
     if not storageModule or not storageModule.GetConsumableInventory then
         return
@@ -1612,27 +1613,44 @@ function InventoryManager:GetConsumableInventorySummary()
         enabled = storageModule:IsModuleEnabled(),
         categories = categories,
         statistics = statistics,
+        freshness = context.scanStatus and context.scanStatus.freshness or "unknown",
+        hasStorageSnapshot = context.scanStatus and context.scanStatus.hasSnapshot == true,
+        lastScanTimestamp = context.lastScan and context.lastScan.timestamp or nil,
     }
 
 end
 
-function InventoryManager:GetConsumableMissingItems()
+function InventoryManager:GetConsumableReadiness(context)
 
-    local storageModule = AC.Core and AC.Core:GetModule("Storage")
+    context = context or self:GetStorageContext()
+    local storageModule = context.storageModule
 
-    if not storageModule or not storageModule.AnalyzeProfile or not storageModule.GetActiveProfile then
-        return {}
+    if not context.enabled or not storageModule or not storageModule.GetStorageReadiness then
+        return { state = "unavailable", reason = "storage_disabled" }
     end
 
-    local profile = storageModule:GetActiveProfile()
+    local profile = context.profile
 
     if not profile then
-        return {}
+        return { state = "unavailable", reason = "no_profile" }
     end
 
-    local analysis = storageModule:AnalyzeProfile(profile.id)
+    local readiness = storageModule:GetStorageReadiness(profile.id) or { state = "unknown" }
+    local missingQuantity = 0
 
-    return analysis.missing or {}
+    for _, entry in ipairs(readiness.missing or {}) do
+        missingQuantity = missingQuantity + (entry.amount or 0)
+    end
+
+    return
+    {
+        state = readiness.state,
+        reason = readiness.reason,
+        freshness = readiness.freshness,
+        readinessPercent = readiness.readinessPercent,
+        missingRequirementCount = #(readiness.missing or {}),
+        missingQuantity = missingQuantity,
+    }
 
 end
 
@@ -1703,38 +1721,35 @@ function InventoryManager:LayoutConsumableSubclassCards(page, poolKey, yOffset, 
 
 end
 
-function InventoryManager:LayoutConsumableMissingCards(page, yOffset, width, missingItems)
+function InventoryManager:EnsureConsumableShoppingButton(page)
 
-    return AC.InventoryComponents:LayoutItemCards(
-        page,
-        "ConsumableMissingCards",
-        "ConsumableMissingEmptyText",
-        yOffset,
-        width,
-        missingItems,
-        CONSUMABLE_CARD_HEIGHT,
-        function(card, entry)
-            card:SetIcon(nil)
-            card:SetTitle(AC.L:Get(entry.label or "Common.Unknown"))
-            card:SetPrimaryValue(AC.L:Format("InventoryManager.ConsumableMissingFormat", entry.amount or 0))
-            card:SetSecondaryText(AC.L:Get("InventoryManager.ConsumableMissingContext"))
-            card:SetDetailText("")
-            card:SetStatus("Important", AC.L:Get("InventoryManager.ShoppingMissingStatus"))
+    if self.ConsumableShoppingButton then
+        return self.ConsumableShoppingButton
+    end
+
+    self.ConsumableShoppingButton = AC.WidgetManager:Create("Button", page.ScrollChild,
+    {
+        width = 160,
+        text = AC.L:Get("InventoryManager.ConsumablesOpenShoppingList"),
+        onClick = function()
+            self:NavigatePage("ShoppingList")
         end,
-        "InventoryManager.ConsumablesMissingEmpty"
-    )
+    })
+
+    return self.ConsumableShoppingButton
 
 end
 
 function InventoryManager:BuildConsumablesPage()
 
     local page = self.Pages.Consumables
-    local summary = self:GetConsumableInventorySummary()
-    local missingItems = self:GetConsumableMissingItems()
+    local context = self:GetStorageContext()
+    local summary = self:GetConsumableInventorySummary(context)
+    local readiness = self:GetConsumableReadiness(context)
     local statistics = summary.statistics or {}
 
     page.ConsumableSummary = summary
-    page.ConsumableMissing = missingItems
+    page.ConsumableReadiness = readiness
 
     self:LayoutPage(page, function(width)
 
@@ -1749,22 +1764,44 @@ function InventoryManager:BuildConsumablesPage()
 
         if not summary.enabled then
 
+            Dashboard:LayoutStatisticsGrid(page, "ConsumableHeroStats", page.ScrollChild, yOffset, width, {})
+
             yOffset = Dashboard:AppendStatisticsSection(
                 page,
-                "ConsumableSummary",
-                "InventoryManager.SectionConsumableSummary",
+                "ConsumableReadiness",
+                "InventoryManager.SectionConsumableReadiness",
                 yOffset,
                 {},
                 "InventoryManager.ConsumablesDisabled"
             )
+
+            if page.ConsumableFreshnessText then
+                page.ConsumableFreshnessText:Hide()
+            end
+
+            local headers = page.ScrollChild and page.ScrollChild.SectionHeaders
+
+            if headers and headers["InventoryManager.SectionConsumableFreshness"] then
+                headers["InventoryManager.SectionConsumableFreshness"]:Hide()
+            end
+
+            if page.ConsumablesEmptyText then
+                page.ConsumablesEmptyText:Hide()
+            end
+
+            if headers and headers["InventoryManager.SectionReadyConsumables"] then
+                headers["InventoryManager.SectionReadyConsumables"]:Hide()
+            end
+
+            if self.ConsumableShoppingButton then
+                self.ConsumableShoppingButton:Hide()
+            end
 
             AC.InventoryComponents:HideCardSection(page, "ConsumableFlaskCards", "InventoryManager.ConsumableSubclass.flask", nil)
             AC.InventoryComponents:HideCardSection(page, "ConsumableFoodCards", "InventoryManager.ConsumableSubclass.food", nil)
             AC.InventoryComponents:HideCardSection(page, "ConsumablePotionCards", "InventoryManager.ConsumableSubclass.potion", nil)
             AC.InventoryComponents:HideCardSection(page, "ConsumableEnhancementCards", "InventoryManager.ConsumableSubclass.itemEnhancement", nil)
             AC.InventoryComponents:HideCardSection(page, "ConsumableHealthstoneCards", "InventoryManager.ConsumableSubclass.healthstone", nil)
-            AC.InventoryComponents:HideCardSection(page, "ConsumableMissingCards", "InventoryManager.SectionMissingConsumables", "ConsumableMissingEmptyText")
-
             return (-yOffset) + Layout.PAGE_BOTTOM_PADDING
 
         end
@@ -1776,6 +1813,57 @@ function InventoryManager:BuildConsumablesPage()
             { label = "InventoryManager.StatConsumableInBags", value = tostring(statistics.bagQuantity or 0) },
             { label = "InventoryManager.StatConsumableInBank", value = tostring(statistics.bankQuantity or 0) },
         })
+
+        yOffset = Dashboard:BeginSection(page.ScrollChild, "InventoryManager.SectionConsumableFreshness", yOffset)
+
+        local freshnessText = AC.L:Get("InventoryManager.ConsumablesNoSnapshot")
+
+        if summary.freshness == "current" then
+            freshnessText = AC.L:Get("InventoryManager.ConsumablesCurrent")
+        elseif summary.freshness == "stale" then
+            local timestamp = summary.lastScanTimestamp and AC.Presentation.FormatDate(summary.lastScanTimestamp, "shortTime") or AC.L:Get("Common.Unknown")
+            freshnessText = AC.L:Format("InventoryManager.ConsumablesStale", timestamp)
+        end
+
+        yOffset = Dashboard:ShowEmptyLineText(page, page.ScrollChild, "ConsumableFreshnessText", yOffset, width, freshnessText)
+        yOffset = Dashboard:EndSection(yOffset)
+
+        local readinessStats = {}
+        local readinessEmptyKey = nil
+
+        if readiness.state == "known" then
+            readinessStats =
+            {
+                { label = "InventoryManager.StatConsumableReadiness", value = AC.L:Format("InventoryManager.ReadinessFormat", readiness.readinessPercent or 0) },
+                { label = "InventoryManager.StatConsumableMissingRequirements", value = tostring(readiness.missingRequirementCount or 0) },
+            }
+        else
+            readinessEmptyKey = "InventoryManager.ConsumablesReadinessUnavailable"
+        end
+
+        yOffset = Dashboard:AppendStatisticsSection(
+            page,
+            "ConsumableReadiness",
+            "InventoryManager.SectionConsumableReadiness",
+            yOffset,
+            readinessStats,
+            readinessEmptyKey
+        )
+
+        if readiness.state == "known" and (readiness.missingRequirementCount or 0) > 0 then
+
+            local button = self:EnsureConsumableShoppingButton(page)
+            local buttonFrame = button:GetFrame()
+            buttonFrame:ClearAllPoints()
+            buttonFrame:SetPoint("TOPLEFT", Layout.ROW_INDENT, yOffset)
+            button:Show()
+            yOffset = yOffset - buttonFrame:GetHeight() - Layout.HOME_SECTION_GAP
+
+        elseif self.ConsumableShoppingButton then
+
+            self.ConsumableShoppingButton:Hide()
+
+        end
 
         local categories = summary.categories or {}
         local hasAnyConsumables = false
@@ -1820,17 +1908,15 @@ function InventoryManager:BuildConsumablesPage()
             yOffset = Dashboard:ShowEmptyLine(page, page.ScrollChild, "ConsumablesEmptyText", yOffset, width, "InventoryManager.ConsumablesEmpty")
             yOffset = Dashboard:EndSection(yOffset)
 
-        end
+        elseif page.ConsumablesEmptyText then
 
-        if #missingItems > 0 then
+            page.ConsumablesEmptyText:Hide()
 
-            yOffset = Dashboard:BeginSection(page.ScrollChild, "InventoryManager.SectionMissingConsumables", yOffset)
-            yOffset = self:LayoutConsumableMissingCards(page, yOffset, width, missingItems)
-            yOffset = Dashboard:EndSection(yOffset)
+            local headers = page.ScrollChild and page.ScrollChild.SectionHeaders
 
-        else
-
-            AC.InventoryComponents:HideCardSection(page, "ConsumableMissingCards", "InventoryManager.SectionMissingConsumables", "ConsumableMissingEmptyText")
+            if headers and headers["InventoryManager.SectionReadyConsumables"] then
+                headers["InventoryManager.SectionReadyConsumables"]:Hide()
+            end
 
         end
 
@@ -1844,22 +1930,501 @@ function InventoryManager:GetConsumablesStatusText()
 
     local page = self.Pages and self.Pages.Consumables
     local summary = page and page.ConsumableSummary or self:GetConsumableInventorySummary()
-    local missing = page and page.ConsumableMissing or self:GetConsumableMissingItems()
+    local readiness = page and page.ConsumableReadiness or self:GetConsumableReadiness()
     local statistics = summary.statistics or {}
 
     if not summary.enabled then
         return AC.L:Get("InventoryManager.ConsumablesDisabled")
     end
 
-    if (statistics.itemCount or 0) == 0 and #missing == 0 then
+    if (statistics.itemCount or 0) == 0 then
         return AC.L:Get("InventoryManager.ConsumablesEmpty")
     end
 
-    if #missing > 0 then
-        return AC.L:Format("InventoryManager.ConsumablesFooterMissingFormat", statistics.itemCount or 0, statistics.totalQuantity or 0, #missing)
+    if readiness.state == "known" and (readiness.missingRequirementCount or 0) > 0 then
+        return AC.L:Format("InventoryManager.ConsumablesFooterMissingFormat", statistics.itemCount or 0, statistics.totalQuantity or 0, readiness.missingRequirementCount)
     end
 
     return AC.L:Format("InventoryManager.ConsumablesFooterFormat", statistics.itemCount or 0, statistics.totalQuantity or 0)
+
+end
+
+-------------------------------------------------------------------------------
+-- Forecast
+-------------------------------------------------------------------------------
+
+local FORECAST_CARD_HEIGHT = 84
+
+function InventoryManager:GetForecastSummary()
+
+    local context = self:GetStorageContext()
+    local storageModule = context.storageModule
+
+    if not context.enabled or not storageModule or not storageModule.GetSupplyForecast then
+        return { state = "unavailable", reason = "storage_disabled", entries = {}, availability = {} }
+    end
+
+    local inventory = storageModule:GetConsumableInventory()
+    local forecast, availability = storageModule:GetSupplyForecast(inventory)
+    local entries = {}
+    local lowestRuns = nil
+
+    for category, facts in pairs(forecast or {}) do
+
+        local entry =
+        {
+            category = category,
+            currentStock = facts.currentStock or 0,
+            averagePerRun = facts.averagePerRun or 0,
+            estimatedRunsRemaining = facts.estimatedRunsRemaining or 0,
+        }
+
+        table.insert(entries, entry)
+
+        if not lowestRuns or entry.estimatedRunsRemaining < lowestRuns then
+            lowestRuns = entry.estimatedRunsRemaining
+        end
+
+    end
+
+    table.sort(entries, function(left, right)
+
+        if left.estimatedRunsRemaining ~= right.estimatedRunsRemaining then
+            return left.estimatedRunsRemaining < right.estimatedRunsRemaining
+        end
+
+        return tostring(left.category) < tostring(right.category)
+
+    end)
+
+    return
+    {
+        state = availability and availability.state or "unavailable",
+        reason = availability and availability.reason or "forecast_unavailable",
+        availability = availability or {},
+        entries = entries,
+        lowestRuns = lowestRuns,
+        freshness = context.scanStatus and context.scanStatus.freshness or "unknown",
+        lastScanTimestamp = context.lastScan and context.lastScan.timestamp or nil,
+    }
+
+end
+
+function InventoryManager:GetForecastHeroValue(summary)
+
+    if summary.state == "insufficient_history" then
+        return AC.L:Get("InventoryManager.ForecastLearningValue")
+    end
+
+    if summary.state ~= "available" then
+        return AC.L:Get("InventoryManager.ForecastUnavailableValue")
+    end
+
+    if summary.lowestRuns == nil then
+        return "0"
+    end
+
+    return AC.L:Format("InventoryManager.ForecastRunsValueFormat", summary.lowestRuns)
+
+end
+
+function InventoryManager:BuildForecastPage()
+
+    local page = self.Pages.Forecast
+    local summary = self:GetForecastSummary()
+    local availability = summary.availability or {}
+    local entries = summary.entries or {}
+
+    page.ForecastSummary = summary
+
+    self:LayoutPage(page, function(width)
+
+        page.ContentWidth = width
+
+        local yOffset = self:BeginPageHero(
+            page,
+            "InventoryManager.ForecastHeroTitle",
+            "InventoryManager.ForecastHeroCaption",
+            self:GetForecastHeroValue(summary)
+        )
+
+        if summary.state ~= "available" then
+
+            Dashboard:LayoutStatisticsGrid(page, "ForecastStats", page.ScrollChild, yOffset, width, {})
+            AC.InventoryComponents:HideCardSection(page, "ForecastCards", "InventoryManager.SectionSupplyForecast", "ForecastEmptyText")
+
+            local emptyKey = summary.state == "insufficient_history"
+                and "InventoryManager.ForecastInsufficientHistory"
+                or "InventoryManager.ForecastUnavailable"
+
+            yOffset = Dashboard:BeginSection(page.ScrollChild, "InventoryManager.SectionSupplyForecast", yOffset)
+            yOffset = Dashboard:ShowEmptyLine(page, page.ScrollChild, "ForecastStateText", yOffset, width, emptyKey)
+            yOffset = Dashboard:EndSection(yOffset)
+
+            return (-yOffset) + Layout.PAGE_BOTTOM_PADDING
+
+        end
+
+        if page.ForecastStateText then
+            page.ForecastStateText:Hide()
+        end
+
+        yOffset = Dashboard:LayoutStatisticsGrid(page, "ForecastStats", page.ScrollChild, yOffset, width,
+        {
+            { label = "InventoryManager.StatForecastTrackedRuns", value = tostring(availability.trackedRunCount or 0) },
+            { label = "InventoryManager.StatForecastCategories", value = tostring(#entries) },
+            { label = "InventoryManager.StatForecastShortestSupply", value = summary.lowestRuns and AC.L:Format("InventoryManager.ForecastRunsValueFormat", summary.lowestRuns) or AC.L:Get("Common.EmDash") },
+        })
+
+        yOffset = Dashboard:BeginSection(page.ScrollChild, "InventoryManager.SectionSupplyForecast", yOffset)
+        yOffset = AC.InventoryComponents:LayoutItemCards(
+            page,
+            "ForecastCards",
+            "ForecastEmptyText",
+            yOffset,
+            width,
+            entries,
+            FORECAST_CARD_HEIGHT,
+            function(card, entry)
+                card:SetIcon(nil)
+                card:SetTitle(self:GetConsumableSubclassLabel(entry.category))
+                card:SetPrimaryValue(AC.L:Format("InventoryManager.ForecastRunsRemainingFormat", entry.estimatedRunsRemaining))
+                card:SetSecondaryText(AC.L:Format("InventoryManager.ForecastCurrentStockFormat", entry.currentStock))
+                card:SetDetailText(AC.L:Format("InventoryManager.ForecastAverageUseFormat", entry.averagePerRun))
+                card:SetStatus(nil, "")
+            end,
+            "InventoryManager.ForecastValidEmpty"
+        )
+        yOffset = Dashboard:EndSection(yOffset)
+
+        return (-yOffset) + Layout.PAGE_BOTTOM_PADDING
+
+    end)
+
+end
+
+function InventoryManager:GetForecastStatusText()
+
+    local page = self.Pages and self.Pages.Forecast
+    local summary = page and page.ForecastSummary or self:GetForecastSummary()
+    local availability = summary.availability or {}
+
+    if summary.state == "insufficient_history" then
+        return AC.L:Format("InventoryManager.ForecastFooterLearningFormat", availability.trackedRunCount or 0, availability.minimumTrackedRuns or 0)
+    end
+
+    if summary.state ~= "available" then
+        return AC.L:Get("InventoryManager.ForecastUnavailable")
+    end
+
+    if summary.freshness == "stale" then
+        local timestamp = summary.lastScanTimestamp and AC.Presentation.FormatDate(summary.lastScanTimestamp, "shortTime") or AC.L:Get("Common.Unknown")
+        return AC.L:Format("InventoryManager.ForecastFooterStaleFormat", #(summary.entries or {}), availability.trackedRunCount or 0, timestamp)
+    end
+
+    if summary.freshness ~= "current" then
+        return AC.L:Format("InventoryManager.ForecastFooterNoSnapshotFormat", #(summary.entries or {}), availability.trackedRunCount or 0)
+    end
+
+    return AC.L:Format("InventoryManager.ForecastFooterFormat", #(summary.entries or {}), availability.trackedRunCount or 0)
+
+end
+
+-------------------------------------------------------------------------------
+-- Transfers
+-------------------------------------------------------------------------------
+
+local TRANSFER_CARD_HEIGHT = 82
+
+function InventoryManager:GetTransferPlan()
+
+    local context = self:GetStorageContext()
+    local storageModule = context.storageModule
+    local profile = context.profile
+
+    if not context.enabled or not storageModule then
+        return { state = "unavailable", reason = "storage_disabled", withdrawals = {}, deposits = {} }
+    end
+
+    if not profile then
+        return { state = "unavailable", reason = "no_profile", withdrawals = {}, deposits = {} }
+    end
+
+    if not storageModule.GetStorageReadiness or not storageModule.AnalyzeProfile then
+        return { state = "unavailable", reason = "analysis_unavailable", withdrawals = {}, deposits = {} }
+    end
+
+    local readiness = storageModule:GetStorageReadiness(profile.id)
+
+    if not readiness or readiness.state ~= "known" then
+        return
+        {
+            state = readiness and readiness.state or "unknown",
+            reason = readiness and readiness.reason or "scan_unavailable",
+            freshness = readiness and readiness.freshness or "unknown",
+            profile = profile,
+            withdrawals = {},
+            deposits = {},
+        }
+    end
+
+    local analysis = storageModule:AnalyzeProfile(profile.id)
+
+    return
+    {
+        state = "ready",
+        profile = profile,
+        readinessPercent = analysis.readinessPercent or 0,
+        actionCount = analysis.actionsNeeded or 0,
+        withdrawals = analysis.withdrawals or {},
+        deposits = analysis.deposits or {},
+    }
+
+end
+
+function InventoryManager:GetTransferHeroValue(plan)
+
+    if plan.state ~= "ready" then
+        return AC.L:Get("InventoryManager.TransfersUnavailableValue")
+    end
+
+    if (plan.actionCount or 0) == 0 then
+        return AC.L:Get("InventoryManager.TransfersReadyValue")
+    end
+
+    return AC.L:Format("InventoryManager.TransfersActionsValueFormat", plan.actionCount)
+
+end
+
+function InventoryManager:EnsureTransferExecuteButton(page)
+
+    if self.TransferExecuteButton then
+        return self.TransferExecuteButton
+    end
+
+    self.TransferExecuteButton = AC.WidgetManager:Create("Button", page.ScrollChild,
+    {
+        width = 180,
+        text = AC.L:Get("InventoryManager.TransfersExecuteButton"),
+        tooltip = AC.L:Get("InventoryManager.TransfersExecuteTooltip"),
+        onClick = function()
+            self:ExecuteTransfers()
+        end,
+    })
+
+    return self.TransferExecuteButton
+
+end
+
+function InventoryManager:GetTransferExecutionText(result)
+
+    if not result then
+        return nil
+    end
+
+    if result.success then
+        return AC.L:Format("InventoryManager.TransfersExecuteResultFormat", result.withdrawn or 0, result.deposited or 0)
+    end
+
+    local reasonKeys =
+    {
+        combat = "InventoryManager.TransfersExecuteFailedCombat",
+        bank_closed = "InventoryManager.TransfersExecuteFailedBankClosed",
+        scan_unavailable = "InventoryManager.TransfersExecuteFailedScan",
+        inventory_unavailable = "InventoryManager.TransfersExecuteFailedInventory",
+    }
+
+    return AC.L:Get(reasonKeys[result.reason] or "InventoryManager.TransfersExecuteFailedGeneric")
+
+end
+
+function InventoryManager:ExecuteTransfers()
+
+    local page = self.Pages and self.Pages.Transfers
+    local plan = page and page.TransferPlan or self:GetTransferPlan()
+    local storageModule = AC.Core and AC.Core:GetModule("Storage")
+
+    if not page or not plan.profile or not storageModule or not storageModule.ExecutePreparation then
+        if page then
+            page.TransferExecutionResult = { success = false, reason = "unavailable" }
+            self:RefreshCurrentPage()
+        end
+        return
+    end
+
+    page.TransferExecutionResult = storageModule:ExecutePreparation(plan.profile.id)
+    self:RefreshCurrentPage()
+
+end
+
+function InventoryManager:LayoutTransferCards(page, poolKey, yOffset, width, entries, direction)
+
+    local sourceKey = direction == "withdraw" and "InventoryManager.TransferSourceStorage" or "InventoryManager.TransferSourceBags"
+    local destinationKey = direction == "withdraw" and "InventoryManager.TransferDestinationBags" or "InventoryManager.TransferDestinationStorage"
+    local statusKey = direction == "withdraw" and "InventoryManager.TransferWithdrawStatus" or "InventoryManager.TransferDepositStatus"
+
+    return AC.InventoryComponents:LayoutItemCards(
+        page,
+        poolKey,
+        nil,
+        yOffset,
+        width,
+        entries,
+        TRANSFER_CARD_HEIGHT,
+        function(card, entry)
+            card:SetIcon(nil)
+            card:SetTitle(AC.L:Get(entry.label or "Common.Unknown"))
+            card:SetPrimaryValue(AC.L:Format("InventoryManager.TransferQuantityFormat", entry.amount or 0))
+            card:SetSecondaryText(AC.L:Format("InventoryManager.TransferRouteFormat", AC.L:Get(sourceKey), AC.L:Get(destinationKey)))
+            card:SetDetailText("")
+            card:SetStatus(direction == "withdraw" and "Warning" or "Normal", AC.L:Get(statusKey))
+        end
+    )
+
+end
+
+function InventoryManager:BuildTransfersPage()
+
+    local page = self.Pages.Transfers
+    local plan = self:GetTransferPlan()
+    local withdrawals = plan.withdrawals or {}
+    local deposits = plan.deposits or {}
+
+    page.TransferPlan = plan
+
+    self:LayoutPage(page, function(width)
+
+        page.ContentWidth = width
+
+        local yOffset = self:BeginPageHero(
+            page,
+            "InventoryManager.TransfersHeroTitle",
+            "InventoryManager.TransfersHeroCaption",
+            self:GetTransferHeroValue(plan)
+        )
+
+        if plan.state ~= "ready" then
+
+            Dashboard:LayoutStatisticsGrid(page, "TransferStats", page.ScrollChild, yOffset, width, {})
+            AC.InventoryComponents:HideCardSection(page, "TransferWithdrawalCards", "InventoryManager.SectionTransferWithdrawals", nil)
+            AC.InventoryComponents:HideCardSection(page, "TransferDepositCards", "InventoryManager.SectionTransferDeposits", nil)
+
+            if self.TransferExecuteButton then
+                self.TransferExecuteButton:Hide()
+            end
+
+            if page.TransferEmptyText then
+                page.TransferEmptyText:Hide()
+            end
+
+            if page.TransferResultText then
+                page.TransferResultText:Hide()
+            end
+
+            local headers = page.ScrollChild and page.ScrollChild.SectionHeaders
+
+            if headers and headers["InventoryManager.SectionTransferResult"] then
+                headers["InventoryManager.SectionTransferResult"]:Hide()
+            end
+
+            yOffset = Dashboard:BeginSection(page.ScrollChild, "InventoryManager.SectionTransferPlan", yOffset)
+            yOffset = Dashboard:ShowEmptyLine(page, page.ScrollChild, "TransferUnavailableText", yOffset, width, "InventoryManager.TransfersScanRequired")
+            yOffset = Dashboard:EndSection(yOffset)
+
+            return (-yOffset) + Layout.PAGE_BOTTOM_PADDING
+
+        end
+
+        if page.TransferUnavailableText then
+            page.TransferUnavailableText:Hide()
+        end
+
+        yOffset = Dashboard:LayoutStatisticsGrid(page, "TransferStats", page.ScrollChild, yOffset, width,
+        {
+            { label = "InventoryManager.StatTransferReadiness", value = AC.L:Format("InventoryManager.ReadinessFormat", plan.readinessPercent or 0) },
+            { label = "InventoryManager.StatTransferActions", value = tostring(plan.actionCount or 0) },
+            { label = "InventoryManager.StatTransferWithdrawals", value = tostring(#withdrawals) },
+            { label = "InventoryManager.StatTransferDeposits", value = tostring(#deposits) },
+        })
+
+        if #withdrawals > 0 then
+            yOffset = Dashboard:BeginSection(page.ScrollChild, "InventoryManager.SectionTransferWithdrawals", yOffset)
+            yOffset = self:LayoutTransferCards(page, "TransferWithdrawalCards", yOffset, width, withdrawals, "withdraw")
+            yOffset = Dashboard:EndSection(yOffset)
+        else
+            AC.InventoryComponents:HideCardSection(page, "TransferWithdrawalCards", "InventoryManager.SectionTransferWithdrawals", nil)
+        end
+
+        if #deposits > 0 then
+            yOffset = Dashboard:BeginSection(page.ScrollChild, "InventoryManager.SectionTransferDeposits", yOffset)
+            yOffset = self:LayoutTransferCards(page, "TransferDepositCards", yOffset, width, deposits, "deposit")
+            yOffset = Dashboard:EndSection(yOffset)
+        else
+            AC.InventoryComponents:HideCardSection(page, "TransferDepositCards", "InventoryManager.SectionTransferDeposits", nil)
+        end
+
+        if #withdrawals == 0 and #deposits == 0 then
+            yOffset = Dashboard:BeginSection(page.ScrollChild, "InventoryManager.SectionTransferPlan", yOffset)
+            yOffset = Dashboard:ShowEmptyLine(page, page.ScrollChild, "TransferEmptyText", yOffset, width, "InventoryManager.TransfersNothingPlanned")
+            yOffset = Dashboard:EndSection(yOffset)
+        else
+
+            if page.TransferEmptyText then
+                page.TransferEmptyText:Hide()
+            end
+
+            local headers = page.ScrollChild and page.ScrollChild.SectionHeaders
+
+            if headers and headers["InventoryManager.SectionTransferPlan"] then
+                headers["InventoryManager.SectionTransferPlan"]:Hide()
+            end
+        end
+
+        local button = self:EnsureTransferExecuteButton(page)
+        local buttonFrame = button:GetFrame()
+        buttonFrame:ClearAllPoints()
+        buttonFrame:SetPoint("TOPLEFT", Layout.ROW_INDENT, yOffset)
+        button:SetEnabled((plan.actionCount or 0) > 0)
+        button:Show()
+        yOffset = yOffset - buttonFrame:GetHeight() - Layout.HOME_SECTION_GAP
+
+        local executionText = self:GetTransferExecutionText(page.TransferExecutionResult)
+
+        if executionText then
+            yOffset = Dashboard:BeginSection(page.ScrollChild, "InventoryManager.SectionTransferResult", yOffset)
+            yOffset = Dashboard:ShowEmptyLineText(page, page.ScrollChild, "TransferResultText", yOffset, width, executionText)
+            yOffset = Dashboard:EndSection(yOffset)
+        elseif page.TransferResultText then
+            page.TransferResultText:Hide()
+
+            local headers = page.ScrollChild and page.ScrollChild.SectionHeaders
+
+            if headers and headers["InventoryManager.SectionTransferResult"] then
+                headers["InventoryManager.SectionTransferResult"]:Hide()
+            end
+        end
+
+        return (-yOffset) + Layout.PAGE_BOTTOM_PADDING
+
+    end)
+
+end
+
+function InventoryManager:GetTransfersStatusText()
+
+    local page = self.Pages and self.Pages.Transfers
+    local plan = page and page.TransferPlan or self:GetTransferPlan()
+    local executionText = page and self:GetTransferExecutionText(page.TransferExecutionResult)
+
+    if executionText then
+        return executionText
+    end
+
+    if plan.state ~= "ready" then
+        return AC.L:Get("InventoryManager.TransfersScanRequired")
+    end
+
+    return AC.L:Format("InventoryManager.TransfersFooterFormat", plan.actionCount or 0, #(plan.withdrawals or {}), #(plan.deposits or {}))
 
 end
 
@@ -3159,12 +3724,16 @@ function InventoryManager:RefreshPage(pageName)
         self:BuildExplorerPage()
     elseif pageName == "Search" then
         self:BuildSearchPage()
+    elseif pageName == "Transfers" then
+        self:BuildTransfersPage()
     elseif pageName == "ShoppingList" then
         self:BuildShoppingListPage()
     elseif pageName == "Consumables" then
         self:BuildConsumablesPage()
     elseif pageName == "Loadouts" then
         self:BuildLoadoutsPage()
+    elseif pageName == "Forecast" then
+        self:BuildForecastPage()
     else
         self:BuildPlaceholderPage(pageName)
     end
@@ -3233,6 +3802,11 @@ function InventoryManager:UpdateFooterStatus()
         return
     end
 
+    if self.CurrentPage == "Transfers" then
+        self:SetStatusText(self:GetTransfersStatusText())
+        return
+    end
+
     if self.CurrentPage == "ShoppingList" then
         self:SetStatusText(self:GetShoppingListStatusText())
         return
@@ -3245,6 +3819,11 @@ function InventoryManager:UpdateFooterStatus()
 
     if self.CurrentPage == "Loadouts" then
         self:SetStatusText(self:GetLoadoutsStatusText())
+        return
+    end
+
+    if self.CurrentPage == "Forecast" then
+        self:SetStatusText(self:GetForecastStatusText())
         return
     end
 
@@ -3302,6 +3881,10 @@ function InventoryManager:OnStorageScanUpdated()
     self.SearchFilterInfo = nil
     self.SearchResultDirty = true
 
+    if self.Pages and self.Pages.Transfers then
+        self.Pages.Transfers.TransferExecutionResult = nil
+    end
+
     if self.Frame and self.Frame:IsShown() then
         self:RefreshCurrentPage()
     end
@@ -3340,6 +3923,16 @@ function InventoryManager:Shutdown()
     if self.ScanButton and AC.WidgetManager then
         AC.WidgetManager:Destroy(self.ScanButton)
         self.ScanButton = nil
+    end
+
+    if self.TransferExecuteButton and AC.WidgetManager then
+        AC.WidgetManager:Destroy(self.TransferExecuteButton)
+        self.TransferExecuteButton = nil
+    end
+
+    if self.ConsumableShoppingButton and AC.WidgetManager then
+        AC.WidgetManager:Destroy(self.ConsumableShoppingButton)
+        self.ConsumableShoppingButton = nil
     end
 
     if AC.WidgetManager then
